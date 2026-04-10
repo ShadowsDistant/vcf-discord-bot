@@ -1,11 +1,6 @@
 'use strict';
 
-const {
-  SlashCommandBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-} = require('discord.js');
+const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const {
   getMemberDepartments,
@@ -49,7 +44,7 @@ module.exports = {
             interaction.guild,
           ),
         ],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -63,7 +58,7 @@ module.exports = {
             interaction.guild,
           ),
         ],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -152,6 +147,6 @@ module.exports = {
       );
     }
 
-    return interaction.reply({ embeds: [embed], components, ephemeral: true });
+    return interaction.reply({ embeds: [embed], components, flags: MessageFlags.Ephemeral });
   },
 };

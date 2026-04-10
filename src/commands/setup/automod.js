@@ -1,10 +1,6 @@
 'use strict';
 
-const {
-  SlashCommandBuilder,
-  PermissionFlagsBits,
-  ChannelType,
-} = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, ChannelType, MessageFlags } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { getCategoryIds, getCategoryLabel, isCategoryEnabledByDefault } = require('../../utils/automod');
@@ -130,7 +126,7 @@ module.exports = {
             interaction.guild,
           ),
         ],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -186,7 +182,7 @@ module.exports = {
                 interaction.guild,
               ),
             ],
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
         config.timeoutDuration = ms;
@@ -300,7 +296,7 @@ module.exports = {
           { name: 'Log Channel', value: logMention, inline: true },
         );
 
-      return interaction.reply({ embeds: [statusEmbed], ephemeral: true });
+      return interaction.reply({ embeds: [statusEmbed], flags: MessageFlags.Ephemeral });
     }
   },
 };

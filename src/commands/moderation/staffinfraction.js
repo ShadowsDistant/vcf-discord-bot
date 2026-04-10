@@ -1,6 +1,6 @@
 'use strict';
 
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { hasModLevel, hasSidRole, MOD_LEVEL } = require('../../utils/permissions');
@@ -116,7 +116,7 @@ module.exports = {
             interaction.guild,
           ),
         ],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -135,14 +135,14 @@ module.exports = {
       if (staffUser.id === interaction.user.id) {
         return interaction.reply({
           embeds: [embeds.error('You cannot issue an infraction to yourself.', interaction.guild)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
 
       if (!staffMember) {
         return interaction.reply({
           embeds: [embeds.error('That user is not currently in this server.', interaction.guild)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -154,7 +154,7 @@ module.exports = {
               interaction.guild,
             ),
           ],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -234,7 +234,7 @@ module.exports = {
               interaction.guild,
             ),
           ],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -272,7 +272,7 @@ module.exports = {
           })),
         );
 
-      return interaction.reply({ embeds: [viewEmbed], ephemeral: true });
+      return interaction.reply({ embeds: [viewEmbed], flags: MessageFlags.Ephemeral });
     }
 
     // ── remove ────────────────────────────────────────────────────────────────
@@ -284,7 +284,7 @@ module.exports = {
       if (isNaN(id)) {
         return interaction.reply({
           embeds: [embeds.error('Invalid infraction ID. Please provide the numeric ID shown in `/staffinfraction view`.', interaction.guild)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -292,7 +292,7 @@ module.exports = {
       if (!removed) {
         return interaction.reply({
           embeds: [embeds.error(`No infraction with ID \`${id}\` found for ${staffUser}.`, interaction.guild)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -320,7 +320,7 @@ module.exports = {
               interaction.guild,
             ),
           ],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -339,7 +339,7 @@ module.exports = {
         .setTitle('All Staff Infractions')
         .setDescription(lines.join('\n'));
 
-      return interaction.reply({ embeds: [listEmbed], ephemeral: true });
+      return interaction.reply({ embeds: [listEmbed], flags: MessageFlags.Ephemeral });
     }
   },
 };

@@ -1,6 +1,6 @@
 'use strict';
 
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const embeds = require('../../utils/embeds');
 
 const DEV_USER_ID = process.env.DEV_USER_ID ?? '757698506411475005';
@@ -14,7 +14,7 @@ module.exports = {
     if (interaction.user.id !== DEV_USER_ID) {
       return interaction.reply({
         embeds: [embeds.error('This command is restricted to the bot developer.', interaction.guild ?? null)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -42,7 +42,7 @@ module.exports = {
             { name: '  Total Members', value: `\`${totalMembers.toLocaleString()}\``, inline: true },
           ),
       ],
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   },
 };

@@ -1,6 +1,6 @@
 'use strict';
 
-const { Events } = require('discord.js');
+const { Events, MessageFlags } = require('discord.js');
 const embeds = require('../utils/embeds');
 const db = require('../utils/database');
 const { formatDuration } = require('../utils/helpers');
@@ -11,6 +11,18 @@ const { version: botVersion } = require('../../package.json');
 
 /** Commands whose `reason` option supports preset-reason autocomplete. */
 const REASON_AUTOCOMPLETE_COMMANDS = new Set(['ban', 'kick', 'warn']);
+const ERROR_DETAIL_LIMIT = 500;
+
+function getErrorDetails(err) {
+  if (!err) return 'Unknown error.';
+  const errorName = typeof err.name === 'string' && err.name.trim().length > 0 ? err.name.trim() : 'Error';
+  const errorMessage = typeof err.message === 'string' && err.message.trim().length > 0
+    ? err.message.trim()
+    : String(err);
+  const combined = `${errorName}: ${errorMessage}`;
+  if (combined.length <= ERROR_DETAIL_LIMIT) return combined;
+  return `${combined.slice(0, ERROR_DETAIL_LIMIT - 3)}...`;
+}
 
 module.exports = {
   name: Events.InteractionCreate,
@@ -21,7 +33,7 @@ module.exports = {
         if (!targetId) {
           return interaction.reply({
             embeds: [embeds.error('Invalid Roblox button payload.', interaction.guild)],
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -36,11 +48,11 @@ module.exports = {
         if (!nickname) {
           return interaction.reply({
             embeds: [embeds.error('Could not determine a Roblox username for this user.', interaction.guild)],
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
         try {
           const robloxData = await fetchRobloxProfileByUsername(nickname);
           if (!robloxData) {
@@ -68,7 +80,7 @@ module.exports = {
         if (!interaction.member.roles.cache.has(ROLE_IDS.moderationAccess)) {
           return interaction.reply({
             embeds: [embeds.error('You do not have the required role to start a shift.', interaction.guild)],
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -76,7 +88,7 @@ module.exports = {
         if (!result) {
           return interaction.reply({
             embeds: [embeds.warning("You're already on shift! Use End Shift to clock out first.", interaction.guild)],
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -91,7 +103,7 @@ module.exports = {
                 inline: true,
               }),
           ],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -99,7 +111,7 @@ module.exports = {
         if (!interaction.member.roles.cache.has(ROLE_IDS.moderationAccess)) {
           return interaction.reply({
             embeds: [embeds.error('You do not have the required role to end a shift.', interaction.guild)],
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -107,7 +119,7 @@ module.exports = {
         if (!record) {
           return interaction.reply({
             embeds: [embeds.warning("You're not currently on shift.", interaction.guild)],
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -123,7 +135,7 @@ module.exports = {
                 { name: '  Ended', value: `<t:${endedTs}:T>`, inline: true },
               ),
           ],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -131,7 +143,7 @@ module.exports = {
         if (!interaction.member.roles.cache.has(ROLE_IDS.moderationAccess)) {
           return interaction.reply({
             embeds: [embeds.error('You do not have the required role to view shift details.', interaction.guild)],
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -171,7 +183,7 @@ module.exports = {
 
         return interaction.reply({
           embeds: [detailEmbed],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
     }
@@ -182,7 +194,7 @@ module.exports = {
         if (!Number.isInteger(selectedIndex) || selectedIndex < 1 || selectedIndex >= UPDATE_LOGS.length) {
           return interaction.reply({
             embeds: [embeds.error('Invalid update log selection.', interaction.guild)],
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -218,6 +230,17 @@ module.exports = {
 
     if (!command) {
       console.error(`No command matching ${interaction.commandName} was found.`);
+      const missingCommandEmbed = embeds
+        .error(
+          'This command is no longer available. If it still appears, redeploy slash commands to clean stale registrations.',
+          interaction.guild ?? null,
+        )
+        .addFields({
+          name: '  Command',
+          value: `\`/${interaction.commandName}\``,
+          inline: true,
+        });
+      await interaction.reply({ embeds: [missingCommandEmbed], flags: MessageFlags.Ephemeral }).catch(() => null);
       return;
     }
 
@@ -231,16 +254,22 @@ module.exports = {
           'An unexpected error occurred while running this command. Please try again later.',
           interaction.guild ?? null,
         )
-        .addFields({
-          name: '  Command',
-          value: `\`/${interaction.commandName}\``,
-          inline: true,
-        });
+        .addFields(
+          {
+            name: '  Command',
+            value: `\`/${interaction.commandName}\``,
+            inline: true,
+          },
+          {
+            name: '  Error Details',
+            value: `\`${getErrorDetails(err)}\``,
+          },
+        );
 
       if (interaction.replied || interaction.deferred) {
-        await interaction.followUp({ embeds: [errorEmbed], ephemeral: true }).catch(() => null);
+        await interaction.followUp({ embeds: [errorEmbed], flags: MessageFlags.Ephemeral }).catch(() => null);
       } else {
-        await interaction.reply({ embeds: [errorEmbed], ephemeral: true }).catch(() => null);
+        await interaction.reply({ embeds: [errorEmbed], flags: MessageFlags.Ephemeral }).catch(() => null);
       }
     }
   },

@@ -1,9 +1,6 @@
 'use strict';
 
-const {
-  SlashCommandBuilder,
-  EmbedBuilder,
-} = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { formatDuration, makeProgressBar } = require('../../utils/helpers');
@@ -40,7 +37,7 @@ module.exports = {
             interaction.guild,
           ),
         ],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 

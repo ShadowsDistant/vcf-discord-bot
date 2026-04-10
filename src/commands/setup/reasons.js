@@ -1,6 +1,6 @@
 'use strict';
 
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 
@@ -81,7 +81,7 @@ module.exports = {
       if (!interaction.memberPermissions.has(PermissionFlagsBits.ManageGuild)) {
         return interaction.reply({
           embeds: [embeds.error('You need the **Manage Server** permission to manage preset reasons.', guild)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
     }
@@ -94,7 +94,7 @@ module.exports = {
       if (existing.length >= 25) {
         return interaction.reply({
           embeds: [embeds.error(`You can have at most 25 preset reasons per type. Remove some first.`, guild)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -112,7 +112,7 @@ module.exports = {
               { name: '  Reason', value: reason },
             ),
         ],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -124,12 +124,12 @@ module.exports = {
       if (!removed) {
         return interaction.reply({
           embeds: [embeds.error(`No preset reason with ID \`${id}\` found for **${type}** actions.`, guild)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
       return interaction.reply({
         embeds: [embeds.success(`Preset reason \`${id}\` has been removed from **${type}** presets.`, guild)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -160,7 +160,7 @@ module.exports = {
         );
       }
 
-      return interaction.reply({ embeds: [embed], ephemeral: true });
+      return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
     }
   },
 };

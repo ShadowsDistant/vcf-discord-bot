@@ -1,6 +1,6 @@
 'use strict';
 
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { formatDuration, makeProgressBar } = require('../../utils/helpers');
@@ -8,7 +8,7 @@ const { hasShiftAccessRole } = require('../../utils/roles');
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('shifthistory')
+    .setName('shift-history')
     .setDescription("View a user's shift history.")
     .setDMPermission(false)
     .addUserOption((o) =>
@@ -24,7 +24,7 @@ module.exports = {
             interaction.guild,
           ),
         ],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 

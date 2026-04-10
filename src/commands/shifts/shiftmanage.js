@@ -1,6 +1,6 @@
 'use strict';
 
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { formatDuration } = require('../../utils/helpers');
@@ -48,7 +48,7 @@ module.exports = {
     if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.management)) {
       return interaction.reply({
         embeds: [embeds.error('You need management-level access to use this command.', interaction.guild)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -66,7 +66,7 @@ module.exports = {
       if (!rows.length) {
         return interaction.reply({
           embeds: [embeds.info('  Shift Records', 'No completed shift records found.', interaction.guild)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -81,7 +81,7 @@ module.exports = {
                 .join('\n'),
             }),
         ],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -91,7 +91,7 @@ module.exports = {
       if (isNaN(id)) {
         return interaction.reply({
           embeds: [embeds.error('Invalid shift record ID.', interaction.guild)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -99,7 +99,7 @@ module.exports = {
       if (!updated) {
         return interaction.reply({
           embeds: [embeds.error(`No shift record found with ID \`${id}\`.`, interaction.guild)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -115,7 +115,7 @@ module.exports = {
       if (isNaN(id)) {
         return interaction.reply({
           embeds: [embeds.error('Invalid shift record ID.', interaction.guild)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -123,7 +123,7 @@ module.exports = {
       if (!removed) {
         return interaction.reply({
           embeds: [embeds.error(`No shift record found with ID \`${id}\`.`, interaction.guild)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
 

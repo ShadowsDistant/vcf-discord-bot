@@ -1,6 +1,6 @@
 'use strict';
 
-const { SlashCommandBuilder, ActivityType } = require('discord.js');
+const { SlashCommandBuilder, ActivityType, MessageFlags } = require('discord.js');
 const embeds = require('../../utils/embeds');
 
 const DEV_USER_ID = process.env.DEV_USER_ID ?? '757698506411475005';
@@ -55,7 +55,7 @@ module.exports = {
     if (interaction.user.id !== DEV_USER_ID) {
       return interaction.reply({
         embeds: [embeds.error('This command is restricted to the bot developer.', interaction.guild ?? null)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -66,7 +66,7 @@ module.exports = {
     if (activityType !== 'None' && !activityText) {
       return interaction.reply({
         embeds: [embeds.error('Please provide activity text when an activity type is selected.', interaction.guild ?? null)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -99,7 +99,7 @@ module.exports = {
             { name: '  Activity', value: activityDisplay, inline: true },
           ),
       ],
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   },
 };
