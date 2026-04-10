@@ -24,7 +24,7 @@ module.exports = {
 
     return interaction.reply({
       embeds: [
-        embeds.fun
+        typeof embeds.fun === 'function'
           ? embeds.fun('  Fresh Batch!', `${interaction.user} baked a **${cookie}**!`, interaction.guild)
           : embeds.success(`${interaction.user} baked a **${cookie}**! `, interaction.guild),
       ],

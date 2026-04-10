@@ -71,6 +71,7 @@ function clearWarnings(guildId, userId) {
 // ─── Shifts ──────────────────────────────────────────────────────────────────
 
 const SHIFTS_FILE = 'shifts.json';
+let lastShiftRecordId = 0;
 
 /**
  * Generate a unique numeric shift record id within a guild history.
@@ -80,8 +81,9 @@ const SHIFTS_FILE = 'shifts.json';
  */
 function generateUniqueShiftId(data, guildId) {
   const used = new Set((data?.[guildId]?.history ?? []).map((s) => s.id).filter((id) => typeof id === 'number'));
-  let id = Date.now();
+  let id = Math.max(Date.now(), lastShiftRecordId + 1);
   while (used.has(id)) id++;
+  lastShiftRecordId = id;
   return id;
 }
 
