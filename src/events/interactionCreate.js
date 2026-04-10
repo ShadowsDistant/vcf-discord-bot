@@ -6,6 +6,8 @@ const db = require('../utils/database');
 const { formatDuration } = require('../utils/helpers');
 const { fetchRobloxProfileByUsername, createRobloxEmbed } = require('../utils/roblox');
 const { ROLE_IDS } = require('../utils/roles');
+const { UPDATE_LOGS, createUpdateEmbed } = require('../utils/updateLogs');
+const { version: botVersion } = require('../../package.json');
 
 /** Commands whose `reason` option supports preset-reason autocomplete. */
 const REASON_AUTOCOMPLETE_COMMANDS = new Set(['ban', 'kick', 'warn']);
@@ -94,6 +96,13 @@ module.exports = {
       }
 
       if (interaction.customId === 'portal_endshift') {
+        if (!interaction.member.roles.cache.has(ROLE_IDS.moderationAccess)) {
+          return interaction.reply({
+            embeds: [embeds.error('You do not have the required role to end a shift.', interaction.guild)],
+            ephemeral: true,
+          });
+        }
+
         const record = db.endShift(interaction.guild.id, interaction.user.id);
         if (!record) {
           return interaction.reply({
@@ -116,6 +125,70 @@ module.exports = {
           ],
           ephemeral: true,
         });
+      }
+
+      if (interaction.customId === 'portal_shiftdetails') {
+        if (!interaction.member.roles.cache.has(ROLE_IDS.moderationAccess)) {
+          return interaction.reply({
+            embeds: [embeds.error('You do not have the required role to view shift details.', interaction.guild)],
+            ephemeral: true,
+          });
+        }
+
+        const history = db.getUserShiftHistory(interaction.guild.id, interaction.user.id);
+        const totalMs = history.reduce((sum, shift) => sum + shift.durationMs, 0);
+        const active = db.getActiveShift(interaction.guild.id, interaction.user.id);
+
+        const detailEmbed = embeds
+          .shift('📋 Detailed Shift Overview', 'Your complete shift breakdown.', interaction.guild)
+          .addFields(
+            { name: 'Status', value: active ? '**On Shift**' : '**Off Shift**', inline: true },
+            { name: 'Completed Shifts', value: `**${history.length}**`, inline: true },
+            { name: 'Total Time', value: `**${formatDuration(totalMs)}**`, inline: true },
+          );
+
+        if (active) {
+          const startedTs = Math.floor(new Date(active.startedAt).getTime() / 1000);
+          detailEmbed.addFields({
+            name: 'Current Shift',
+            value: `Started <t:${startedTs}:F> (<t:${startedTs}:R>)`,
+          });
+        }
+
+        if (history.length > 0) {
+          const recent = history
+            .slice(-10)
+            .reverse()
+            .map((shift) => {
+              const startedTs = Math.floor(new Date(shift.startedAt).getTime() / 1000);
+              return `ID \`${shift.id}\` · <t:${startedTs}:D> — **${formatDuration(shift.durationMs)}**`;
+            });
+          detailEmbed.addFields({
+            name: 'Recent Shifts (last 10)',
+            value: recent.join('\n'),
+          });
+        }
+
+        return interaction.reply({
+          embeds: [detailEmbed],
+          ephemeral: true,
+        });
+      }
+    }
+
+    if (interaction.isStringSelectMenu()) {
+      if (interaction.customId === 'updates_log_select') {
+        const selectedIndex = Number.parseInt(interaction.values[0], 10);
+        if (!Number.isInteger(selectedIndex) || selectedIndex < 1 || selectedIndex >= UPDATE_LOGS.length) {
+          return interaction.reply({
+            embeds: [embeds.error('Invalid update log selection.', interaction.guild)],
+            ephemeral: true,
+          });
+        }
+
+        const selected = UPDATE_LOGS[selectedIndex];
+        const updatedEmbed = createUpdateEmbed(interaction.guild, botVersion, selected, selectedIndex);
+        return interaction.update({ embeds: [updatedEmbed], components: interaction.message.components });
       }
     }
 
