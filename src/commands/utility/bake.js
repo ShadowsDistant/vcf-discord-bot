@@ -183,6 +183,7 @@ const RARITY_STYLES = {
   Mythic: { color: 0xed4245, bg: 'ed4245' },
 };
 const TOTAL_COOKIE_WEIGHT = COOKIES.reduce((sum, cookie) => sum + cookie.weight, 0);
+const MAX_BAKE_LABEL_LENGTH = 16;
 
 const ITEM_QUOTES = new Map(COOKIES.map((cookie) => [
   cookie.name,
@@ -219,7 +220,7 @@ function formatChance(weight) {
 }
 
 function buildBakeImageUrl(itemName, rarity) {
-  const label = itemName.replace(/[^a-zA-Z0-9 ]/g, '').trim().slice(0, 16) || 'Treat';
+  const label = itemName.replace(/[^a-zA-Z0-9 ]/g, '').trim().slice(0, MAX_BAKE_LABEL_LENGTH) || 'Treat';
   const style = RARITY_STYLES[rarity] ?? RARITY_STYLES.Common;
   return `https://dummyimage.com/128x128/${style.bg}/ffffff.png&text=${encodeURIComponent(label)}`;
 }

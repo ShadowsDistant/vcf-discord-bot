@@ -128,6 +128,7 @@ const rest = new REST().setToken(DISCORD_TOKEN);
       const overlap = data
         .filter((guildCommand) => globalByName.has(guildCommand.name))
         .map((guildCommand) => guildCommand.name);
+      const overlapSet = new Set(overlap);
       const staleGlobals = globalData
         .filter((globalCommand) => !localCommandNames.has(globalCommand.name))
         .map((globalCommand) => globalCommand.name);
@@ -152,7 +153,7 @@ const rest = new REST().setToken(DISCORD_TOKEN);
 
       if (CLEAR_GLOBAL_DUPLICATES) {
         const removableGlobalCommands = globalData.filter((globalCommand) => (
-          overlap.includes(globalCommand.name) || !localCommandNames.has(globalCommand.name)
+          overlapSet.has(globalCommand.name) || !localCommandNames.has(globalCommand.name)
         ));
 
         let removed = 0;
