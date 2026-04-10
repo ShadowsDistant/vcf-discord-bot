@@ -72,13 +72,26 @@ function clearWarnings(guildId, userId) {
 
 const SHIFTS_FILE = 'shifts.json';
 
+/**
+ * Generate a unique numeric shift record id within a guild history.
+ * @param {object} data
+ * @param {string} guildId
+ * @returns {number}
+ */
+function generateUniqueShiftId(data, guildId) {
+  const used = new Set((data?.[guildId]?.history ?? []).map((s) => s.id).filter((id) => typeof id === 'number'));
+  let id = Date.now();
+  while (used.has(id)) id++;
+  return id;
+}
+
 /** Ensure completed shift records have numeric ids. */
 function ensureShiftHistoryIds(data, guildId) {
   if (!data?.[guildId]?.history) return;
   let changed = false;
   for (const s of data[guildId].history) {
     if (typeof s.id !== 'number') {
-      s.id = Date.now() + Math.floor(Math.random() * 1000);
+      s.id = generateUniqueShiftId(data, guildId);
       changed = true;
     }
   }
@@ -113,7 +126,7 @@ function endShift(guildId, userId) {
   const durationMs = new Date(endedAt) - new Date(active.startedAt);
 
   const record = {
-    id: Date.now(),
+    id: generateUniqueShiftId(data, guildId),
     userId: active.userId,
     username: active.username,
     startedAt: active.startedAt,
