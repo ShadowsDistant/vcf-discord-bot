@@ -54,6 +54,13 @@ function getErrorDetails(err) {
   return `${combined.slice(0, ERROR_DETAIL_LIMIT - 3)}...`;
 }
 
+function getButtonOwnerId(interaction) {
+  const commandOwnerId = interaction.message?.interactionMetadata?.user?.id
+    ?? interaction.message?.interaction?.user?.id
+    ?? null;
+  return commandOwnerId;
+}
+
 module.exports = {
   name: Events.InteractionCreate,
   async execute(interaction) {
@@ -75,6 +82,14 @@ module.exports = {
         }
         return interaction.reply({
           embeds: [embeds.success(result.description, interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      const ownerId = getButtonOwnerId(interaction);
+      if (ownerId && ownerId !== interaction.user.id) {
+        return interaction.reply({
+          embeds: [embeds.error('These buttons belong to someone else\'s command.', interaction.guild)],
           flags: MessageFlags.Ephemeral,
         });
       }

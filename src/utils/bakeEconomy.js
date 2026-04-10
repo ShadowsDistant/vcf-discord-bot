@@ -20,6 +20,75 @@ const PASSIVE_CAP_MS = 24 * 60 * 60 * 1000;
 const MARKET_LISTING_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const MARKET_FEE_RATE = 0.05;
 const BASE_GOLDEN_CHANCE = 0.03;
+const FANDOM_FILE_BASE = 'https://cookieclicker.fandom.com/wiki/Special:FilePath/';
+
+function cookieClickerImage(fileName) {
+  if (
+    fileName.includes('..')
+    || fileName.startsWith('/')
+    || fileName.startsWith('\\')
+    || fileName.includes('://')
+    || !/^[A-Za-z0-9 _.-]+\.(png|gif|jpe?g|webp)$/i.test(fileName)
+  ) {
+    return `${FANDOM_FILE_BASE}Plain_cookies.png`;
+  }
+  return `${FANDOM_FILE_BASE}${encodeURIComponent(fileName)}`;
+}
+
+const DEFAULT_COOKIE_IMAGE = cookieClickerImage('Plain_cookies.png');
+const DEFAULT_UPGRADE_IMAGE = cookieClickerImage('Plain_cursor.png');
+
+const BUILDING_IMAGES = {
+  cursor: cookieClickerImage('Cursor_64px.png'),
+  grandma: cookieClickerImage('Grandmas.gif'),
+  farm: cookieClickerImage('Farm.png'),
+  mine: cookieClickerImage('Mine_new.png'),
+  factory: cookieClickerImage('Factory_new.png'),
+  bank: cookieClickerImage('Bank.png'),
+  temple: cookieClickerImage('Temple.png'),
+  wizardTower: cookieClickerImage('Wizardtower.png'),
+  shipment: cookieClickerImage('Shipment_new.png'),
+  alchemyLab: cookieClickerImage('Alchemylab.png'),
+  portal: cookieClickerImage('Portal_new.png'),
+  timeMachine: cookieClickerImage('Timemachine_new.png'),
+  antimatterCondenser: cookieClickerImage('Antim.png'),
+  prism: cookieClickerImage('Prism.png'),
+  chancemaker: cookieClickerImage('Chancemaker.png'),
+  fractalEngine: cookieClickerImage('Fractal_engine.png'),
+  javascriptConsole: cookieClickerImage('Javascript_console.png'),
+  idleverse: cookieClickerImage('Idleverse.gif'),
+  cortexBaker: cookieClickerImage('Cortex_Baker.gif'),
+};
+
+const COOKIE_IMAGE_BY_NAME = {
+  'Plain Cookie': cookieClickerImage('Plain_cookies.png'),
+  'Chocolate Chip Cookie': cookieClickerImage('Chocolate_chip_cookie.png'),
+  'Oatmeal Cookie': cookieClickerImage('Oatmeal_raisin_cookies.png'),
+  'Sugar Cookie': cookieClickerImage('Sugar_cookies.png'),
+  'Butter Cookie': cookieClickerImage('Butter_cookies.png'),
+  Shortbread: cookieClickerImage('Shortbread_biscuits.png'),
+  Gingersnap: cookieClickerImage('Gingersnaps.png'),
+  Snickerdoodle: cookieClickerImage('Snickerdoodles.png'),
+  'Peanut Butter Cookie': cookieClickerImage('Peanut_butter_cookies.png'),
+  'White Chocolate Macadamia': cookieClickerImage('White_chocolate_macadamia_nut_cookies.png'),
+  Macaron: cookieClickerImage('Macaroons.png'),
+  Stroopwafel: cookieClickerImage('Stroopwafels.png'),
+  Biscotti: cookieClickerImage('Biscotti.png'),
+  Madeleine: cookieClickerImage('Madeleines.png'),
+};
+
+const MILK_IMAGES = {
+  plain: cookieClickerImage('MilkPlain.png'),
+  chocolate: cookieClickerImage('MilkChocolate.png'),
+  strawberry: cookieClickerImage('MilkStrawberry.png'),
+  vanilla: cookieClickerImage('MilkVanilla.png'),
+  honey: cookieClickerImage('MilkHoney.png'),
+  caramel: cookieClickerImage('MilkCaramel.png'),
+  banana: cookieClickerImage('MilkBanana.png'),
+  lime: cookieClickerImage('MilkLime.png'),
+  blueberry: cookieClickerImage('MilkBlueberry.png'),
+  zebra: cookieClickerImage('MilkZebra.png'),
+};
 
 const RARITY = {
   common: { id: 'common', name: 'Common', weight: 50, valueMultiplier: 1, color: 0xa3a3a3, emoji: '⬜' },
@@ -135,7 +204,14 @@ const ACHIEVEMENTS = [
 
 function buildItem(name, rarity, baseValue, flavorText, image = null) {
   const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
-  return { id, name, rarity, baseValue, flavorText, image };
+  return {
+    id,
+    name,
+    rarity,
+    baseValue,
+    flavorText,
+    image: image ?? COOKIE_IMAGE_BY_NAME[name] ?? DEFAULT_COOKIE_IMAGE,
+  };
 }
 
 const ITEMS = [
@@ -338,6 +414,11 @@ function getMilkType(milkPct) {
     if (milkPct >= type.pct) current = type.type;
   }
   return current;
+}
+
+function getMilkImage(milkType) {
+  const key = milkType.toLowerCase().replace(/\s*milk$/, '');
+  return MILK_IMAGES[key] ?? MILK_IMAGES.plain;
 }
 
 function computeCps(user, nowTs = Date.now()) {
@@ -563,6 +644,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
 
   if (view === 'home') {
     embed.setDescription('The ovens roar. The crumbs whisper. The economy expands.');
+    embed.setThumbnail(DEFAULT_COOKIE_IMAGE);
     embed.addFields(
       { name: '🍪 Cookies', value: `**${toCookieNumber(user.cookies)}**`, inline: true },
       { name: '⚙️ CPS', value: `**${toCookieNumber(cps)}**`, inline: true },
@@ -623,6 +705,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     const start = [...MILK_TYPES].reverse().find((type) => type.pct <= user.milkLevel)?.pct ?? 0;
     const target = nextType?.pct ?? (user.milkLevel || 1);
     embed.setDescription(`Current milk: **${currentType}**`);
+    embed.setThumbnail(getMilkImage(currentType));
     embed.addFields(
       { name: 'Milk level', value: `${toCookieNumber(user.milkLevel)}%`, inline: true },
       { name: 'Achievements', value: `${user.milestones.length}/${ACHIEVEMENTS.length}`, inline: true },
@@ -643,6 +726,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     const selected = BUILDING_MAP.get(options.buildingId ?? 'cursor') ?? BUILDINGS[0];
     const owned = user.buildings[selected.id] ?? 0;
     embed.setDescription(selected.description);
+    if (BUILDING_IMAGES[selected.id]) embed.setThumbnail(BUILDING_IMAGES[selected.id]);
     embed.addFields(
       { name: 'Owned', value: toCookieNumber(owned), inline: true },
       { name: 'Base CPS', value: toCookieNumber(selected.baseCps), inline: true },
@@ -659,6 +743,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     const unlocked = selected.unlockedWhen(user);
     const purchased = user.upgrades.includes(selected.id);
     embed.setDescription(selected.effect);
+    embed.setThumbnail(BUILDING_IMAGES[selected.buildingId] ?? DEFAULT_UPGRADE_IMAGE);
     embed.addFields(
       { name: 'Category', value: selected.category, inline: true },
       { name: 'Cost', value: toCookieNumber(selected.cost), inline: true },

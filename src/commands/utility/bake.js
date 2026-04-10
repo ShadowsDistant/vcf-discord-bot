@@ -5,6 +5,7 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  EmbedBuilder,
 } = require('discord.js');
 const economy = require('../../utils/bakeEconomy');
 
@@ -19,17 +20,24 @@ module.exports = {
     const rarity = economy.RARITY[item.rarity];
     const cps = economy.computeCps(user, Date.now());
 
-    const embed = economy
-      .buildDashboardEmbed(interaction.guild, user, 'home')
+    const embed = new EmbedBuilder()
       .setColor(rarity.color)
       .setTitle(`${rarity.emoji} Fresh Batch: ${item.name}`)
       .setDescription(`You baked **${item.name}** and pocketed **${economy.toCookieNumber(manualYield)}** manual cookies.`)
+      .setTimestamp()
       .addFields(
-        { name: 'Rarity', value: `${rarity.name}`, inline: true },
+        { name: 'Rarity', value: rarity.name, inline: true },
         { name: 'Cookies', value: economy.toCookieNumber(user.cookies), inline: true },
         { name: 'CPS', value: economy.toCookieNumber(cps), inline: true },
         { name: 'Passive payout', value: `+${economy.toCookieNumber(passive.gained)} (${Math.floor(passive.elapsedMs / 1000)}s)`, inline: true },
       );
+
+    if (interaction.guild) {
+      embed.setFooter({
+        text: interaction.guild.name,
+        iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined,
+      });
+    }
 
     if (item.image) embed.setThumbnail(item.image);
     if (newlyEarned.length > 0) {
