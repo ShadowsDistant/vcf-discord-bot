@@ -14,9 +14,9 @@ const {
 
 function getTimeGreeting(date = new Date()) {
   const hour = date.getHours();
-  if (hour >= 5 && hour < 12) return { emoji: '🌅', text: 'Good Morning' };
-  if (hour >= 12 && hour < 17) return { emoji: '🌤️', text: 'Good Afternoon' };
-  if (hour >= 17 && hour < 22) return { emoji: '🌆', text: 'Good Evening' };
+  if (hour >= 5 && hour < 12) return { emoji: '☀️', text: 'Good Morning' };
+  if (hour >= 12 && hour < 17) return { emoji: '🌥️', text: 'Good Afternoon' };
+  if (hour >= 17 && hour < 22) return { emoji: '⛅', text: 'Good Evening' };
   return { emoji: '🌙', text: 'Good Night' };
 }
 
@@ -53,8 +53,12 @@ module.exports = {
 
     const embed = embeds
       .base(interaction.guild)
-      .setTitle('  Department Portal')
-      .setDescription('');
+      .setTitle('  Department Portal');
+
+    const description = interaction.guild?.description;
+    if (description && description.trim().length > 0) {
+      embed.setDescription(description);
+    }
 
     const greeting = getTimeGreeting();
     embed.addFields({
