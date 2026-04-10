@@ -1,0 +1,30 @@
+{
+  "name": "vcf-discord-bot",
+  "version": "1.0.0",
+  "description": "A Discord bot with advanced moderation, utility commands, and a Melonly-style shift system.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "deploy": "node deploy-commands.js",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest --passWithNoTests"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ShadowsDistant/vcf-discord-bot.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/ShadowsDistant/vcf-discord-bot/issues"
+  },
+  "homepage": "https://github.com/ShadowsDistant/vcf-discord-bot#readme",
+  "dependencies": {
+    "discord.js": "^14.26.2",
+    "dotenv": "^16.4.7"
+  }
+}
