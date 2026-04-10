@@ -13,6 +13,7 @@ const {
 const { hasModLevel, hasSidRole, MOD_LEVEL } = require('../../utils/permissions');
 
 const SENIOR_MOD_COMMANDS = new Set(['ban', 'unban']);
+const MANAGEMENT_COMMANDS = new Set(['shiftmanage', 'shiftwave']);
 const SHIFT_COMMANDS = new Set([
   'startshift',
   'endshift',
@@ -55,7 +56,7 @@ function resolveCommandFolder(commandName) {
 function canUseCommand(interaction, commandName, folder, canSeeDev) {
   if (folder === 'dev') return canSeeDev;
   if (SHIFT_COMMANDS.has(commandName)) return hasShiftAccessRole(interaction.member);
-  if (commandName === 'shiftmanage' || commandName === 'shiftwave') {
+  if (MANAGEMENT_COMMANDS.has(commandName)) {
     return hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.management);
   }
   if (folder === 'moderation') {

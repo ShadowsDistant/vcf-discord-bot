@@ -113,7 +113,7 @@ function hasLeadOverseerRole(member) {
 }
 
 function hasShiftAccessRole(member) {
-  return hasModerationAccessRole(member) || hasManagementAccessRole(member) || hasLeadOverseerRole(member);
+  return hasModerationAccessRole(member) || hasManagementAccessRole(member);
 }
 
 function isDevUser(userId) {
