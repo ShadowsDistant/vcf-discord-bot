@@ -102,9 +102,9 @@ module.exports = {
 
     const robloxQuery = encodeURIComponent(member?.nickname ?? target.username);
     const robloxButton = new ButtonBuilder()
-      .setStyle(ButtonStyle.Link)
+      .setStyle(ButtonStyle.Primary)
       .setLabel('View Roblox Info')
-      .setURL(`https://www.roblox.com/search/users?keyword=${robloxQuery}`);
+      .setCustomId(`userinfo_roblox:${target.id}:${robloxQuery}`);
     const row = new ActionRowBuilder().addComponents(robloxButton);
 
     return interaction.reply({ embeds: [embed], components: [row] });
