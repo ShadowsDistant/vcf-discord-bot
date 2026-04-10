@@ -3,15 +3,6 @@
 const { SlashCommandBuilder } = require('discord.js');
 const embeds = require('../../utils/embeds');
 
-const RARITY_EMOJIS = {
-  Common: '⚪',
-  Uncommon: '🟢',
-  Rare: '🔵',
-  Epic: '🟣',
-  Legendary: '🟡',
-  Mythic: '🔴',
-};
-
 const COOKIES = [
   {
     name: 'Chocolate Chip Cookie',
@@ -44,6 +35,18 @@ const COOKIES = [
     image: 'https://orteil.dashnet.org/cookieclicker/img/coconutCookie.png',
   },
   {
+    name: 'Gingerbread Cookie',
+    rarity: 'Uncommon',
+    weight: 10,
+    image: 'https://orteil.dashnet.org/cookieclicker/img/gingerbreadCookie.png',
+  },
+  {
+    name: 'Shortbread Cookie',
+    rarity: 'Uncommon',
+    weight: 9,
+    image: 'https://orteil.dashnet.org/cookieclicker/img/shortbreadCookie.png',
+  },
+  {
     name: 'Spooky Cookie',
     rarity: 'Rare',
     weight: 7,
@@ -60,6 +63,78 @@ const COOKIES = [
     rarity: 'Epic',
     weight: 4,
     image: 'https://orteil.dashnet.org/cookieclicker/img/wrathCookie.png',
+  },
+  {
+    name: 'Brownie',
+    rarity: 'Rare',
+    weight: 6,
+    image: 'https://orteil.dashnet.org/cookieclicker/img/brownie.png',
+  },
+  {
+    name: 'Muffin',
+    rarity: 'Rare',
+    weight: 5,
+    image: 'https://orteil.dashnet.org/cookieclicker/img/muffin.png',
+  },
+  {
+    name: 'Croissant',
+    rarity: 'Rare',
+    weight: 5,
+    image: 'https://orteil.dashnet.org/cookieclicker/img/croissant.png',
+  },
+  {
+    name: 'Donut',
+    rarity: 'Rare',
+    weight: 5,
+    image: 'https://orteil.dashnet.org/cookieclicker/img/donut.png',
+  },
+  {
+    name: 'Cupcake',
+    rarity: 'Rare',
+    weight: 4,
+    image: 'https://orteil.dashnet.org/cookieclicker/img/cupcake.png',
+  },
+  {
+    name: 'Macaron',
+    rarity: 'Epic',
+    weight: 3,
+    image: 'https://orteil.dashnet.org/cookieclicker/img/macaron.png',
+  },
+  {
+    name: 'Madeleine',
+    rarity: 'Epic',
+    weight: 3,
+    image: 'https://orteil.dashnet.org/cookieclicker/img/madeleine.png',
+  },
+  {
+    name: 'Biscuit',
+    rarity: 'Uncommon',
+    weight: 8,
+    image: 'https://orteil.dashnet.org/cookieclicker/img/biscuit.png',
+  },
+  {
+    name: 'Wafer',
+    rarity: 'Uncommon',
+    weight: 8,
+    image: 'https://orteil.dashnet.org/cookieclicker/img/wafer.png',
+  },
+  {
+    name: 'Pretzel',
+    rarity: 'Uncommon',
+    weight: 7,
+    image: 'https://orteil.dashnet.org/cookieclicker/img/pretzel.png',
+  },
+  {
+    name: 'Caramel Bar',
+    rarity: 'Epic',
+    weight: 2,
+    image: 'https://orteil.dashnet.org/cookieclicker/img/caramelBar.png',
+  },
+  {
+    name: 'Jam Biscuit',
+    rarity: 'Uncommon',
+    weight: 9,
+    image: 'https://orteil.dashnet.org/cookieclicker/img/jamBiscuit.png',
   },
   {
     name: 'Perfect Cookie',
@@ -90,15 +165,14 @@ function pickWeightedCookie() {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('bake')
-    .setDescription('Bake a random cookie.'),
+    .setDescription('Bake a random cookie or snack.'),
 
   async execute(interaction) {
     const cookie = pickWeightedCookie();
-    const rarityEmoji = RARITY_EMOJIS[cookie.rarity] ?? '🍪';
     const embed = embeds.success(`${interaction.user} baked a **${cookie.name}**!`, interaction.guild);
     embed.addFields({
       name: 'Rarity',
-      value: `${rarityEmoji} ${cookie.rarity}`,
+      value: cookie.rarity,
       inline: true,
     });
     if (cookie.image) {
