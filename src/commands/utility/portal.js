@@ -14,10 +14,10 @@ const {
 
 function getTimeGreeting(date = new Date()) {
   const hour = date.getHours();
-  if (hour >= 5 && hour < 12) return { emoji: '🟤', text: 'Good Morning' };
-  if (hour >= 12 && hour < 17) return { emoji: '🟢', text: 'Good Afternoon' };
-  if (hour >= 17 && hour < 22) return { emoji: '🔵', text: 'Good Evening' };
-  return { emoji: '🟣', text: 'Good Night' };
+  if (hour >= 5 && hour < 12) return { emoji: '☀️', text: 'Good Morning' };
+  if (hour >= 12 && hour < 17) return { emoji: '🌥️', text: 'Good Afternoon' };
+  if (hour >= 17 && hour < 22) return { emoji: '⛅', text: 'Good Evening' };
+  return { emoji: '🌙', text: 'Good Night' };
 }
 
 function mentionsForRole(guild, roleId) {
