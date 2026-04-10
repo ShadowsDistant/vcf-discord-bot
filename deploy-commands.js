@@ -18,10 +18,16 @@ function normalizeEnvValue(value) {
   return trimmed;
 }
 
+function parseBooleanEnv(value) {
+  const normalized = normalizeEnvValue(value).toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
 const DISCORD_TOKEN = normalizeEnvValue(process.env.DISCORD_TOKEN);
 const CLIENT_ID = normalizeEnvValue(process.env.CLIENT_ID);
 const rawGuildId = normalizeEnvValue(process.env.GUILD_ID);
 const GUILD_ID = rawGuildId || null;
+const CLEAR_GLOBAL_DUPLICATES = parseBooleanEnv(process.env.CLEAR_GLOBAL_DUPLICATES);
 const SNOWFLAKE_REGEX = /^\d{17,20}$/;
 
 if (!DISCORD_TOKEN || !CLIENT_ID) {
@@ -42,6 +48,7 @@ if (GUILD_ID && !SNOWFLAKE_REGEX.test(GUILD_ID)) {
 const commands = [];
 const commandsPath = path.join(__dirname, 'src', 'commands');
 const commandLoadErrors = [];
+const loadedCommandFiles = new Map();
 
 function collectCommandFiles(dir) {
   const files = [];
@@ -60,11 +67,20 @@ for (const commandPath of collectCommandFiles(commandsPath)) {
   const file = path.basename(commandPath);
   try {
     const command = require(commandPath);
-    if (command.data && command.execute) {
+    if (command.data && command.execute && typeof command.data.name === 'string') {
+      if (loadedCommandFiles.has(command.data.name)) {
+        const firstFile = loadedCommandFiles.get(command.data.name);
+        commandLoadErrors.push({
+          file,
+          error: `Duplicate command name "${command.data.name}" also defined in ${firstFile}`,
+        });
+        continue;
+      }
+      loadedCommandFiles.set(command.data.name, file);
       commands.push(command.data.toJSON());
       console.log(`  ↳ Registering: /${command.data.name}`);
     } else {
-      console.warn(`  ⚠  Skipping ${file}: missing data or execute export.`);
+      console.warn(`  ⚠  Skipping ${file}: missing data.name or execute export.`);
     }
   } catch (err) {
     commandLoadErrors.push({ file, error: err.stack || err.message });
@@ -101,19 +117,45 @@ const rest = new REST().setToken(DISCORD_TOKEN);
         body: commands,
       });
       console.log('✅  Successfully deployed globally');
+      console.log('ℹ️  Global command propagation can take up to 1 hour.');
     }
 
-    const expected = new Set(commands.map((c) => c.name));
-    const returned = new Set(data.map((c) => c.name));
-    const missing = [...expected].filter((name) => !returned.has(name));
-    if (missing.length > 0) {
-      console.warn(`⚠  ${missing.length} command(s) missing after bulk deploy: ${missing.join(', ')}`);
-      for (const command of commands.filter((c) => missing.includes(c.name))) {
-        try {
-          await rest.post(route, { body: command });
-          console.log(`  ↳ Re-registered missing command: /${command.name}`);
-        } catch (err) {
-          console.error(`  ✗ Failed to re-register /${command.name}: ${err.message}`);
+    if (GUILD_ID) {
+      const globalRoute = Routes.applicationCommands(CLIENT_ID);
+      const globalData = await rest.get(globalRoute);
+      const globalByName = new Map(globalData.map((command) => [command.name, command]));
+      const overlap = data
+        .filter((guildCommand) => globalByName.has(guildCommand.name))
+        .map((guildCommand) => guildCommand.name);
+
+      if (overlap.length > 0) {
+        console.warn(
+          `⚠  ${overlap.length} command(s) exist in both guild and global scope: ${overlap.join(', ')}`,
+        );
+        console.warn(
+          '   These can appear as duplicate slash commands in Discord until global commands are removed.',
+        );
+
+        if (CLEAR_GLOBAL_DUPLICATES) {
+          let removed = 0;
+          for (const name of overlap) {
+            const globalCommand = globalByName.get(name);
+            if (!globalCommand.id) continue;
+            try {
+              await rest.delete(`${globalRoute}/${globalCommand.id}`);
+              removed += 1;
+              console.log(`  ↳ Removed global duplicate: /${name}`);
+            } catch (deleteErr) {
+              console.error(`  ✗ Failed to remove global /${name}: ${deleteErr.message}`);
+            }
+          }
+          if (removed > 0) {
+            console.log(`✅  Removed ${removed} global duplicate command(s).`);
+          }
+        } else {
+          console.log(
+            'ℹ️  Set CLEAR_GLOBAL_DUPLICATES=true to automatically remove overlapping global commands.',
+          );
         }
       }
     }

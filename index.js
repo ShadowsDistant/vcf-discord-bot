@@ -29,6 +29,7 @@ const client = new Client({
 client.commands = new Collection();
 const commandsPath = path.join(__dirname, 'src', 'commands');
 const commandLoadErrors = [];
+const loadedCommandFiles = new Map();
 
 function collectCommandFiles(dir) {
   const files = [];
@@ -47,11 +48,20 @@ for (const commandPath of collectCommandFiles(commandsPath)) {
   const file = path.basename(commandPath);
   try {
     const command = require(commandPath);
-    if (command.data && command.execute) {
+    if (command.data && command.execute && typeof command.data.name === 'string') {
+      if (loadedCommandFiles.has(command.data.name)) {
+        const firstFile = loadedCommandFiles.get(command.data.name);
+        commandLoadErrors.push({
+          file,
+          error: `Duplicate command name "${command.data.name}" also defined in ${firstFile}`,
+        });
+        continue;
+      }
+      loadedCommandFiles.set(command.data.name, file);
       client.commands.set(command.data.name, command);
       console.log(`  ↳ Loaded command: ${command.data.name}`);
     } else {
-      console.warn(`  ⚠  Skipping ${file}: missing data or execute export.`);
+      console.warn(`  ⚠  Skipping ${file}: missing data.name or execute export.`);
     }
   } catch (err) {
     commandLoadErrors.push({ file, error: err.stack || err.message });
