@@ -3,6 +3,7 @@
 const { SlashCommandBuilder, EmbedBuilder, version: djsVersion } = require('discord.js');
 const { PALETTE } = require('../../utils/embeds');
 const { formatDuration } = require('../../utils/helpers');
+const { version: botVersion } = require('../../../package.json');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -42,6 +43,7 @@ module.exports = {
         {
           name: '  Runtime',
           value: [
+            `Bot Version: **v${botVersion}**`,
             `Uptime: **${formatDuration(uptimeMs)}**`,
             `Node.js: **${process.version}**`,
             `discord.js: **v${djsVersion}**`,

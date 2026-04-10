@@ -10,7 +10,11 @@ const embeds = require('../../utils/embeds');
 const {
   getMemberDepartments,
   hasModerationAccessRole,
+  memberHasAnyRole,
+  ALL_STAFF_ROLE_IDS,
 } = require('../../utils/roles');
+const db = require('../../utils/database');
+const { formatDuration } = require('../../utils/helpers');
 
 function getTimeGreeting(date = new Date()) {
   const hour = date.getHours();
@@ -36,6 +40,18 @@ module.exports = {
 
   async execute(interaction) {
     await interaction.guild.members.fetch().catch(() => null);
+
+    if (!memberHasAnyRole(interaction.member, ALL_STAFF_ROLE_IDS)) {
+      return interaction.reply({
+        embeds: [
+          embeds.error(
+            'Only staff members can use the department portal.',
+            interaction.guild,
+          ),
+        ],
+        ephemeral: true,
+      });
+    }
 
     const departments = getMemberDepartments(interaction.member);
     if (!departments.length) {
@@ -69,19 +85,55 @@ module.exports = {
     for (const department of departments) {
       const managerMentions = mentionsForRole(interaction.guild, department.managerRoleId);
       const assistantMentions = mentionsForRole(interaction.guild, department.assistantManagerRoleId);
+      const details = [
+        department.description,
+        `**Manager(s):** ${managerMentions}`,
+      ];
+      if (department.key !== 'osc') {
+        details.push(`**Assistant Manager(s):** ${assistantMentions}`);
+      }
       embed.addFields({
         name: department.title,
-        value: [
-          department.description,
-          `**Manager(s):** ${managerMentions}`,
-          `**Assistant Manager(s):** ${assistantMentions}`,
-          `**Handbook:** ${department.handbook}`,
-        ].join('\n'),
+        value: details.join('\n'),
       });
     }
 
     const components = [];
+    const resourceButtons = departments.map((department) =>
+      new ButtonBuilder()
+        .setLabel(`${department.title} Handbook`.slice(0, 80))
+        .setStyle(ButtonStyle.Link)
+        .setURL(department.handbook),
+    );
+    resourceButtons.push(
+      new ButtonBuilder()
+        .setLabel('Chain of Command')
+        .setStyle(ButtonStyle.Link)
+        .setURL('https://docs.valleycorrectional.xyz/internal-documents/chain-of-command'),
+    );
+
+    if (resourceButtons.length) {
+      components.push(new ActionRowBuilder().addComponents(resourceButtons.slice(0, 5)));
+    }
+
     if (hasModerationAccessRole(interaction.member)) {
+      const history = db.getUserShiftHistory(interaction.guild.id, interaction.user.id);
+      const totalMs = history.reduce((sum, shift) => sum + shift.durationMs, 0);
+      const active = db.getActiveShift(interaction.guild.id, interaction.user.id);
+      const startedTs = active
+        ? Math.floor(new Date(active.startedAt).getTime() / 1000)
+        : null;
+
+      embed.addFields({
+        name: '⏱️ Quick Shift Overview',
+        value: [
+          `Status: **${active ? 'On Shift' : 'Off Shift'}**`,
+          active ? `Started: <t:${startedTs}:R>` : 'Started: N/A',
+          `Completed Shifts: **${history.length}**`,
+          `Total Shift Time: **${formatDuration(totalMs)}**`,
+        ].join('\n'),
+      });
+
       components.push(
         new ActionRowBuilder().addComponents(
           new ButtonBuilder()
@@ -92,6 +144,10 @@ module.exports = {
             .setCustomId('portal_endshift')
             .setLabel('End Shift')
             .setStyle(ButtonStyle.Danger),
+          new ButtonBuilder()
+            .setCustomId('portal_shiftdetails')
+            .setLabel('View Shift Details')
+            .setStyle(ButtonStyle.Secondary),
         ),
       );
     }
