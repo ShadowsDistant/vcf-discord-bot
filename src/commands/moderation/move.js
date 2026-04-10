@@ -2,7 +2,6 @@
 
 const {
   SlashCommandBuilder,
-  PermissionFlagsBits,
   ChannelType,
 } = require('discord.js');
 const embeds = require('../../utils/embeds');
@@ -12,7 +11,6 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('move')
     .setDescription('Move a member to another voice channel.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.MoveMembers)
     .addUserOption((o) =>
       o.setName('user').setDescription('Member to move.').setRequired(true),
     )

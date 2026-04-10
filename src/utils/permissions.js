@@ -1,6 +1,11 @@
 'use strict';
 
-const db = require('./database');
+const {
+  MODERATION_ROLE_IDS,
+  SID_ROLE_IDS,
+  MANAGEMENT_ROLE_IDS,
+  ROLE_IDS,
+} = require('./roles');
 
 /**
  * Moderation permission levels.
@@ -14,52 +19,37 @@ const MOD_LEVEL = {
   management: 3,
 };
 
-/** Config key for each level. */
-const ROLE_KEY = {
-  1: 'moderatorRoleId',
-  2: 'seniorModRoleId',
-  3: 'managementRoleId',
-};
-
 /**
  * Check whether a guild member meets the required moderation level.
  *
- * Logic:
- *  - If no mod roles are configured at all → returns true (fall through to Discord perms).
- *  - If any mod roles are configured → the member must have a role at or above
- *    the required level.  Higher-level roles always satisfy lower-level checks.
- *
  * @param {import('discord.js').GuildMember} member
- * @param {string} guildId
+ * @param {string} _guildId
  * @param {number} requiredLevel  1 | 2 | 3
  * @returns {boolean}
  */
-function hasModLevel(member, guildId, requiredLevel) {
-  const config = db.getConfig(guildId);
+function hasModLevel(member, _guildId, requiredLevel) {
+  const hasManagementRole = [...MANAGEMENT_ROLE_IDS].some((id) => member.roles.cache.has(id));
 
-  // Determine whether any mod roles have been configured at all
-  const anyConfigured = Object.values(ROLE_KEY).some((key) => config[key]);
-  if (!anyConfigured) return true; // No role system configured – defer to Discord perms
-
-  // Check from highest level down to requiredLevel (higher roles satisfy lower checks)
-  for (let level = 3; level >= requiredLevel; level--) {
-    const roleId = config[ROLE_KEY[level]];
-    if (roleId && member.roles.cache.has(roleId)) return true;
+  if (requiredLevel <= MOD_LEVEL.moderator) {
+    return hasManagementRole || [...MODERATION_ROLE_IDS].some((id) => member.roles.cache.has(id));
   }
-
-  return false;
+  if (requiredLevel <= MOD_LEVEL.seniorMod) {
+    return (
+      hasManagementRole
+      || member.roles.cache.has(ROLE_IDS.moderation.seniorModerator)
+    );
+  }
+  return hasManagementRole;
 }
 
 /**
- * Check whether member has the configured SID role.
+ * Check whether member has any SID role.
  * @param {import('discord.js').GuildMember} member
- * @param {string} guildId
+ * @param {string} _guildId
  * @returns {boolean}
  */
-function hasSidRole(member, guildId) {
-  const config = db.getConfig(guildId);
-  const sidRoleId = config.sidRoleId;
-  return Boolean(sidRoleId && member.roles.cache.has(sidRoleId));
+function hasSidRole(member, _guildId) {
+  return [...SID_ROLE_IDS].some((id) => member.roles.cache.has(id));
 }
 
 module.exports = { hasModLevel, hasSidRole, MOD_LEVEL };

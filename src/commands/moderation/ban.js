@@ -2,7 +2,6 @@
 
 const {
   SlashCommandBuilder,
-  PermissionFlagsBits,
 } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
@@ -11,7 +10,6 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('ban')
     .setDescription('Permanently ban a member from the server.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
     .addUserOption((o) =>
       o.setName('user').setDescription('The user to ban.').setRequired(true),
     )

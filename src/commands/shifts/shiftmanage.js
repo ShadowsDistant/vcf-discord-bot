@@ -1,6 +1,6 @@
 'use strict';
 
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { formatDuration } = require('../../utils/helpers');
@@ -10,7 +10,6 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('shiftmanage')
     .setDescription('Management tools for editing or deleting shift records.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false)
     .addSubcommand((sub) =>
       sub

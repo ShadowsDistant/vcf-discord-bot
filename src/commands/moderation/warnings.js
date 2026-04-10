@@ -2,23 +2,29 @@
 
 const {
   SlashCommandBuilder,
-  PermissionFlagsBits,
   EmbedBuilder,
 } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { truncate } = require('../../utils/helpers');
+const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('warnings')
     .setDescription("View a member's warnings.")
-    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .addUserOption((o) =>
       o.setName('user').setDescription('The member to check.').setRequired(true),
     ),
 
   async execute(interaction) {
+    if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.moderator)) {
+      return interaction.reply({
+        embeds: [embeds.error('You do not have the required moderation role to use this command.', interaction.guild)],
+        ephemeral: true,
+      });
+    }
+
     const target = interaction.options.getUser('user');
     const warnings = db.getWarnings(interaction.guild.id, target.id);
 

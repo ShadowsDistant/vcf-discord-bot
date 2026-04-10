@@ -5,6 +5,7 @@ const db = require('../utils/database');
 const { scanMessage, getCategoryLabel, isCategoryEnabledByDefault } = require('../utils/automod');
 const { hasModLevel, MOD_LEVEL } = require('../utils/permissions');
 const embeds = require('../utils/embeds');
+const { hasModerationAccessRole } = require('../utils/roles');
 
 /**
  * Returns the list of category IDs that are enabled for a guild's automod config.
@@ -20,19 +21,9 @@ function getEnabledCategories(config) {
   });
 }
 
-function isRoleConfigured(config, key) {
-  return Boolean(config?.[key]);
-}
-
 function isModerationStaff(member, guildId) {
-  const config = db.getConfig(guildId);
-  const hasConfiguredModRoles =
-    isRoleConfigured(config, 'moderatorRoleId') ||
-    isRoleConfigured(config, 'seniorModRoleId') ||
-    isRoleConfigured(config, 'managementRoleId');
-
-  if (hasConfiguredModRoles) {
-    return hasModLevel(member, guildId, MOD_LEVEL.moderator);
+  if (hasModerationAccessRole(member) || hasModLevel(member, guildId, MOD_LEVEL.moderator)) {
+    return true;
   }
 
   return member.permissions.has([

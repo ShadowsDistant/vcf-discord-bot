@@ -28,26 +28,42 @@ const client = new Client({
 // ─── Load commands ────────────────────────────────────────────────────────────
 client.commands = new Collection();
 const commandsPath = path.join(__dirname, 'src', 'commands');
+const commandLoadErrors = [];
 
-for (const folder of fs.readdirSync(commandsPath)) {
-  const folderPath = path.join(commandsPath, folder);
-  if (!fs.statSync(folderPath).isDirectory()) continue;
-
-  for (const file of fs.readdirSync(folderPath).filter((f) => f.endsWith('.js'))) {
-    const commandPath = path.join(folderPath, file);
-    try {
-      const command = require(commandPath);
-      if (command.data && command.execute) {
-        client.commands.set(command.data.name, command);
-        console.log(`  ↳ Loaded command: ${command.data.name}`);
-      } else {
-        console.warn(`  ⚠  Skipping ${file}: missing data or execute export.`);
-      }
-    } catch (err) {
-      console.warn(`  ⚠  Skipping ${file}: failed to load command module.`);
-      console.warn(`     ${err.message}`);
+function collectCommandFiles(dir) {
+  const files = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...collectCommandFiles(fullPath));
+    } else if (entry.isFile() && entry.name.endsWith('.js')) {
+      files.push(fullPath);
     }
   }
+  return files;
+}
+
+for (const commandPath of collectCommandFiles(commandsPath)) {
+  const file = path.basename(commandPath);
+  try {
+    const command = require(commandPath);
+    if (command.data && command.execute) {
+      client.commands.set(command.data.name, command);
+      console.log(`  ↳ Loaded command: ${command.data.name}`);
+    } else {
+      console.warn(`  ⚠  Skipping ${file}: missing data or execute export.`);
+    }
+  } catch (err) {
+    commandLoadErrors.push({ file, error: err.stack || err.message });
+  }
+}
+
+if (commandLoadErrors.length > 0) {
+  for (const { file, error } of commandLoadErrors) {
+    console.error(`   • ${file}\n${error}`);
+  }
+  console.error(`❌  ${commandLoadErrors.length} command module(s) failed to load. Exiting.`);
+  process.exit(1);
 }
 
 // ─── Load events ─────────────────────────────────────────────────────────────

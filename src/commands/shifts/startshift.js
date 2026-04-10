@@ -4,6 +4,7 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { PALETTE } = require('../../utils/embeds');
+const { ROLE_IDS } = require('../../utils/roles');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -14,26 +15,11 @@ module.exports = {
   async execute(interaction) {
     const config = db.getConfig(interaction.guild.id);
 
-    // ── Staff-role gate ───────────────────────────────────────────────────────
-    const staffRoles = config.staffRoleIds ?? [];
-    if (staffRoles.length === 0) {
+    if (!interaction.member.roles.cache.has(ROLE_IDS.moderationAccess)) {
       return interaction.reply({
         embeds: [
           embeds.error(
-            'No shift roles are configured yet. Management must configure staff roles first (use `/setup staffroles add`).',
-            interaction.guild,
-          ),
-        ],
-        ephemeral: true,
-      });
-    }
-
-    const hasRole = staffRoles.some((id) => interaction.member.roles.cache.has(id));
-    if (!hasRole) {
-      return interaction.reply({
-        embeds: [
-          embeds.error(
-            'You do not have a staff role that permits you to use the shift system.',
+            'You do not have the required role to start a shift.',
             interaction.guild,
           ),
         ],

@@ -1,9 +1,10 @@
 'use strict';
 
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { hasModLevel, hasSidRole, MOD_LEVEL } = require('../../utils/permissions');
+const { ALL_STAFF_ROLE_IDS } = require('../../utils/roles');
 
 const SEVERITY_COLORS = {
   minor: 0xfee75c,
@@ -12,14 +13,7 @@ const SEVERITY_COLORS = {
 };
 
 function getStaffRoleIds(guildId) {
-  const config = db.getConfig(guildId);
-  return [
-    ...(config.staffRoleIds ?? []),
-    config.moderatorRoleId,
-    config.seniorModRoleId,
-    config.managementRoleId,
-    config.sidRoleId,
-  ].filter(Boolean);
+  return [...ALL_STAFF_ROLE_IDS];
 }
 
 function isConfiguredStaffMember(member, guildId) {
@@ -32,7 +26,6 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('staffinfraction')
     .setDescription('Manage staff infractions for the team.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
 
     // ── Issue an infraction ───────────────────────────────────────────────────
     .addSubcommand((sub) =>
@@ -157,7 +150,7 @@ module.exports = {
         return interaction.reply({
           embeds: [
             embeds.error(
-              'That user is not part of the configured staff team. Configure staff/mod/SID roles in `/setup` before issuing staff infractions.',
+              'That user is not part of the staff team.',
               interaction.guild,
             ),
           ],
