@@ -296,7 +296,7 @@ module.exports = {
       const logCh = config.logChannelId ? `<#${config.logChannelId}>` : '`Not set`';
       const welcomeCh = config.welcomeChannelId ? `<#${config.welcomeChannelId}>` : '`Not set`';
       const welcomeMsg = config.welcomeMessage ?? '`Not set`';
-      const shiftDms = config.shiftDmsEnabled ? 'Enabled' : 'Disabled';
+      const shiftDms = config.shiftDmsEnabled === false ? 'Disabled' : 'Enabled';
 
       const staffRoles = (config.staffRoleIds ?? []);
       const staffRolesDisplay =
@@ -385,7 +385,7 @@ module.exports = {
             embeds: [
               embeds.setup(
                 '  Staff Roles',
-                'No staff roles are configured. Anyone can currently use the shift system.',
+                'No staff roles are configured. No one can currently start shifts.',
                 guild,
               ),
             ],

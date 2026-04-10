@@ -72,10 +72,24 @@ function clearWarnings(guildId, userId) {
 
 const SHIFTS_FILE = 'shifts.json';
 
+/** Ensure completed shift records have numeric ids. */
+function ensureShiftHistoryIds(data, guildId) {
+  if (!data?.[guildId]?.history) return;
+  let changed = false;
+  for (const s of data[guildId].history) {
+    if (typeof s.id !== 'number') {
+      s.id = Date.now() + Math.floor(Math.random() * 1000);
+      changed = true;
+    }
+  }
+  if (changed) write(SHIFTS_FILE, data);
+}
+
 /** Start a shift for a user. Returns null if already on shift. */
 function startShift(guildId, userId, username) {
   const data = read(SHIFTS_FILE, {});
   if (!data[guildId]) data[guildId] = { active: {}, history: [] };
+  ensureShiftHistoryIds(data, guildId);
 
   if (data[guildId].active[userId]) return null; // already on shift
 
@@ -92,12 +106,14 @@ function startShift(guildId, userId, username) {
 function endShift(guildId, userId) {
   const data = read(SHIFTS_FILE, {});
   if (!data[guildId]?.active?.[userId]) return null; // not on shift
+  ensureShiftHistoryIds(data, guildId);
 
   const active = data[guildId].active[userId];
   const endedAt = new Date().toISOString();
   const durationMs = new Date(endedAt) - new Date(active.startedAt);
 
   const record = {
+    id: Date.now(),
     userId: active.userId,
     username: active.username,
     startedAt: active.startedAt,
@@ -120,7 +136,15 @@ function getActiveShift(guildId, userId) {
 /** Get all completed shifts for a user in a guild. */
 function getUserShiftHistory(guildId, userId) {
   const data = read(SHIFTS_FILE, {});
+  ensureShiftHistoryIds(data, guildId);
   return (data?.[guildId]?.history ?? []).filter((s) => s.userId === userId);
+}
+
+/** Get all completed shifts for a guild. */
+function getGuildShiftHistory(guildId) {
+  const data = read(SHIFTS_FILE, {});
+  ensureShiftHistoryIds(data, guildId);
+  return data?.[guildId]?.history ?? [];
 }
 
 /** Get all active shifts in a guild. */
@@ -135,6 +159,7 @@ function getAllActiveShifts(guildId) {
  */
 function getShiftLeaderboard(guildId) {
   const data = read(SHIFTS_FILE, {});
+  ensureShiftHistoryIds(data, guildId);
   const history = data?.[guildId]?.history ?? [];
 
   const totals = {};
@@ -223,6 +248,7 @@ function startWave(guildId, startedBy) {
  */
 function getShiftsInCurrentWave(guildId) {
   const shifts = read(SHIFTS_FILE, {});
+  ensureShiftHistoryIds(shifts, guildId);
   const history = shifts?.[guildId]?.history ?? [];
   const wave = getCurrentWave(guildId);
   if (!wave) return history;
@@ -240,6 +266,53 @@ function getUserShiftTimeInWave(guildId, userId) {
   return getShiftsInCurrentWave(guildId)
     .filter((s) => s.userId === userId)
     .reduce((sum, s) => sum + s.durationMs, 0);
+}
+
+/**
+ * Update a completed shift record.
+ * @param {string} guildId
+ * @param {number} recordId
+ * @param {{durationMs?: number}} updates
+ * @returns {object|null}
+ */
+function updateShiftRecord(guildId, recordId, updates) {
+  const data = read(SHIFTS_FILE, {});
+  ensureShiftHistoryIds(data, guildId);
+  const history = data?.[guildId]?.history;
+  if (!history) return null;
+
+  const idx = history.findIndex((s) => s.id === recordId);
+  if (idx === -1) return null;
+
+  const existing = history[idx];
+  if (typeof updates.durationMs === 'number') {
+    const durationMs = Math.max(1000, Math.floor(updates.durationMs));
+    const endedAt = new Date(new Date(existing.startedAt).getTime() + durationMs).toISOString();
+    existing.durationMs = durationMs;
+    existing.endedAt = endedAt;
+  }
+
+  history[idx] = existing;
+  write(SHIFTS_FILE, data);
+  return existing;
+}
+
+/**
+ * Delete a completed shift record.
+ * @param {string} guildId
+ * @param {number} recordId
+ * @returns {boolean}
+ */
+function deleteShiftRecord(guildId, recordId) {
+  const data = read(SHIFTS_FILE, {});
+  ensureShiftHistoryIds(data, guildId);
+  const history = data?.[guildId]?.history;
+  if (!history) return false;
+
+  const before = history.length;
+  data[guildId].history = history.filter((s) => s.id !== recordId);
+  write(SHIFTS_FILE, data);
+  return data[guildId].history.length < before;
 }
 
 // ─── Server Config ───────────────────────────────────────────────────────────
@@ -410,6 +483,7 @@ module.exports = {
   endShift,
   getActiveShift,
   getUserShiftHistory,
+  getGuildShiftHistory,
   getAllActiveShifts,
   getShiftLeaderboard,
   getPresetReasons,
@@ -419,6 +493,8 @@ module.exports = {
   startWave,
   getShiftsInCurrentWave,
   getUserShiftTimeInWave,
+  updateShiftRecord,
+  deleteShiftRecord,
   getConfig,
   setConfig,
   deleteConfig,

@@ -98,7 +98,7 @@ module.exports = {
     }
 
     // ── DM the user ───────────────────────────────────────────────────────────
-    if (config.shiftDmsEnabled) {
+    if (config.shiftDmsEnabled !== false) {
       const recentShifts = history.slice(-5).reverse();
       const recentLines = recentShifts
         .map((s) => {

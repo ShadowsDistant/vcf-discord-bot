@@ -6,7 +6,7 @@ const {
 } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
-const { formatDuration } = require('../../utils/helpers');
+const { formatDuration, makeProgressBar } = require('../../utils/helpers');
 const { PALETTE } = embeds;
 
 module.exports = {
@@ -66,6 +66,11 @@ module.exports = {
     const activeShift = db.getActiveShift(interaction.guild.id, target.id);
     const history = db.getUserShiftHistory(interaction.guild.id, target.id);
     const totalMs = history.reduce((sum, s) => sum + s.durationMs, 0);
+    const config = db.getConfig(interaction.guild.id);
+    const wave = db.getCurrentWave(interaction.guild.id);
+    const quotaMs = config.quotaMs ?? 0;
+    const waveTimeMs = wave ? db.getUserShiftTimeInWave(interaction.guild.id, target.id) : 0;
+    const progressPct = quotaMs > 0 ? Math.min(100, (waveTimeMs / quotaMs) * 100) : null;
 
     const embed = new EmbedBuilder()
       .setColor(PALETTE.shift)
@@ -92,6 +97,17 @@ module.exports = {
       embed.addFields({
         name: '  Current Shift',
         value: `Started <t:${startedTs}:R> (<t:${startedTs}:T>)`,
+      });
+    }
+
+    if (wave && quotaMs > 0) {
+      embed.addFields({
+        name: `  Quota Progress (Wave #${wave.waveNumber})`,
+        value: [
+          `Completed: **${formatDuration(waveTimeMs)}**`,
+          `Required: **${formatDuration(quotaMs)}**`,
+          makeProgressBar(progressPct, 12),
+        ].join('\n'),
       });
     }
 
