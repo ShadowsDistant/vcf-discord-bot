@@ -3,6 +3,9 @@
 const {
   SlashCommandBuilder,
   EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
 } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const { PALETTE } = require('../../utils/embeds');
@@ -59,12 +62,20 @@ module.exports = {
       });
 
     if (member) {
+      const topRole = member.roles.highest && member.roles.highest.id !== interaction.guild.id
+        ? member.roles.highest
+        : null;
       embed.addFields(
         {
           name: '  Joined Server',
           value: member.joinedTimestamp
             ? `<t:${Math.floor(member.joinedTimestamp / 1000)}:D> (<t:${Math.floor(member.joinedTimestamp / 1000)}:R>)`
             : 'Unknown',
+        },
+        {
+          name: '  Position',
+          value: topRole ? `${topRole.name}` : 'None',
+          inline: true,
         },
         {
           name: `  Roles (${member.roles.cache.size - 1})`,
@@ -89,6 +100,13 @@ module.exports = {
       embed.addFields({ name: '  Badges', value: flags });
     }
 
-    return interaction.reply({ embeds: [embed] });
+    const robloxQuery = encodeURIComponent(member?.nickname ?? target.username);
+    const robloxButton = new ButtonBuilder()
+      .setStyle(ButtonStyle.Link)
+      .setLabel('View Roblox Info')
+      .setURL(`https://www.roblox.com/search/users?keyword=${robloxQuery}`);
+    const row = new ActionRowBuilder().addComponents(robloxButton);
+
+    return interaction.reply({ embeds: [embed], components: [row] });
   },
 };

@@ -49,4 +49,16 @@ function truncate(str, max = 1024) {
   return str.length > max ? `${str.slice(0, max - 1)}…` : str;
 }
 
-module.exports = { formatDuration, parseDuration, truncate };
+/**
+ * Build a fixed-width text progress bar.
+ * @param {number} percent
+ * @param {number} size
+ * @returns {string}
+ */
+function makeProgressBar(percent, size = 10) {
+  const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+  const filled = Math.round((clamped / 100) * size);
+  return `[${'█'.repeat(filled)}${'░'.repeat(size - filled)}] ${clamped}%`;
+}
+
+module.exports = { formatDuration, parseDuration, truncate, makeProgressBar };

@@ -16,19 +16,29 @@ module.exports = {
 
     // ── Staff-role gate ───────────────────────────────────────────────────────
     const staffRoles = config.staffRoleIds ?? [];
-    if (staffRoles.length > 0) {
-      const hasRole = staffRoles.some((id) => interaction.member.roles.cache.has(id));
-      if (!hasRole) {
-        return interaction.reply({
-          embeds: [
-            embeds.error(
-              'You do not have a staff role that permits you to use the shift system.',
-              interaction.guild,
-            ),
-          ],
-          ephemeral: true,
-        });
-      }
+    if (staffRoles.length === 0) {
+      return interaction.reply({
+        embeds: [
+          embeds.error(
+            'No shift roles are configured yet. Management must configure staff roles first (use `/setup staffroles add`).',
+            interaction.guild,
+          ),
+        ],
+        ephemeral: true,
+      });
+    }
+
+    const hasRole = staffRoles.some((id) => interaction.member.roles.cache.has(id));
+    if (!hasRole) {
+      return interaction.reply({
+        embeds: [
+          embeds.error(
+            'You do not have a staff role that permits you to use the shift system.',
+            interaction.guild,
+          ),
+        ],
+        ephemeral: true,
+      });
     }
 
     const result = db.startShift(
@@ -66,7 +76,7 @@ module.exports = {
     await interaction.reply({ embeds: [shiftEmbed] });
 
     // ── DM the user ───────────────────────────────────────────────────────────
-    if (config.shiftDmsEnabled) {
+    if (config.shiftDmsEnabled !== false) {
       const dmEmbed = new EmbedBuilder()
         .setColor(PALETTE.shift)
         .setTitle('  You Are Now On Shift')
