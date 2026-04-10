@@ -26,6 +26,7 @@ module.exports = {
       .setDescription(`You baked **${item.name}** and pocketed **${economy.toCookieNumber(manualYield)}** manual cookies.`)
       .setTimestamp()
       .addFields(
+        { name: 'Rarity', value: rarity.name, inline: true },
         { name: 'Cookies', value: economy.toCookieNumber(user.cookies), inline: true },
         { name: 'CPS', value: economy.toCookieNumber(cps), inline: true },
         { name: 'Passive payout', value: `+${economy.toCookieNumber(passive.gained)} (${Math.floor(passive.elapsedMs / 1000)}s)`, inline: true },

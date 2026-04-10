@@ -23,7 +23,10 @@ const BASE_GOLDEN_CHANCE = 0.03;
 const FANDOM_FILE_BASE = 'https://cookieclicker.fandom.com/wiki/Special:FilePath/';
 
 function cookieClickerImage(fileName) {
-  if (!/^[A-Za-z0-9 _'().-]+\.(png|gif|jpe?g|webp)$/i.test(fileName)) {
+  if (
+    fileName.includes('..')
+    || !/^[A-Za-z0-9 _'().-]+\.(png|gif|jpe?g|webp)$/i.test(fileName)
+  ) {
     return `${FANDOM_FILE_BASE}Plain_cookies.png`;
   }
   return `${FANDOM_FILE_BASE}${encodeURIComponent(fileName)}`;
