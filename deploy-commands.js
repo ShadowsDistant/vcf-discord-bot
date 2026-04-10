@@ -29,6 +29,7 @@ const rawGuildId = normalizeEnvValue(process.env.GUILD_ID);
 const GUILD_ID = rawGuildId || null;
 const CLEAR_GLOBAL_DUPLICATES = parseBooleanEnv(process.env.CLEAR_GLOBAL_DUPLICATES);
 const SNOWFLAKE_REGEX = /^\d{17,20}$/;
+const REQUIRED_BAKE_COMMANDS = ['bake', 'bakery', 'marketplace', 'bakeadmin'];
 
 if (!DISCORD_TOKEN || !CLIENT_ID) {
   console.error('❌  Missing required environment variables: DISCORD_TOKEN, CLIENT_ID');
@@ -92,6 +93,15 @@ if (commandLoadErrors.length > 0) {
     console.error(`   • ${file}\n${error}`);
   }
   console.error(`❌  ${commandLoadErrors.length} command module(s) failed to load. Aborting deployment.`);
+  process.exit(1);
+}
+
+const registeredCommandNames = new Set(commands.map((command) => command.name));
+const missingBakeCommands = REQUIRED_BAKE_COMMANDS.filter((name) => !registeredCommandNames.has(name));
+if (missingBakeCommands.length > 0) {
+  console.error(
+    `❌  Missing required bake command(s): ${missingBakeCommands.map((name) => `/${name}`).join(', ')}`,
+  );
   process.exit(1);
 }
 
@@ -181,5 +191,6 @@ const rest = new REST().setToken(DISCORD_TOKEN);
     console.log(`\n✨  ${data.length} command(s) registered.`);
   } catch (err) {
     console.error('❌  Deployment failed:', err);
+    process.exit(1);
   }
 })();
