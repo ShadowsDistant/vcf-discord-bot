@@ -147,6 +147,259 @@ function getShiftLeaderboard(guildId) {
   return Object.values(totals).sort((a, b) => b.totalMs - a.totalMs);
 }
 
+// ─── Preset Reasons ──────────────────────────────────────────────────────────
+
+const REASONS_FILE = 'reasons.json';
+
+/** Get all preset reasons for a guild and action type ('ban'|'kick'|'warn'). */
+function getPresetReasons(guildId, type) {
+  const data = read(REASONS_FILE, {});
+  return data?.[guildId]?.[type] ?? [];
+}
+
+/**
+ * Add a preset reason. Returns the created entry { id, reason }.
+ * @param {string} guildId
+ * @param {'ban'|'kick'|'warn'} type
+ * @param {string} reason
+ */
+function addPresetReason(guildId, type, reason) {
+  const data = read(REASONS_FILE, {});
+  if (!data[guildId]) data[guildId] = {};
+  if (!data[guildId][type]) data[guildId][type] = [];
+  const entry = { id: Date.now(), reason };
+  data[guildId][type].push(entry);
+  write(REASONS_FILE, data);
+  return entry;
+}
+
+/**
+ * Remove a preset reason by its numeric id. Returns true if removed.
+ * @param {string} guildId
+ * @param {'ban'|'kick'|'warn'} type
+ * @param {number} id
+ */
+function removePresetReason(guildId, type, id) {
+  const data = read(REASONS_FILE, {});
+  if (!data?.[guildId]?.[type]) return false;
+  const before = data[guildId][type].length;
+  data[guildId][type] = data[guildId][type].filter((r) => r.id !== id);
+  write(REASONS_FILE, data);
+  return data[guildId][type].length < before;
+}
+
+// ─── Wave Tracking ───────────────────────────────────────────────────────────
+
+const WAVES_FILE = 'waves.json';
+
+/**
+ * Get the current wave for a guild, or null if none started.
+ * @param {string} guildId
+ * @returns {{ waveNumber: number, startedAt: string, startedBy: string }|null}
+ */
+function getCurrentWave(guildId) {
+  const data = read(WAVES_FILE, {});
+  return data[guildId] ?? null;
+}
+
+/**
+ * Start a new wave for a guild.
+ * @param {string} guildId
+ * @param {string} startedBy  userId of the admin who started the wave
+ */
+function startWave(guildId, startedBy) {
+  const data = read(WAVES_FILE, {});
+  const waveNumber = (data[guildId]?.waveNumber ?? 0) + 1;
+  data[guildId] = { waveNumber, startedAt: new Date().toISOString(), startedBy };
+  write(WAVES_FILE, data);
+  return data[guildId];
+}
+
+/**
+ * Get all completed shift history records for a guild since the current wave started.
+ * If no wave is active, returns the full history.
+ * @param {string} guildId
+ * @returns {object[]}
+ */
+function getShiftsInCurrentWave(guildId) {
+  const shifts = read(SHIFTS_FILE, {});
+  const history = shifts?.[guildId]?.history ?? [];
+  const wave = getCurrentWave(guildId);
+  if (!wave) return history;
+  const since = new Date(wave.startedAt).getTime();
+  return history.filter((s) => new Date(s.startedAt).getTime() >= since);
+}
+
+/**
+ * Get total shift time (ms) for a user in the current wave.
+ * @param {string} guildId
+ * @param {string} userId
+ * @returns {number}
+ */
+function getUserShiftTimeInWave(guildId, userId) {
+  return getShiftsInCurrentWave(guildId)
+    .filter((s) => s.userId === userId)
+    .reduce((sum, s) => sum + s.durationMs, 0);
+}
+
+// ─── Server Config ───────────────────────────────────────────────────────────
+
+const CONFIG_FILE = 'config.json';
+
+/**
+ * Get the config object for a guild.
+ * @param {string} guildId
+ * @returns {object}
+ */
+function getConfig(guildId) {
+  const data = read(CONFIG_FILE, {});
+  return data[guildId] ?? {};
+}
+
+/**
+ * Set a single config key for a guild.
+ * @param {string} guildId
+ * @param {string} key
+ * @param {*} value
+ */
+function setConfig(guildId, key, value) {
+  const data = read(CONFIG_FILE, {});
+  if (!data[guildId]) data[guildId] = {};
+  data[guildId][key] = value;
+  write(CONFIG_FILE, data);
+}
+
+/**
+ * Delete a single config key for a guild.
+ * @param {string} guildId
+ * @param {string} key
+ */
+function deleteConfig(guildId, key) {
+  const data = read(CONFIG_FILE, {});
+  if (data[guildId]) {
+    delete data[guildId][key];
+    write(CONFIG_FILE, data);
+  }
+}
+
+// ─── Automod Config ───────────────────────────────────────────────────────────
+
+const AUTOMOD_FILE = 'automod.json';
+
+/**
+ * Get the full automod config for a guild.
+ * @param {string} guildId
+ * @returns {object}
+ */
+function getAutomodConfig(guildId) {
+  const data = read(AUTOMOD_FILE, {});
+  return (
+    data[guildId] ?? {
+      enabled: false,
+      categories: {},
+      punishment: 'delete',
+      timeoutDuration: 300000, // 5 minutes default
+      logChannelId: null,
+      exemptRoles: [],
+    }
+  );
+}
+
+/**
+ * Save the full automod config for a guild.
+ * @param {string} guildId
+ * @param {object} config
+ */
+function setAutomodConfig(guildId, config) {
+  const data = read(AUTOMOD_FILE, {});
+  data[guildId] = config;
+  write(AUTOMOD_FILE, data);
+}
+
+/**
+ * Toggle a specific automod category on or off.
+ * @param {string} guildId
+ * @param {string} category
+ * @param {boolean} enabled
+ */
+function setAutomodCategory(guildId, category, enabled) {
+  const config = getAutomodConfig(guildId);
+  if (!config.categories) config.categories = {};
+  config.categories[category] = enabled;
+  setAutomodConfig(guildId, config);
+}
+
+// ─── Staff Infractions ────────────────────────────────────────────────────────
+
+const INFRACTIONS_FILE = 'staff_infractions.json';
+
+/**
+ * Add a staff infraction.
+ * @param {string} guildId
+ * @param {string} staffUserId  The staff member receiving the infraction
+ * @param {object} opts
+ * @param {string} opts.issuedById   Moderator/supervisor issuing the infraction
+ * @param {string} opts.reason
+ * @param {string} opts.severity     'minor' | 'moderate' | 'severe'
+ * @param {string} [opts.action]     Any additional disciplinary action taken
+ * @returns {object} The created infraction record
+ */
+function addStaffInfraction(guildId, staffUserId, { issuedById, reason, severity, action }) {
+  const data = read(INFRACTIONS_FILE, {});
+  if (!data[guildId]) data[guildId] = {};
+  if (!data[guildId][staffUserId]) data[guildId][staffUserId] = [];
+  const record = {
+    id: Date.now(),
+    issuedById,
+    reason,
+    severity: severity ?? 'minor',
+    action: action ?? null,
+    timestamp: new Date().toISOString(),
+    active: true,
+  };
+  data[guildId][staffUserId].push(record);
+  write(INFRACTIONS_FILE, data);
+  return record;
+}
+
+/**
+ * Get all infractions for a staff member in a guild.
+ * @param {string} guildId
+ * @param {string} staffUserId
+ * @returns {object[]}
+ */
+function getStaffInfractions(guildId, staffUserId) {
+  const data = read(INFRACTIONS_FILE, {});
+  return data?.[guildId]?.[staffUserId] ?? [];
+}
+
+/**
+ * Remove/void a specific infraction by id.
+ * @param {string} guildId
+ * @param {string} staffUserId
+ * @param {number} infractionId
+ * @returns {boolean} true if removed
+ */
+function removeStaffInfraction(guildId, staffUserId, infractionId) {
+  const data = read(INFRACTIONS_FILE, {});
+  if (!data?.[guildId]?.[staffUserId]) return false;
+  const before = data[guildId][staffUserId].length;
+  data[guildId][staffUserId] = data[guildId][staffUserId].filter((i) => i.id !== infractionId);
+  write(INFRACTIONS_FILE, data);
+  return data[guildId][staffUserId].length < before;
+}
+
+/**
+ * Get all staff infraction records across all staff in a guild.
+ * @param {string} guildId
+ * @returns {object[]} Array of { staffUserId, infractions[] }
+ */
+function getAllStaffInfractions(guildId) {
+  const data = read(INFRACTIONS_FILE, {});
+  const guild = data?.[guildId] ?? {};
+  return Object.entries(guild).map(([staffUserId, infractions]) => ({ staffUserId, infractions }));
+}
+
 module.exports = {
   read,
   write,
@@ -159,4 +412,21 @@ module.exports = {
   getUserShiftHistory,
   getAllActiveShifts,
   getShiftLeaderboard,
+  getPresetReasons,
+  addPresetReason,
+  removePresetReason,
+  getCurrentWave,
+  startWave,
+  getShiftsInCurrentWave,
+  getUserShiftTimeInWave,
+  getConfig,
+  setConfig,
+  deleteConfig,
+  getAutomodConfig,
+  setAutomodConfig,
+  setAutomodCategory,
+  addStaffInfraction,
+  getStaffInfractions,
+  removeStaffInfraction,
+  getAllStaffInfractions,
 };

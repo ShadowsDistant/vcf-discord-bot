@@ -6,6 +6,7 @@ const {
 } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const { parseDuration, formatDuration } = require('../../utils/helpers');
+const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
 
 // Discord's maximum timeout duration is 28 days in ms
 const MAX_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000;
@@ -29,6 +30,14 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    // Mod-role check (Moderator level required when roles are configured)
+    if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.moderator)) {
+      return interaction.reply({
+        embeds: [embeds.error('You do not have the required moderation role to use this command.', interaction.guild)],
+        ephemeral: true,
+      });
+    }
+
     const target = interaction.options.getUser('user');
     const durationStr = interaction.options.getString('duration');
     const reason = interaction.options.getString('reason') ?? 'No reason provided.';
