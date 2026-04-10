@@ -2,7 +2,6 @@
 
 const {
   SlashCommandBuilder,
-  PermissionFlagsBits,
 } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
@@ -11,7 +10,6 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('kick')
     .setDescription('Kick a member from the server.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers)
     .addUserOption((o) =>
       o.setName('user').setDescription('The member to kick.').setRequired(true),
     )

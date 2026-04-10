@@ -2,15 +2,14 @@
 
 const {
   SlashCommandBuilder,
-  PermissionFlagsBits,
 } = require('discord.js');
 const embeds = require('../../utils/embeds');
+const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('unban')
     .setDescription('Unban a previously banned user.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
     .addStringOption((o) =>
       o
         .setName('user_id')
@@ -22,6 +21,13 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.seniorMod)) {
+      return interaction.reply({
+        embeds: [embeds.error('You do not have the required moderation role to use this command.', interaction.guild)],
+        ephemeral: true,
+      });
+    }
+
     const userId = interaction.options.getString('user_id');
     const reason = interaction.options.getString('reason') ?? 'No reason provided.';
 

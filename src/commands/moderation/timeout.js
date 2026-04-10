@@ -2,7 +2,6 @@
 
 const {
   SlashCommandBuilder,
-  PermissionFlagsBits,
 } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const { parseDuration, formatDuration } = require('../../utils/helpers');
@@ -15,7 +14,6 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('timeout')
     .setDescription('Timeout (mute) a member for a specified duration.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .addUserOption((o) =>
       o.setName('user').setDescription('The member to timeout.').setRequired(true),
     )

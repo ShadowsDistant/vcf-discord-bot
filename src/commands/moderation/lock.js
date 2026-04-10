@@ -1,13 +1,13 @@
 'use strict';
 
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const embeds = require('../../utils/embeds');
+const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('lock')
     .setDescription('Lock a channel so members cannot send messages.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
     .addChannelOption((o) =>
       o
         .setName('channel')
@@ -18,13 +18,20 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.moderator)) {
+      return interaction.reply({
+        embeds: [embeds.error('You do not have the required moderation role to use this command.', interaction.guild)],
+        ephemeral: true,
+      });
+    }
+
     const channel = interaction.options.getChannel('channel') ?? interaction.channel;
     const reason = interaction.options.getString('reason') ?? 'No reason provided.';
 
     const everyoneRole = interaction.guild.roles.everyone;
 
     const currentPerms = channel.permissionOverwrites.cache.get(everyoneRole.id);
-    if (currentPerms?.deny.has(PermissionFlagsBits.SendMessages)) {
+    if (currentPerms?.deny.has('SendMessages')) {
       return interaction.reply({
         embeds: [embeds.warning(`${channel} is already locked.`, interaction.guild)],
         ephemeral: true,

@@ -2,15 +2,14 @@
 
 const {
   SlashCommandBuilder,
-  PermissionFlagsBits,
 } = require('discord.js');
 const embeds = require('../../utils/embeds');
+const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('purge')
     .setDescription('Bulk-delete messages from the current channel.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
     .addIntegerOption((o) =>
       o
         .setName('amount')
@@ -24,6 +23,13 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.moderator)) {
+      return interaction.reply({
+        embeds: [embeds.error('You do not have the required moderation role to use this command.', interaction.guild)],
+        ephemeral: true,
+      });
+    }
+
     const amount = interaction.options.getInteger('amount');
     const filterUser = interaction.options.getUser('user');
 

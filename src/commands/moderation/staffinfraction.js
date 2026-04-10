@@ -1,6 +1,6 @@
 'use strict';
 
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { hasModLevel, hasSidRole, MOD_LEVEL } = require('../../utils/permissions');
@@ -26,7 +26,6 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('staffinfraction')
     .setDescription('Manage staff infractions for the team.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
 
     // ── Issue an infraction ───────────────────────────────────────────────────
     .addSubcommand((sub) =>
@@ -150,7 +149,7 @@ module.exports = {
       if (!isConfiguredStaffMember(staffMember, guildId)) {
         return interaction.reply({
           embeds: [
-              embeds.error(
+            embeds.error(
               'That user is not part of the staff team.',
               interaction.guild,
             ),

@@ -41,12 +41,13 @@ for (const commandPath of collectCommandFiles(commandsPath)) {
     }
   } catch (err) {
     commandLoadErrors.push({ file, error: err.stack || err.message });
-    console.warn(`  ⚠  Skipping ${file}: failed to load command module.`);
-    console.warn(`     ${err.stack || err.message}`);
   }
 }
 
 if (commandLoadErrors.length > 0) {
+  for (const { file, error } of commandLoadErrors) {
+    console.error(`   • ${file}\n${error}`);
+  }
   console.error(`❌  ${commandLoadErrors.length} command module(s) failed to load. Aborting deployment.`);
   process.exit(1);
 }
@@ -81,8 +82,12 @@ const rest = new REST().setToken(DISCORD_TOKEN);
     if (missing.length > 0) {
       console.warn(`⚠  ${missing.length} command(s) missing after bulk deploy: ${missing.join(', ')}`);
       for (const command of commands.filter((c) => missing.includes(c.name))) {
-        await rest.post(route, { body: command });
-        console.log(`  ↳ Re-registered missing command: /${command.name}`);
+        try {
+          await rest.post(route, { body: command });
+          console.log(`  ↳ Re-registered missing command: /${command.name}`);
+        } catch (err) {
+          console.error(`  ✗ Failed to re-register /${command.name}: ${err.message}`);
+        }
       }
     }
 

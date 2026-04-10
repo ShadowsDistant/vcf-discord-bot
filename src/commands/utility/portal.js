@@ -12,6 +12,14 @@ const {
   hasModerationAccessRole,
 } = require('../../utils/roles');
 
+function getTimeGreeting(date = new Date()) {
+  const hour = date.getHours();
+  if (hour >= 5 && hour < 12) return { emoji: '🌅', text: 'Good Morning' };
+  if (hour >= 12 && hour < 17) return { emoji: '🌤️', text: 'Good Afternoon' };
+  if (hour >= 17 && hour < 22) return { emoji: '🌆', text: 'Good Evening' };
+  return { emoji: '🌙', text: 'Good Night' };
+}
+
 function mentionsForRole(guild, roleId) {
   const role = guild.roles.cache.get(roleId);
   if (!role) return 'Not found';
@@ -46,9 +54,13 @@ module.exports = {
     const embed = embeds
       .base(interaction.guild)
       .setTitle('  Department Portal')
-      .setDescription(
-        `Hello ${interaction.user}, here are your department details and handbooks.`,
-      );
+      .setDescription('');
+
+    const greeting = getTimeGreeting();
+    embed.addFields({
+      name: `${greeting.emoji} ${greeting.text}, ${interaction.user.username}`,
+      value: 'Here are your department details and handbook links.',
+    });
 
     for (const department of departments) {
       const managerMentions = mentionsForRole(interaction.guild, department.managerRoleId);

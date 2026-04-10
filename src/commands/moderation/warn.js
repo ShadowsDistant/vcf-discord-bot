@@ -2,7 +2,6 @@
 
 const {
   SlashCommandBuilder,
-  PermissionFlagsBits,
 } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
@@ -12,7 +11,6 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('warn')
     .setDescription('Issue a warning to a member.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .addUserOption((o) =>
       o.setName('user').setDescription('The member to warn.').setRequired(true),
     )

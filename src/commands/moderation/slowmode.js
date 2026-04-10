@@ -1,7 +1,8 @@
 'use strict';
 
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder } = require('discord.js');
 const embeds = require('../../utils/embeds');
+const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
 
 /** Format a slowmode delay in seconds to a human-readable string. */
 function formatSlowmode(seconds) {
@@ -22,7 +23,6 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('slowmode')
     .setDescription('Set the slowmode delay for a channel.')
-    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
     .addIntegerOption((o) =>
       o
         .setName('seconds')
@@ -38,6 +38,13 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.moderator)) {
+      return interaction.reply({
+        embeds: [embeds.error('You do not have the required moderation role to use this command.', interaction.guild)],
+        ephemeral: true,
+      });
+    }
+
     const seconds = interaction.options.getInteger('seconds');
     const channel = interaction.options.getChannel('channel') ?? interaction.channel;
 

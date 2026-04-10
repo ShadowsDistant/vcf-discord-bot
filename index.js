@@ -55,12 +55,13 @@ for (const commandPath of collectCommandFiles(commandsPath)) {
     }
   } catch (err) {
     commandLoadErrors.push({ file, error: err.stack || err.message });
-    console.warn(`  ⚠  Skipping ${file}: failed to load command module.`);
-    console.warn(`     ${err.stack || err.message}`);
   }
 }
 
 if (commandLoadErrors.length > 0) {
+  for (const { file, error } of commandLoadErrors) {
+    console.error(`   • ${file}\n${error}`);
+  }
   console.error(`❌  ${commandLoadErrors.length} command module(s) failed to load. Exiting.`);
   process.exit(1);
 }
