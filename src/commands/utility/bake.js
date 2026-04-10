@@ -220,7 +220,13 @@ function formatChance(weight) {
 
 function makeSmallImageUrl(url) {
   if (!url) return null;
-  return url.replace('/revision/latest?', '/revision/latest/scale-to-width-down/128?');
+  if (url.includes('/revision/latest?')) {
+    return url.replace('/revision/latest?', '/revision/latest/scale-to-width-down/128?');
+  }
+  if (url.includes('/revision/latest')) {
+    return url.replace('/revision/latest', '/revision/latest/scale-to-width-down/128');
+  }
+  return url;
 }
 
 module.exports = {
