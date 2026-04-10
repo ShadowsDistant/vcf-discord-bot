@@ -5,6 +5,7 @@ const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { formatDuration } = require('../../utils/helpers');
 const { PALETTE } = require('../../utils/embeds');
+const { hasShiftAccessRole } = require('../../utils/roles');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -13,6 +14,18 @@ module.exports = {
     .setDMPermission(false),
 
   async execute(interaction) {
+    if (!hasShiftAccessRole(interaction.member)) {
+      return interaction.reply({
+        embeds: [
+          embeds.error(
+            'You do not have the required role access to use shift commands.',
+            interaction.guild,
+          ),
+        ],
+        ephemeral: true,
+      });
+    }
+
     const record = db.endShift(interaction.guild.id, interaction.user.id);
 
     if (!record) {

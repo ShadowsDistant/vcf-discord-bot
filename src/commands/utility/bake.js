@@ -212,7 +212,7 @@ module.exports = {
       value: `*${quote}*`,
     });
     if (cookie.image) {
-      embed.setThumbnail(cookie.image);
+      embed.setImage(cookie.image);
     }
 
     return interaction.reply({

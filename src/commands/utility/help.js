@@ -5,12 +5,23 @@ const { PALETTE, error: embedError } = require('../../utils/embeds');
 const path = require('path');
 const fs = require('fs');
 const {
-  hasModerationAccessRole,
-  hasManagementAccessRole,
+  hasShiftAccessRole,
+  memberHasAnyRole,
+  ALL_STAFF_ROLE_IDS,
   isDevUser,
 } = require('../../utils/roles');
+const { hasModLevel, hasSidRole, MOD_LEVEL } = require('../../utils/permissions');
 
-const MANAGEMENT_COMMANDS = new Set(['shiftmanage', 'shiftwave', 'automod', 'reasons']);
+const SENIOR_MOD_COMMANDS = new Set(['ban', 'unban']);
+const SHIFT_COMMANDS = new Set([
+  'startshift',
+  'endshift',
+  'shiftstatus',
+  'shiftlog',
+  'shifthistory',
+  'shiftleaderboard',
+  'shiftroles',
+]);
 const MODERATION_RANK_BY_COMMAND = {
   ban: 'Senior Moderator+',
   unban: 'Senior Moderator+',
@@ -31,6 +42,44 @@ const MODERATION_RANK_BY_COMMAND = {
   role: 'Junior Moderator+',
 };
 
+function resolveCommandFolder(commandName) {
+  const commandsPath = path.join(__dirname, '..');
+  for (const folder of fs.readdirSync(commandsPath)) {
+    const folderPath = path.join(commandsPath, folder);
+    if (!fs.statSync(folderPath).isDirectory()) continue;
+    if (fs.existsSync(path.join(folderPath, `${commandName}.js`))) return folder;
+  }
+  return null;
+}
+
+function canUseCommand(interaction, commandName, folder, canSeeDev) {
+  if (folder === 'dev') return canSeeDev;
+  if (SHIFT_COMMANDS.has(commandName)) return hasShiftAccessRole(interaction.member);
+  if (commandName === 'shiftmanage' || commandName === 'shiftwave') {
+    return hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.management);
+  }
+  if (folder === 'moderation') {
+    if (commandName === 'staffinfraction') {
+      return (
+        hasSidRole(interaction.member, interaction.guild.id)
+        || hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.management)
+      );
+    }
+    const required = SENIOR_MOD_COMMANDS.has(commandName) ? MOD_LEVEL.seniorMod : MOD_LEVEL.moderator;
+    return hasModLevel(interaction.member, interaction.guild.id, required);
+  }
+  if (commandName === 'automod') {
+    return hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.seniorMod);
+  }
+  if (commandName === 'rblxsearch') {
+    return hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.moderator);
+  }
+  if (commandName === 'portal') {
+    return memberHasAnyRole(interaction.member, ALL_STAFF_ROLE_IDS);
+  }
+  return true;
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('help')
@@ -44,8 +93,6 @@ module.exports = {
 
   async execute(interaction) {
     const commandName = interaction.options.getString('command');
-    const canSeeModeration = hasModerationAccessRole(interaction.member);
-    const canSeeManagement = hasManagementAccessRole(interaction.member);
     const canSeeDev = isDevUser(interaction.user.id);
 
     if (commandName) {
@@ -57,21 +104,8 @@ module.exports = {
         });
       }
 
-      if (MANAGEMENT_COMMANDS.has(cmd.data.name) && !canSeeManagement) {
-        return interaction.reply({
-          embeds: [embedError('No command with that name was found.', interaction.guild)],
-          ephemeral: true,
-        });
-      }
-      const modCommandPath = path.join(__dirname, '..', 'moderation', `${cmd.data.name}.js`);
-      if (fs.existsSync(modCommandPath) && !canSeeModeration) {
-        return interaction.reply({
-          embeds: [embedError('No command with that name was found.', interaction.guild)],
-          ephemeral: true,
-        });
-      }
-      const devCommandPath = path.join(__dirname, '..', 'dev', `${cmd.data.name}.js`);
-      if (fs.existsSync(devCommandPath) && !canSeeDev) {
+      const folder = resolveCommandFolder(cmd.data.name);
+      if (!folder || !canUseCommand(interaction, cmd.data.name, folder, canSeeDev)) {
         return interaction.reply({
           embeds: [embedError('No command with that name was found.', interaction.guild)],
           ephemeral: true,
@@ -94,21 +128,20 @@ module.exports = {
     // Group commands by category (folder name)
     const categories = {};
     const commandsPath = path.join(__dirname, '..');
+    let visibleCommandCount = 0;
 
     for (const folder of fs.readdirSync(commandsPath)) {
-      if (folder === 'moderation' && !canSeeModeration) continue;
-      if (folder === 'dev' && !canSeeDev) continue;
-
       const folderPath = path.join(commandsPath, folder);
       if (!fs.statSync(folderPath).isDirectory()) continue;
 
       const cmds = interaction.client.commands.filter((_v, k) => {
-        if (MANAGEMENT_COMMANDS.has(k) && !canSeeManagement) return false;
         const cmdPath = path.join(folderPath, `${k}.js`);
-        return fs.existsSync(cmdPath);
+        if (!fs.existsSync(cmdPath)) return false;
+        return canUseCommand(interaction, k, folder, canSeeDev);
       });
 
       if (cmds.size > 0) {
+        visibleCommandCount += cmds.size;
         categories[folder] = cmds
           .map((c) => {
             const rank = folder === 'moderation' ? ` *(Rank: ${MODERATION_RANK_BY_COMMAND[c.data.name] ?? 'Junior Moderator+'})*` : '';
@@ -132,7 +165,7 @@ module.exports = {
       .setDescription('Here is a list of all available commands.')
       .setTimestamp()
       .setFooter({
-        text: `${interaction.client.commands.size} commands total · ${interaction.guild.name}`,
+        text: `${visibleCommandCount} command${visibleCommandCount === 1 ? '' : 's'} total · ${interaction.guild.name}`,
         iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined,
       });
 

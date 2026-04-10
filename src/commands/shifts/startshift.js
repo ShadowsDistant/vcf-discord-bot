@@ -4,7 +4,7 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { PALETTE } = require('../../utils/embeds');
-const { ROLE_IDS } = require('../../utils/roles');
+const { hasShiftAccessRole } = require('../../utils/roles');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -15,11 +15,11 @@ module.exports = {
   async execute(interaction) {
     const config = db.getConfig(interaction.guild.id);
 
-    if (!interaction.member.roles.cache.has(ROLE_IDS.moderationAccess)) {
+    if (!hasShiftAccessRole(interaction.member)) {
       return interaction.reply({
         embeds: [
           embeds.error(
-            'You do not have the required role to start a shift.',
+            'You do not have the required role access to start a shift.',
             interaction.guild,
           ),
         ],

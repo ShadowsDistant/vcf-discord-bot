@@ -108,6 +108,14 @@ function hasManagementAccessRole(member) {
   return [...ROLE_IDS.helpManagementAccess].some((id) => member.roles.cache.has(id));
 }
 
+function hasLeadOverseerRole(member) {
+  return member.roles.cache.has(ROLE_IDS.leadOverseer);
+}
+
+function hasShiftAccessRole(member) {
+  return hasModerationAccessRole(member) || hasManagementAccessRole(member) || hasLeadOverseerRole(member);
+}
+
 function isDevUser(userId) {
   return userId === '757698506411475005';
 }
@@ -126,5 +134,7 @@ module.exports = {
   getMemberDepartments,
   hasModerationAccessRole,
   hasManagementAccessRole,
+  hasLeadOverseerRole,
+  hasShiftAccessRole,
   isDevUser,
 };
