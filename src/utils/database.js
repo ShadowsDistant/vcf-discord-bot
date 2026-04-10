@@ -147,6 +147,101 @@ function getShiftLeaderboard(guildId) {
   return Object.values(totals).sort((a, b) => b.totalMs - a.totalMs);
 }
 
+// ─── Preset Reasons ──────────────────────────────────────────────────────────
+
+const REASONS_FILE = 'reasons.json';
+
+/** Get all preset reasons for a guild and action type ('ban'|'kick'|'warn'). */
+function getPresetReasons(guildId, type) {
+  const data = read(REASONS_FILE, {});
+  return data?.[guildId]?.[type] ?? [];
+}
+
+/**
+ * Add a preset reason. Returns the created entry { id, reason }.
+ * @param {string} guildId
+ * @param {'ban'|'kick'|'warn'} type
+ * @param {string} reason
+ */
+function addPresetReason(guildId, type, reason) {
+  const data = read(REASONS_FILE, {});
+  if (!data[guildId]) data[guildId] = {};
+  if (!data[guildId][type]) data[guildId][type] = [];
+  const entry = { id: Date.now(), reason };
+  data[guildId][type].push(entry);
+  write(REASONS_FILE, data);
+  return entry;
+}
+
+/**
+ * Remove a preset reason by its numeric id. Returns true if removed.
+ * @param {string} guildId
+ * @param {'ban'|'kick'|'warn'} type
+ * @param {number} id
+ */
+function removePresetReason(guildId, type, id) {
+  const data = read(REASONS_FILE, {});
+  if (!data?.[guildId]?.[type]) return false;
+  const before = data[guildId][type].length;
+  data[guildId][type] = data[guildId][type].filter((r) => r.id !== id);
+  write(REASONS_FILE, data);
+  return data[guildId][type].length < before;
+}
+
+// ─── Wave Tracking ───────────────────────────────────────────────────────────
+
+const WAVES_FILE = 'waves.json';
+
+/**
+ * Get the current wave for a guild, or null if none started.
+ * @param {string} guildId
+ * @returns {{ waveNumber: number, startedAt: string, startedBy: string }|null}
+ */
+function getCurrentWave(guildId) {
+  const data = read(WAVES_FILE, {});
+  return data[guildId] ?? null;
+}
+
+/**
+ * Start a new wave for a guild.
+ * @param {string} guildId
+ * @param {string} startedBy  userId of the admin who started the wave
+ */
+function startWave(guildId, startedBy) {
+  const data = read(WAVES_FILE, {});
+  const waveNumber = (data[guildId]?.waveNumber ?? 0) + 1;
+  data[guildId] = { waveNumber, startedAt: new Date().toISOString(), startedBy };
+  write(WAVES_FILE, data);
+  return data[guildId];
+}
+
+/**
+ * Get all completed shift history records for a guild since the current wave started.
+ * If no wave is active, returns the full history.
+ * @param {string} guildId
+ * @returns {object[]}
+ */
+function getShiftsInCurrentWave(guildId) {
+  const shifts = read(SHIFTS_FILE, {});
+  const history = shifts?.[guildId]?.history ?? [];
+  const wave = getCurrentWave(guildId);
+  if (!wave) return history;
+  const since = new Date(wave.startedAt).getTime();
+  return history.filter((s) => new Date(s.startedAt).getTime() >= since);
+}
+
+/**
+ * Get total shift time (ms) for a user in the current wave.
+ * @param {string} guildId
+ * @param {string} userId
+ * @returns {number}
+ */
+function getUserShiftTimeInWave(guildId, userId) {
+  return getShiftsInCurrentWave(guildId)
+    .filter((s) => s.userId === userId)
+    .reduce((sum, s) => sum + s.durationMs, 0);
+}
+
 // ─── Server Config ───────────────────────────────────────────────────────────
 
 const CONFIG_FILE = 'config.json';
@@ -199,6 +294,13 @@ module.exports = {
   getUserShiftHistory,
   getAllActiveShifts,
   getShiftLeaderboard,
+  getPresetReasons,
+  addPresetReason,
+  removePresetReason,
+  getCurrentWave,
+  startWave,
+  getShiftsInCurrentWave,
+  getUserShiftTimeInWave,
   getConfig,
   setConfig,
   deleteConfig,

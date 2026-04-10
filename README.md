@@ -32,12 +32,13 @@ A modern, feature-rich Discord bot built with **discord.js v14** featuring advan
 
 | Category | Highlights |
 |---|---|
-| 🛡️ **Moderation** | Ban, kick, timeout, warn system, purge, lock/unlock channels, slowmode, role management |
+| 🛡️ **Moderation** | Ban, kick, timeout, warn system, purge, lock/unlock channels, slowmode, role management — with optional mod-role permission levels |
 | 🔧 **Utility** | Ping, userinfo, serverinfo, avatar, botinfo, help |
-| 🕐 **Shifts** | Clock-in/out, shift history, active shifts list, leaderboard |
-| ⚙️ **Setup** | Admin-only server configuration (mod logs, welcome messages) |
+| 🕐 **Shifts** | Clock-in/out, staff-role gate, shift history, wave period tracking, quota requirements, DMs on start/end, wave-end mass DM |
+| ⚙️ **Setup** | Admin-only server configuration (mod logs, welcome, staff roles, mod permission levels, quota, shift DMs) |
+| 📋 **Reasons** | Per-server preset ban/kick/warn reasons with autocomplete in mod commands |
 | 👨‍💻 **Developer** | Set bot presence, list guilds, broadcast announcements |
-| 🎨 **Embeds** | Colour-coded, titled embeds for all responses; welcome DM on member join |
+| 🎨 **Embeds** | Colour-coded, titled embeds for all responses; welcome DM on member join; quota notifications |
 
 ---
 
@@ -267,14 +268,16 @@ List all available commands grouped by category, or get detailed info on a speci
 
 ### 🕐 Shifts
 
-The shift system allows staff members to clock in and out, tracking their on-duty time persistently per server.
+The shift system allows staff members to clock in and out, tracking their on-duty time persistently per server. Staff-role restrictions, shift DMs, wave periods, and quota requirements are all configurable via `/setup`.
 
 ---
 
 #### `/startshift`
 Clock in and begin your shift. Records your start time.
 
-> Returns a warning if you are already on an active shift.
+> Returns a warning if you are already on an active shift.  
+> If staff roles are configured, only users with a staff role may clock in.  
+> If shift DMs are enabled, the user receives a DM with clock-in details.
 
 ---
 
@@ -282,8 +285,25 @@ Clock in and begin your shift. Records your start time.
 Clock out and end your current shift. Displays:
 - Shift duration
 - Start and end timestamps
-- Cumulative total time across all completed shifts
-- Total number of shifts completed
+- Cumulative total time
+- Current wave time (if a wave is active)
+
+If shift DMs are enabled, the user receives a detailed DM summary including recent shift history and wave quota progress.  
+If a quota is configured and the user just met it this shift, a notification is sent to the quota notification channel.
+
+---
+
+#### `/shiftwave start`
+Start a new wave period (**Administrator** only). Quota tracking resets to this point in time.
+
+#### `/shiftwave end`
+Close the current wave (**Administrator** only). The bot:
+1. Posts a summary embed to the channel with a wave leaderboard and quota pass/fail counts
+2. DMs every staff member who had a shift in the wave with their personal summary and quota status
+3. Automatically starts Wave N+1
+
+#### `/shiftwave status`
+View the current wave number, elapsed time, participant count, and live leaderboard.
 
 ---
 
@@ -304,7 +324,7 @@ Shows: total shifts completed, total time on record, current shift status, last 
 ---
 
 #### `/shiftleaderboard`
-View the top 10 staff members ranked by total shift time. If you are outside the top 10, your personal rank is appended below.
+View the top 10 staff members ranked by all-time shift time. If you are outside the top 10, your personal rank is appended below.
 
 ---
 
@@ -346,11 +366,79 @@ Disable mod-log messages for this server.
 ---
 
 #### `/setup view`
-View the current bot configuration for this server, including the configured mod log channel and welcome channel/message.
+View the full bot configuration for this server: mod log, welcome, shift DMs, staff roles, mod roles, and quota settings.
 
 ---
 
-### 👨‍💻 Developer
+#### `/setup staffroles add <role>`
+Allow a role to use the shift system (`/startshift` / `/endshift`).
+
+| Option | Type | Required | Description |
+|---|---|---|---|
+| `role` | Role | ✅ | The role to add as a staff role |
+
+#### `/setup staffroles remove <role>`
+Remove a role from the staff-roles list.
+
+#### `/setup staffroles list`
+List all configured staff roles.
+
+> If no staff roles are configured, the shift system is accessible to everyone.
+
+---
+
+#### `/setup modroles set <level> <role>`
+Assign a Discord role to a moderation permission level.
+
+| Option | Type | Required | Description |
+|---|---|---|---|
+| `level` | Choice | ✅ | `Moderator`, `Senior Moderator`, or `Management` |
+| `role` | Role | ✅ | The role to assign |
+
+Permission hierarchy:
+- **Moderator** — warn, kick, timeout, lock/unlock, slowmode, purge
+- **Senior Moderator** — ban, unban + all Moderator commands
+- **Management** — all commands
+
+When mod roles are configured, users must hold the appropriate role (or higher) to use commands. Higher roles always satisfy lower-level checks.
+
+#### `/setup modroles clear <level>`
+Remove the role assignment for a moderation level.
+
+#### `/setup modroles view`
+View the current mod-role assignments.
+
+---
+
+#### `/setup quota set <hours> [period]`
+Set the minimum required shift time per wave period.
+
+| Option | Type | Required | Description |
+|---|---|---|---|
+| `hours` | Integer (1–168) | ✅ | Required hours per wave |
+| `period` | Choice | ❌ | `Weekly`, `Bi-weekly`, or `Monthly` (label only) |
+
+#### `/setup quota notify <channel>`
+Set the text channel where quota-completion notifications are posted.
+
+#### `/setup quota disable`
+Disable quota requirements.
+
+#### `/setup quota view`
+View the current quota configuration.
+
+---
+
+#### `/setup shiftdm <enabled>`
+Toggle whether the bot DMs staff members when they clock in or out.
+
+| Option | Type | Required | Description |
+|---|---|---|---|
+| `enabled` | Boolean | ✅ | `true` = send DMs, `false` = no DMs |
+
+---
+
+### 📋 Reasons
 
 Developer commands are restricted to the user whose ID is set in the `DEV_USER_ID` environment variable. Any other user will receive an ephemeral error embed.
 
@@ -511,7 +599,9 @@ Data is stored as plain JSON files inside `src/data/` (auto-created, git-ignored
 |---|---|
 | `warnings.json` | Per-guild, per-user warning records (moderator, reason, timestamp) |
 | `shifts.json` | Per-guild active shifts and completed shift history |
-| `config.json` | Per-guild bot configuration (log channel, welcome channel/message) |
+| `config.json` | Per-guild bot configuration (log channel, welcome channel/message, staff roles, mod roles, quota, shift DM toggle) |
+| `reasons.json` | Per-guild preset ban/kick/warn reasons |
+| `waves.json` | Per-guild wave tracking (current wave number, start date) |
 
 All reads and writes go through `src/utils/database.js` which provides a simple key/value interface on top of the JSON files.
 
@@ -524,12 +614,12 @@ vcf-discord-bot/
 ├── src/
 │   ├── commands/
 │   │   ├── moderation/
-│   │   │   ├── ban.js            # /ban
+│   │   │   ├── ban.js            # /ban (autocomplete reasons, mod-role check)
 │   │   │   ├── unban.js          # /unban
-│   │   │   ├── kick.js           # /kick
-│   │   │   ├── timeout.js        # /timeout
+│   │   │   ├── kick.js           # /kick (autocomplete reasons, mod-role check)
+│   │   │   ├── timeout.js        # /timeout (mod-role check)
 │   │   │   ├── untimeout.js      # /untimeout
-│   │   │   ├── warn.js           # /warn
+│   │   │   ├── warn.js           # /warn (autocomplete reasons, mod-role check)
 │   │   │   ├── warnings.js       # /warnings
 │   │   │   ├── clearwarnings.js  # /clearwarnings
 │   │   │   ├── purge.js          # /purge
@@ -545,28 +635,36 @@ vcf-discord-bot/
 │   │   │   ├── botinfo.js        # /botinfo
 │   │   │   └── help.js           # /help
 │   │   ├── shifts/
-│   │   │   ├── startshift.js     # /startshift
-│   │   │   ├── endshift.js       # /endshift
+│   │   │   ├── startshift.js     # /startshift (staff-role gate, DM on start)
+│   │   │   ├── endshift.js       # /endshift (DM on end, quota notification)
+│   │   │   ├── shiftwave.js      # /shiftwave start|end|status
 │   │   │   ├── shiftlog.js       # /shiftlog active|user
 │   │   │   └── shiftleaderboard.js # /shiftleaderboard
 │   │   ├── setup/
-│   │   │   └── setup.js          # /setup logs|welcome|removewelcome|removelogs|view
+│   │   │   ├── setup.js          # /setup logs|welcome|removewelcome|removelogs|view|shiftdm
+│   │   │   │                     #         staffroles add|remove|list
+│   │   │   │                     #         modroles set|clear|view
+│   │   │   │                     #         quota set|notify|disable|view
+│   │   │   └── reasons.js        # /reasons add|remove|list
 │   │   └── dev/
 │   │       ├── setstatus.js      # /setstatus  (dev only)
 │   │       ├── servers.js        # /servers    (dev only)
 │   │       └── announce.js       # /announce   (dev only)
 │   ├── events/
 │   │   ├── ready.js              # Sets initial presence on login
-│   │   ├── interactionCreate.js  # Routes slash command interactions
+│   │   ├── interactionCreate.js  # Routes slash commands + autocomplete handler
 │   │   └── guildMemberAdd.js     # Sends welcome embed on member join
 │   ├── utils/
 │   │   ├── embeds.js             # Embed factory (success, error, warning, info, shift, setup, dev, modAction)
-│   │   ├── database.js           # JSON persistence (warnings, shifts, config)
+│   │   ├── database.js           # JSON persistence (warnings, shifts, config, reasons, waves)
+│   │   ├── permissions.js        # hasModLevel() — mod-role permission checking utility
 │   │   └── helpers.js            # Duration parsing/formatting, string truncation
 │   └── data/                     # Auto-created JSON data files (gitignored)
 │       ├── warnings.json
 │       ├── shifts.json
-│       └── config.json
+│       ├── config.json
+│       ├── reasons.json
+│       └── waves.json
 ├── index.js                      # Bot entry point — loads commands, events, logs in
 ├── deploy-commands.js            # Slash command deployment script
 ├── .env.example                  # Environment variable template

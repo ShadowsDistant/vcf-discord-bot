@@ -7,7 +7,7 @@ const {
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { formatDuration } = require('../../utils/helpers');
-const { PALETTE } = require('../../utils/embeds');
+const { PALETTE } = embeds;
 
 const MEDALS = ['🥇', '🥈', '🥉'];
 
