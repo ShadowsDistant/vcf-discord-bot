@@ -9,7 +9,7 @@ const {
 const embeds = require('../../utils/embeds');
 const {
   getMemberDepartments,
-  hasModerationAccessRole,
+  hasShiftAccessRole,
   memberHasAnyRole,
   ALL_STAFF_ROLE_IDS,
 } = require('../../utils/roles');
@@ -116,7 +116,7 @@ module.exports = {
       components.push(new ActionRowBuilder().addComponents(resourceButtons.slice(0, 5)));
     }
 
-    if (hasModerationAccessRole(interaction.member)) {
+    if (hasShiftAccessRole(interaction.member)) {
       const history = db.getUserShiftHistory(interaction.guild.id, interaction.user.id);
       const totalMs = history.reduce((sum, shift) => sum + shift.durationMs, 0);
       const active = db.getActiveShift(interaction.guild.id, interaction.user.id);

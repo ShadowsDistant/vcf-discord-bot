@@ -4,6 +4,7 @@ const { SlashCommandBuilder } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { formatDuration } = require('../../utils/helpers');
+const { hasShiftAccessRole } = require('../../utils/roles');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -15,6 +16,18 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    if (!hasShiftAccessRole(interaction.member)) {
+      return interaction.reply({
+        embeds: [
+          embeds.error(
+            'You do not have the required role access to use shift commands.',
+            interaction.guild,
+          ),
+        ],
+        ephemeral: true,
+      });
+    }
+
     const target = interaction.options.getUser('user') ?? interaction.user;
     const active = db.getActiveShift(interaction.guild.id, target.id);
 

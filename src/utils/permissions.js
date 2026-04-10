@@ -3,9 +3,9 @@
 const {
   MODERATION_ROLE_IDS,
   SID_ROLE_IDS,
-  MANAGEMENT_ROLE_IDS,
   ROLE_IDS,
 } = require('./roles');
+const db = require('./database');
 
 /**
  * Moderation permission levels.
@@ -28,18 +28,28 @@ const MOD_LEVEL = {
  * @returns {boolean}
  */
 function hasModLevel(member, _guildId, requiredLevel) {
-  const hasManagementRole = [...MANAGEMENT_ROLE_IDS].some((id) => member.roles.cache.has(id));
+  const hasLeadOverseerRole = member.roles.cache.has(ROLE_IDS.leadOverseer);
+  const hasNonLeadManagementRole = [...ROLE_IDS.helpManagementAccess]
+    .filter((id) => id !== ROLE_IDS.leadOverseer)
+    .some((id) => member.roles.cache.has(id));
+  const managementPermissionMode = db.getConfig(_guildId).oversightManagementPermissionMode === 'MODERATOR';
+  const hasManagementAllAccess = hasLeadOverseerRole
+    || (!managementPermissionMode && hasNonLeadManagementRole);
 
   if (requiredLevel <= MOD_LEVEL.moderator) {
-    return hasManagementRole || [...MODERATION_ROLE_IDS].some((id) => member.roles.cache.has(id));
+    return (
+      hasManagementAllAccess
+      || (managementPermissionMode && hasNonLeadManagementRole)
+      || [...MODERATION_ROLE_IDS].some((id) => member.roles.cache.has(id))
+    );
   }
   if (requiredLevel <= MOD_LEVEL.seniorMod) {
     return (
-      hasManagementRole
+      hasManagementAllAccess
       || member.roles.cache.has(ROLE_IDS.moderation.seniorModerator)
     );
   }
-  return hasManagementRole;
+  return hasManagementAllAccess;
 }
 
 /**

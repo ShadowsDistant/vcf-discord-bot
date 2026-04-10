@@ -33,6 +33,10 @@ const MODERATION_ROLE_IDS = new Set(Object.values(ROLE_IDS.moderation));
 const SID_ROLE_IDS = new Set(Object.values(ROLE_IDS.sid));
 const OSC_ROLE_IDS = new Set(Object.values(ROLE_IDS.osc));
 const FACILITY_ROLE_IDS = new Set(Object.values(ROLE_IDS.facility));
+const DEVELOPMENT_ROLE_IDS = new Set([
+  ROLE_IDS.facility.developmentManager,
+  ROLE_IDS.facility.assistantDevelopmentManager,
+]);
 const ALL_STAFF_ROLE_IDS = new Set([
   ...MODERATION_ROLE_IDS,
   ...SID_ROLE_IDS,
@@ -58,8 +62,8 @@ const DEPARTMENTS = {
     key: 'moderation',
     title: 'Moderation',
     roleIds: MODERATION_ROLE_IDS,
-    managerRoleId: ROLE_IDS.moderation.seniorModerator,
-    assistantManagerRoleId: ROLE_IDS.moderation.moderator,
+    managerRoleId: ROLE_IDS.facility.internalOperationsManager,
+    assistantManagerRoleId: ROLE_IDS.facility.assistantInternalOperationsManager,
     description: 'Handles community moderation, enforcement, and safety operations.',
     handbook: 'https://docs.valleycorrectional.xyz/internal-documents/moderation-division-handbook',
   },
@@ -67,8 +71,8 @@ const DEPARTMENTS = {
     key: 'sid',
     title: 'Specialized Investigations Division (SID)',
     roleIds: SID_ROLE_IDS,
-    managerRoleId: ROLE_IDS.sid.leadInvestigator,
-    assistantManagerRoleId: ROLE_IDS.sid.seniorInvestigator,
+    managerRoleId: ROLE_IDS.facility.internalOperationsManager,
+    assistantManagerRoleId: ROLE_IDS.facility.assistantInternalOperationsManager,
     description: 'Conducts investigations, evidence reviews, and specialized internal cases.',
     handbook: 'https://docs.valleycorrectional.xyz/internal-documents/specialized-investigations-division-handbook',
   },
@@ -81,13 +85,13 @@ const DEPARTMENTS = {
     description: 'Provides oversight, accountability, and high-level governance for operations.',
     handbook: 'https://docs.valleycorrectional.xyz/internal-documents/oversight-committee',
   },
-  facility: {
-    key: 'facility',
-    title: 'Facility Management',
-    roleIds: FACILITY_ROLE_IDS,
-    managerRoleId: ROLE_IDS.facility.communityManager,
-    assistantManagerRoleId: ROLE_IDS.facility.assistantCommunityManager,
-    description: 'Leads management operations across community, internal operations, administration, and development.',
+  development: {
+    key: 'development',
+    title: 'Development',
+    roleIds: DEVELOPMENT_ROLE_IDS,
+    managerRoleId: ROLE_IDS.facility.developmentManager,
+    assistantManagerRoleId: ROLE_IDS.facility.assistantDevelopmentManager,
+    description: 'Builds and maintains internal systems, bots, and technical tooling.',
     handbook: 'https://docs.valleycorrectional.xyz/internal-documents/management-division-handbook',
   },
 };
@@ -108,6 +112,14 @@ function hasManagementAccessRole(member) {
   return [...ROLE_IDS.helpManagementAccess].some((id) => member.roles.cache.has(id));
 }
 
+function hasLeadOverseerRole(member) {
+  return member.roles.cache.has(ROLE_IDS.leadOverseer);
+}
+
+function hasShiftAccessRole(member) {
+  return hasModerationAccessRole(member) || hasManagementAccessRole(member);
+}
+
 function isDevUser(userId) {
   return userId === '757698506411475005';
 }
@@ -118,6 +130,7 @@ module.exports = {
   SID_ROLE_IDS,
   OSC_ROLE_IDS,
   FACILITY_ROLE_IDS,
+  DEVELOPMENT_ROLE_IDS,
   ALL_STAFF_ROLE_IDS,
   MANAGEMENT_ROLE_IDS,
   MODERATION_RANK_LABELS,
@@ -126,5 +139,7 @@ module.exports = {
   getMemberDepartments,
   hasModerationAccessRole,
   hasManagementAccessRole,
+  hasLeadOverseerRole,
+  hasShiftAccessRole,
   isDevUser,
 };
