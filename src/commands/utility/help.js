@@ -1,7 +1,7 @@
 'use strict';
 
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
-const { PALETTE } = require('../../utils/embeds');
+const { PALETTE, error: embedError } = require('../../utils/embeds');
 const path = require('path');
 const fs = require('fs');
 
@@ -23,7 +23,7 @@ module.exports = {
       const cmd = interaction.client.commands.get(commandName);
       if (!cmd) {
         return interaction.reply({
-          content: `❌  No command named \`${commandName}\` found.`,
+          embeds: [embedError(`No command named \`${commandName}\` was found.`, interaction.guild)],
           ephemeral: true,
         });
       }
@@ -63,6 +63,8 @@ module.exports = {
       moderation: '🛡️  Moderation',
       utility: '🔧  Utility',
       shifts: '🕐  Shifts',
+      setup: '⚙️  Setup',
+      dev: '👨‍💻  Developer',
     };
 
     const embed = new EmbedBuilder()
