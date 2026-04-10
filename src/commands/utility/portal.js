@@ -14,10 +14,10 @@ const {
 
 function getTimeGreeting(date = new Date()) {
   const hour = date.getHours();
-  if (hour >= 5 && hour < 12) return { emoji: '🌅', text: 'Good Morning' };
-  if (hour >= 12 && hour < 17) return { emoji: '🌤️', text: 'Good Afternoon' };
-  if (hour >= 17 && hour < 22) return { emoji: '🌆', text: 'Good Evening' };
-  return { emoji: '🌙', text: 'Good Night' };
+  if (hour >= 5 && hour < 12) return { emoji: '🟤', text: 'Good Morning' };
+  if (hour >= 12 && hour < 17) return { emoji: '🟢', text: 'Good Afternoon' };
+  if (hour >= 17 && hour < 22) return { emoji: '🔵', text: 'Good Evening' };
+  return { emoji: '🟣', text: 'Good Night' };
 }
 
 function mentionsForRole(guild, roleId) {
@@ -53,8 +53,12 @@ module.exports = {
 
     const embed = embeds
       .base(interaction.guild)
-      .setTitle('  Department Portal')
-      .setDescription('');
+      .setTitle('  Department Portal');
+
+    const description = 'Here is your department portal with handbook links and shift controls.';
+    if (description && description.trim().length > 0) {
+      embed.setDescription(description);
+    }
 
     const greeting = getTimeGreeting();
     embed.addFields({
