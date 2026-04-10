@@ -127,7 +127,10 @@ function endShift(guildId, userId) {
 
   const active = data[guildId].active[userId];
   const endedAt = new Date().toISOString();
-  const durationMs = new Date(endedAt) - new Date(active.startedAt);
+  const durationMs = Math.max(
+    MIN_SHIFT_DURATION_MS,
+    new Date(endedAt) - new Date(active.startedAt),
+  );
 
   const record = {
     id: generateUniqueShiftId(data, guildId),

@@ -74,7 +74,7 @@ module.exports = {
       return interaction.reply({
         embeds: [
           embeds
-            .shift('  Shift Records', 'Recent shift records (obtain IDs from this list for use with `edit` or `delete` subcommands).', interaction.guild)
+            .shift('  Shift Records', 'Recent shift records (obtain IDs from this list for use with the `edit` or `delete` subcommands of this command).', interaction.guild)
             .addFields({
               name: '  Records',
               value: rows
