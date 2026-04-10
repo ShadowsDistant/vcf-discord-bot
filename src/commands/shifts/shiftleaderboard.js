@@ -14,7 +14,8 @@ const MEDALS = ['', '', ''];
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('shiftleaderboard')
-    .setDescription('View the shift time leaderboard for this server.'),
+    .setDescription('View the shift time leaderboard for this server.')
+    .setDMPermission(false),
 
   async execute(interaction) {
     const leaderboard = db.getShiftLeaderboard(interaction.guild.id);

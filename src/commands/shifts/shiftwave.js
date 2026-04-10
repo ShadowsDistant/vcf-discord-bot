@@ -11,6 +11,7 @@ module.exports = {
     .setName('shiftwave')
     .setDescription('Manage shift wave periods (quota tracking windows).')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .setDMPermission(false)
     .addSubcommand((sub) =>
       sub
         .setName('start')

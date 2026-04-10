@@ -8,7 +8,8 @@ const { PALETTE } = require('../../utils/embeds');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('startshift')
-    .setDescription('Clock in and start your shift.'),
+    .setDescription('Clock in and start your shift.')
+    .setDMPermission(false),
 
   async execute(interaction) {
     const config = db.getConfig(interaction.guild.id);

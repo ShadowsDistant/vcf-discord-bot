@@ -13,6 +13,7 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('shiftlog')
     .setDescription("View shift logs for a user or see all active shifts.")
+    .setDMPermission(false)
     .addSubcommand((s) =>
       s
         .setName('active')

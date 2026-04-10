@@ -9,7 +9,8 @@ const { PALETTE } = require('../../utils/embeds');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('endshift')
-    .setDescription('Clock out and end your current shift.'),
+    .setDescription('Clock out and end your current shift.')
+    .setDMPermission(false),
 
   async execute(interaction) {
     const record = db.endShift(interaction.guild.id, interaction.user.id);
