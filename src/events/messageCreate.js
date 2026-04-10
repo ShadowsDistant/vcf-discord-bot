@@ -1,6 +1,6 @@
 'use strict';
 
-const { Events, AuditLogEvent } = require('discord.js');
+const { Events, PermissionFlagsBits } = require('discord.js');
 const db = require('../utils/database');
 const { scanMessage, getCategoryLabel } = require('../utils/automod');
 const { hasModLevel, MOD_LEVEL } = require('../utils/permissions');
@@ -15,6 +15,50 @@ function getEnabledCategories(config) {
   const allCats = getCategoryIds();
   const categoryMap = config.categories ?? {};
   return allCats.filter((c) => categoryMap[c] !== false);
+}
+
+function isRoleConfigured(config, key) {
+  return Boolean(config?.[key]);
+}
+
+function isModeratorOrManagement(member, guildId) {
+  const config = db.getConfig(guildId);
+  const hasConfiguredModRoles =
+    isRoleConfigured(config, 'moderatorRoleId') ||
+    isRoleConfigured(config, 'seniorModRoleId') ||
+    isRoleConfigured(config, 'managementRoleId');
+
+  if (hasConfiguredModRoles) {
+    return hasModLevel(member, guildId, MOD_LEVEL.moderator);
+  }
+
+  return member.permissions.has([
+    PermissionFlagsBits.Administrator,
+    PermissionFlagsBits.ManageGuild,
+    PermissionFlagsBits.ManageMessages,
+    PermissionFlagsBits.ModerateMembers,
+    PermissionFlagsBits.KickMembers,
+    PermissionFlagsBits.BanMembers,
+  ]);
+}
+
+function getMessageScanContent(message) {
+  const parts = [];
+  if (message.content) parts.push(message.content);
+
+  const attachmentText = message.attachments
+    .map((a) => [a.name, a.description].filter(Boolean).join(' '))
+    .filter(Boolean)
+    .join(' ');
+  if (attachmentText) parts.push(attachmentText);
+
+  const stickerText = message.stickers
+    .map((s) => [s.name, s.description].filter(Boolean).join(' '))
+    .filter(Boolean)
+    .join(' ');
+  if (stickerText) parts.push(stickerText);
+
+  return parts.join('\n').trim();
 }
 
 module.exports = {
@@ -33,7 +77,7 @@ module.exports = {
     if (!member) return;
 
     // Exempt moderators, senior mods, and management
-    if (hasModLevel(member, guildId, MOD_LEVEL.moderator)) return;
+    if (isModeratorOrManagement(member, guildId)) return;
 
     // Exempt any additional roles the config specifies
     const exemptRoles = automodConfig.exemptRoles ?? [];
@@ -42,7 +86,7 @@ module.exports = {
     const enabledCats = getEnabledCategories(automodConfig);
     if (!enabledCats.length) return;
 
-    const content = message.content;
+    const content = getMessageScanContent(message);
     if (!content) return;
 
     const result = scanMessage(content, enabledCats);

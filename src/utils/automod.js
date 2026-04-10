@@ -19,6 +19,23 @@
  *   slursBypass   – common l33tspeak / spacing bypass variations (auto-generated)
  */
 const CATEGORIES = {
+  profanity: {
+    label: 'Profanity & Abusive Language',
+    patterns: [
+      'fuck', 'fuk', 'f*ck', 'f**k', 'motherfucker', 'mf',
+      'shit', 'sh1t', 'bullshit',
+      'bitch', 'b1tch', 'son of a bitch',
+      'asshole', 'a55hole', 'dumbass', 'jackass',
+      'bastard', 'dipshit', 'piece of shit',
+      'piss off', 'dickhead', 'prick', 'twat',
+      'wtf', 'stfu', 'gtfo', 'fu',
+      'screw you', 'eat shit',
+      /\bf[\W_]*u[\W_]*c[\W_]*k\b/i,
+      /\bs[\W_]*h[\W_]*i[\W_]*t\b/i,
+      /\bb[\W_]*i[\W_]*t[\W_]*c[\W_]*h\b/i,
+    ],
+  },
+
   slurs: {
     label: 'Slurs & Identity-Based Hate',
     patterns: [
@@ -201,8 +218,11 @@ const LEET_MAP = {
  *  - Lowercase
  */
 function normalise(text) {
+  // Compatibility-normalize and strip combining marks
+  let s = text.normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+
   // Remove zero-width and other invisible Unicode characters
-  let s = text.replace(/[\u200B-\u200D\uFEFF\u00AD\u2060\u180E]/g, '');
+  s = s.replace(/[\u200B-\u200D\uFEFF\u00AD\u2060\u180E]/g, '');
 
   // Replace lookalike Unicode letters with ASCII equivalents
   s = s
@@ -218,9 +238,15 @@ function normalise(text) {
     .replace(/[æ]/gi, 'ae')
     .replace(/[œ]/gi, 'oe')
     // Cyrillic lookalikes
-    .replace(/а/g, 'a').replace(/е/g, 'e').replace(/о/g, 'o')
-    .replace(/р/g, 'p').replace(/с/g, 'c').replace(/у/g, 'y')
-    .replace(/х/g, 'x').replace(/В/g, 'b').replace(/н/g, 'h');
+     .replace(/а/g, 'a').replace(/е/g, 'e').replace(/о/g, 'o')
+     .replace(/р/g, 'p').replace(/с/g, 'c').replace(/у/g, 'y')
+     .replace(/х/g, 'x').replace(/В/g, 'b').replace(/н/g, 'h')
+     // Greek lookalikes
+     .replace(/Α|α/g, 'a').replace(/Β|β/g, 'b').replace(/Ε|ε/g, 'e')
+     .replace(/Ζ|ζ/g, 'z').replace(/Η|η/g, 'h').replace(/Ι|ι/g, 'i')
+     .replace(/Κ|κ/g, 'k').replace(/Μ|μ/g, 'm').replace(/Ν|ν/g, 'n')
+     .replace(/Ο|ο/g, 'o').replace(/Ρ|ρ/g, 'p').replace(/Τ|τ/g, 't')
+     .replace(/Υ|υ/g, 'y').replace(/Χ|χ/g, 'x');
 
   // Convert to lowercase
   s = s.toLowerCase();

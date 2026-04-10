@@ -314,6 +314,7 @@ module.exports = {
       const quotaNotifCh = config.quotaNotifChannelId
         ? `<#${config.quotaNotifChannelId}>`
         : '`Not set`';
+      const sidRole = config.sidRoleId ? `<@&${config.sidRoleId}>` : '`Not set`';
 
       return interaction.reply({
         embeds: [
@@ -327,6 +328,7 @@ module.exports = {
               { name: '💬  Welcome Message', value: welcomeMsg },
               { name: '👥  Staff Roles', value: staffRolesDisplay },
               { name: '🛡️  Mod Roles', value: modRoles },
+              { name: '🔍  SID Role', value: sidRole, inline: true },
               { name: '⏱️  Shift Quota', value: quotaDisplay, inline: true },
               { name: '🔔  Quota Notifications', value: quotaNotifCh, inline: true },
             ),
