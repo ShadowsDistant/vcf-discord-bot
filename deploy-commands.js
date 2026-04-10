@@ -124,9 +124,13 @@ const rest = new REST().setToken(DISCORD_TOKEN);
       const globalRoute = Routes.applicationCommands(CLIENT_ID);
       const globalData = await rest.get(globalRoute);
       const globalByName = new Map(globalData.map((command) => [command.name, command]));
+      const localCommandNames = new Set(commands.map((command) => command.name));
       const overlap = data
         .filter((guildCommand) => globalByName.has(guildCommand.name))
         .map((guildCommand) => guildCommand.name);
+      const staleGlobals = globalData
+        .filter((globalCommand) => !localCommandNames.has(globalCommand.name))
+        .map((globalCommand) => globalCommand.name);
 
       if (overlap.length > 0) {
         console.warn(
@@ -135,28 +139,41 @@ const rest = new REST().setToken(DISCORD_TOKEN);
         console.warn(
           '   These can appear as duplicate slash commands in Discord until global commands are removed.',
         );
+      }
 
-        if (CLEAR_GLOBAL_DUPLICATES) {
-          let removed = 0;
-          for (const name of overlap) {
-            const globalCommand = globalByName.get(name);
-            if (!globalCommand.id) continue;
-            try {
-              await rest.delete(`${globalRoute}/${globalCommand.id}`);
-              removed += 1;
-              console.log(`  ↳ Removed global duplicate: /${name}`);
-            } catch (deleteErr) {
-              console.error(`  ✗ Failed to remove global /${name}: ${deleteErr.message}`);
-            }
+      if (staleGlobals.length > 0) {
+        console.warn(
+          `⚠  ${staleGlobals.length} stale global command(s) are not in this codebase: ${staleGlobals.join(', ')}`,
+        );
+        console.warn(
+          '   These stale global commands can still appear in Discord when testing with guild commands.',
+        );
+      }
+
+      if (CLEAR_GLOBAL_DUPLICATES) {
+        const removableGlobalCommands = globalData.filter((globalCommand) => (
+          overlap.includes(globalCommand.name) || !localCommandNames.has(globalCommand.name)
+        ));
+
+        let removed = 0;
+        for (const globalCommand of removableGlobalCommands) {
+          if (!globalCommand.id) continue;
+          try {
+            await rest.delete(`${globalRoute}/${globalCommand.id}`);
+            removed += 1;
+            console.log(`  ↳ Removed global command: /${globalCommand.name}`);
+          } catch (deleteErr) {
+            console.error(`  ✗ Failed to remove global /${globalCommand.name}: ${deleteErr.message}`);
           }
-          if (removed > 0) {
-            console.log(`✅  Removed ${removed} global duplicate command(s).`);
-          }
-        } else {
-          console.log(
-            'ℹ️  Set CLEAR_GLOBAL_DUPLICATES=true to automatically remove overlapping global commands.',
-          );
         }
+
+        if (removed > 0) {
+          console.log(`✅  Removed ${removed} global command(s) (duplicates and stale entries).`);
+        }
+      } else if (staleGlobals.length > 0) {
+        console.log(
+          'ℹ️  Set CLEAR_GLOBAL_DUPLICATES=true to remove overlapping and stale global commands.',
+        );
       }
     }
 

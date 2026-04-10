@@ -1,6 +1,6 @@
 'use strict';
 
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
 const { PALETTE, error: embedError } = require('../../utils/embeds');
 const path = require('path');
 const fs = require('fs');
@@ -15,11 +15,11 @@ const { hasModLevel, hasSidRole, MOD_LEVEL } = require('../../utils/permissions'
 const SENIOR_MOD_COMMANDS = new Set(['ban', 'unban']);
 const MANAGEMENT_COMMANDS = new Set(['shiftmanage', 'shiftwave']);
 const SHIFT_COMMANDS = new Set([
-  'startshift',
+  'shift-start',
   'endshift',
   'shiftstatus',
   'shiftlog',
-  'shifthistory',
+  'shift-history',
   'shiftleaderboard',
   'shiftroles',
 ]);
@@ -42,15 +42,25 @@ const MODERATION_RANK_BY_COMMAND = {
   purge: 'Junior Moderator+',
   role: 'Junior Moderator+',
 };
+const EMBED_FIELD_VALUE_LIMIT = 1024;
 
-function resolveCommandFolder(commandName) {
-  const commandsPath = path.join(__dirname, '..');
+function buildCommandFolderMap(commandsPath) {
+  const map = new Map();
   for (const folder of fs.readdirSync(commandsPath)) {
     const folderPath = path.join(commandsPath, folder);
     if (!fs.statSync(folderPath).isDirectory()) continue;
-    if (fs.existsSync(path.join(folderPath, `${commandName}.js`))) return folder;
+    for (const file of fs.readdirSync(folderPath)) {
+      if (!file.endsWith('.js')) continue;
+      const commandPath = path.join(folderPath, file);
+      try {
+        const command = require(commandPath);
+        if (command?.data?.name) map.set(command.data.name, folder);
+      } catch {
+        // Ignore invalid command files in help lookup.
+      }
+    }
   }
-  return null;
+  return map;
 }
 
 function canUseCommand(interaction, commandName, folder, canSeeDev) {
@@ -81,6 +91,43 @@ function canUseCommand(interaction, commandName, folder, canSeeDev) {
   return true;
 }
 
+function splitFieldValue(value, maxLength = EMBED_FIELD_VALUE_LIMIT) {
+  const chunks = [];
+  let current = '';
+
+  const pushCurrent = () => {
+    if (current.length > 0) {
+      chunks.push(current);
+      current = '';
+    }
+  };
+
+  const appendLine = (line) => {
+    if (line.length <= maxLength) {
+      const candidate = current.length > 0 ? `${current}\n${line}` : line;
+      if (candidate.length <= maxLength) {
+        current = candidate;
+      } else {
+        pushCurrent();
+        current = line;
+      }
+      return;
+    }
+
+    pushCurrent();
+    for (let i = 0; i < line.length; i += maxLength) {
+      chunks.push(line.slice(i, i + maxLength));
+    }
+  };
+
+  for (const line of value.split('\n')) {
+    appendLine(line);
+  }
+  pushCurrent();
+
+  return chunks;
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('help')
@@ -95,21 +142,23 @@ module.exports = {
   async execute(interaction) {
     const commandName = interaction.options.getString('command');
     const canSeeDev = isDevUser(interaction.user.id);
+    const commandsPath = path.join(__dirname, '..');
+    const commandFolderMap = buildCommandFolderMap(commandsPath);
 
     if (commandName) {
       const cmd = interaction.client.commands.get(commandName);
       if (!cmd) {
         return interaction.reply({
           embeds: [embedError(`No command named \`${commandName}\` was found.`, interaction.guild)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
 
-      const folder = resolveCommandFolder(cmd.data.name);
+      const folder = commandFolderMap.get(cmd.data.name) ?? null;
       if (!folder || !canUseCommand(interaction, cmd.data.name, folder, canSeeDev)) {
         return interaction.reply({
           embeds: [embedError('No command with that name was found.', interaction.guild)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -123,12 +172,11 @@ module.exports = {
           iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined,
         });
 
-      return interaction.reply({ embeds: [embed], ephemeral: true });
+      return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
     }
 
     // Group commands by category (folder name)
     const categories = {};
-    const commandsPath = path.join(__dirname, '..');
     let visibleCommandCount = 0;
 
     for (const folder of fs.readdirSync(commandsPath)) {
@@ -136,8 +184,7 @@ module.exports = {
       if (!fs.statSync(folderPath).isDirectory()) continue;
 
       const cmds = interaction.client.commands.filter((_v, k) => {
-        const cmdPath = path.join(folderPath, `${k}.js`);
-        if (!fs.existsSync(cmdPath)) return false;
+        if (commandFolderMap.get(k) !== folder) return false;
         return canUseCommand(interaction, k, folder, canSeeDev);
       });
 
@@ -171,12 +218,16 @@ module.exports = {
       });
 
     for (const [cat, value] of Object.entries(categories)) {
-      embed.addFields({
-        name: categoryEmojis[cat] ?? cat,
-        value,
-      });
+      const categoryName = categoryEmojis[cat] ?? cat;
+      const splitValues = splitFieldValue(value);
+      for (let i = 0; i < splitValues.length; i += 1) {
+        embed.addFields({
+          name: i === 0 ? categoryName : `${categoryName} (cont. ${i})`,
+          value: splitValues[i],
+        });
+      }
     }
 
-    return interaction.reply({ embeds: [embed], ephemeral: true });
+    return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
   },
 };

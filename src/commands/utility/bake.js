@@ -167,6 +167,22 @@ const QUOTE_TEMPLATES = [
   (name) => `The flavor on this ${name} is spot on.`,
   (name) => `If treats had trophies, this ${name} would win one.`,
 ];
+const BAKE_TITLES = [
+  'Fresh Out of the Oven',
+  'Baking Masterpiece',
+  'Golden Batch Complete',
+  'Sweet Treat Unlocked',
+  'Chef\'s Special',
+];
+const RARITY_STYLES = {
+  Common: { color: 0xa3a3a3, bg: 'a3a3a3' },
+  Uncommon: { color: 0x57f287, bg: '57f287' },
+  Rare: { color: 0x5865f2, bg: '5865f2' },
+  Epic: { color: 0x9b59b6, bg: '9b59b6' },
+  Legendary: { color: 0xf1c40f, bg: 'f1c40f' },
+  Mythic: { color: 0xed4245, bg: 'ed4245' },
+};
+const TOTAL_COOKIE_WEIGHT = COOKIES.reduce((sum, cookie) => sum + cookie.weight, 0);
 
 const ITEM_QUOTES = new Map(COOKIES.map((cookie) => [
   cookie.name,
@@ -183,8 +199,7 @@ function pickItemQuote(itemName) {
 }
 
 function pickWeightedCookie() {
-  const totalWeight = COOKIES.reduce((sum, cookie) => sum + cookie.weight, 0);
-  let roll = Math.random() * totalWeight;
+  let roll = Math.random() * TOTAL_COOKIE_WEIGHT;
 
   for (const cookie of COOKIES) {
     roll -= cookie.weight;
@@ -192,6 +207,21 @@ function pickWeightedCookie() {
   }
 
   return COOKIES[COOKIES.length - 1];
+}
+
+function pickBakeTitle() {
+  return BAKE_TITLES[Math.floor(Math.random() * BAKE_TITLES.length)];
+}
+
+function formatChance(weight) {
+  const chance = (weight / TOTAL_COOKIE_WEIGHT) * 100;
+  return `${chance.toFixed(2)}%`;
+}
+
+function buildBakeImageUrl(itemName, rarity) {
+  const label = itemName.replace(/[^a-zA-Z0-9 ]/g, '').trim().slice(0, 16) || 'Treat';
+  const style = RARITY_STYLES[rarity] ?? RARITY_STYLES.Common;
+  return `https://dummyimage.com/128x128/${style.bg}/ffffff.png&text=${encodeURIComponent(label)}`;
 }
 
 module.exports = {
@@ -202,18 +232,21 @@ module.exports = {
   async execute(interaction) {
     const cookie = pickWeightedCookie();
     const quote = pickItemQuote(cookie.name);
-    const embed = embeds.success(`${interaction.user} baked a **${cookie.name}**!`, interaction.guild);
+    const rarityStyle = RARITY_STYLES[cookie.rarity] ?? RARITY_STYLES.Common;
+    const embed = embeds
+      .base(interaction.guild)
+      .setColor(rarityStyle.color)
+      .setTitle(pickBakeTitle())
+      .setDescription(`${interaction.user} baked a **${cookie.name}**!`);
     embed.addFields({
       name: 'Rarity',
-      value: cookie.rarity,
+      value: `${cookie.rarity} (**${formatChance(cookie.weight)}** chance)`,
       inline: true,
     }, {
       name: 'Quote',
       value: `*${quote}*`,
     });
-    if (cookie.image) {
-      embed.setImage(cookie.image);
-    }
+    embed.setThumbnail(buildBakeImageUrl(cookie.name, cookie.rarity));
 
     return interaction.reply({
       embeds: [embed],

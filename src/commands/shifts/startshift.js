@@ -1,6 +1,6 @@
 'use strict';
 
-const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { PALETTE } = require('../../utils/embeds');
@@ -8,7 +8,7 @@ const { hasShiftAccessRole } = require('../../utils/roles');
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('startshift')
+    .setName('shift-start')
     .setDescription('Clock in and start your shift.')
     .setDMPermission(false),
 
@@ -23,7 +23,7 @@ module.exports = {
             interaction.guild,
           ),
         ],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -41,7 +41,7 @@ module.exports = {
             interaction.guild,
           ),
         ],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 

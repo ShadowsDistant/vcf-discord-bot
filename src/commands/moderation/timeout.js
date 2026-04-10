@@ -1,8 +1,6 @@
 'use strict';
 
-const {
-  SlashCommandBuilder,
-} = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const { parseDuration, formatDuration } = require('../../utils/helpers');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
@@ -32,7 +30,7 @@ module.exports = {
     if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.moderator)) {
       return interaction.reply({
         embeds: [embeds.error('You do not have the required moderation role to use this command.', interaction.guild)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -44,14 +42,14 @@ module.exports = {
     if (!ms) {
       return interaction.reply({
         embeds: [embeds.error('Invalid duration. Use formats like `10m`, `2h`, `1d`.', interaction.guild)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
     if (ms > MAX_TIMEOUT_MS) {
       return interaction.reply({
         embeds: [embeds.error('Duration cannot exceed 28 days.', interaction.guild)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -59,14 +57,14 @@ module.exports = {
     if (!member) {
       return interaction.reply({
         embeds: [embeds.error('That user is not in this server.', interaction.guild)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
     if (!member.moderatable) {
       return interaction.reply({
         embeds: [embeds.error('I cannot timeout that user. They may have a higher role than me.', interaction.guild)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -88,7 +86,7 @@ module.exports = {
     } catch (err) {
       return interaction.reply({
         embeds: [embeds.error(`Failed to timeout: ${err.message}`, interaction.guild)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
   },

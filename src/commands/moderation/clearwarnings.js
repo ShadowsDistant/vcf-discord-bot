@@ -1,8 +1,6 @@
 'use strict';
 
-const {
-  SlashCommandBuilder,
-} = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
@@ -19,7 +17,7 @@ module.exports = {
     if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.moderator)) {
       return interaction.reply({
         embeds: [embeds.error('You do not have the required moderation role to use this command.', interaction.guild)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -29,7 +27,7 @@ module.exports = {
     if (existing.length === 0) {
       return interaction.reply({
         embeds: [embeds.warning(`**${target.tag}** has no warnings to clear.`, interaction.guild)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 

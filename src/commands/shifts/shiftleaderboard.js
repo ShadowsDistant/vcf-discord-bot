@@ -1,9 +1,6 @@
 'use strict';
 
-const {
-  SlashCommandBuilder,
-  EmbedBuilder,
-} = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { formatDuration } = require('../../utils/helpers');
@@ -27,7 +24,7 @@ module.exports = {
             interaction.guild,
           ),
         ],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -38,7 +35,7 @@ module.exports = {
         embeds: [
           embeds.info(
             '  Shift Leaderboard',
-            'No completed shifts yet. Use `/startshift` to begin!',
+            'No completed shifts yet. Use `/shift-start` to begin!',
             interaction.guild,
           ),
         ],

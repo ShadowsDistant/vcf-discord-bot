@@ -1,8 +1,6 @@
 'use strict';
 
-const {
-  SlashCommandBuilder,
-} = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
 
@@ -43,7 +41,7 @@ module.exports = {
     if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.moderator)) {
       return interaction.reply({
         embeds: [embeds.error('You do not have the required moderation role to use this command.', interaction.guild)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -57,21 +55,21 @@ module.exports = {
     if (!member) {
       return interaction.reply({
         embeds: [embeds.error('That user is not a member of this server.', interaction.guild)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
     if (role.managed) {
       return interaction.reply({
         embeds: [embeds.error('That role is managed by an integration and cannot be assigned manually.', interaction.guild)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
     if (role.position >= interaction.guild.members.me.roles.highest.position) {
       return interaction.reply({
         embeds: [embeds.error('I cannot assign a role that is equal to or higher than my highest role.', interaction.guild)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -79,7 +77,7 @@ module.exports = {
       if (member.roles.cache.has(role.id)) {
         return interaction.reply({
           embeds: [embeds.warning(`${target} already has the ${role} role.`, interaction.guild)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -101,7 +99,7 @@ module.exports = {
       } catch (err) {
         return interaction.reply({
           embeds: [embeds.error(`Failed to add role: \`${err.message}\``, interaction.guild)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
     }
@@ -110,7 +108,7 @@ module.exports = {
       if (!member.roles.cache.has(role.id)) {
         return interaction.reply({
           embeds: [embeds.warning(`${target} does not have the ${role} role.`, interaction.guild)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -132,7 +130,7 @@ module.exports = {
       } catch (err) {
         return interaction.reply({
           embeds: [embeds.error(`Failed to remove role: \`${err.message}\``, interaction.guild)],
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
     }

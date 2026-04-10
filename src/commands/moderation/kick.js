@@ -1,8 +1,6 @@
 'use strict';
 
-const {
-  SlashCommandBuilder,
-} = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
 
@@ -25,7 +23,7 @@ module.exports = {
     if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.moderator)) {
       return interaction.reply({
         embeds: [embeds.error('You do not have the required moderation role to use this command.', interaction.guild)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -37,21 +35,21 @@ module.exports = {
     if (!member) {
       return interaction.reply({
         embeds: [embeds.error('That user is not in this server.', interaction.guild)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
     if (!member.kickable) {
       return interaction.reply({
         embeds: [embeds.error('I cannot kick that user. They may have a higher role than me.', interaction.guild)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
     if (member.id === interaction.user.id) {
       return interaction.reply({
         embeds: [embeds.error('You cannot kick yourself.', interaction.guild)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -72,7 +70,7 @@ module.exports = {
     } catch (err) {
       return interaction.reply({
         embeds: [embeds.error(`Failed to kick: ${err.message}`, interaction.guild)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
   },

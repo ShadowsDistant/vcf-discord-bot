@@ -1,10 +1,6 @@
 'use strict';
 
-const {
-  SlashCommandBuilder,
-  ChannelType,
-  PermissionFlagsBits,
-} = require('discord.js');
+const { SlashCommandBuilder, ChannelType, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const embeds = require('../../utils/embeds');
 
 const DEV_USER_ID = process.env.DEV_USER_ID ?? '757698506411475005';
@@ -43,7 +39,7 @@ module.exports = {
     if (interaction.user.id !== DEV_USER_ID) {
       return interaction.reply({
         embeds: [embeds.error('This command is restricted to the bot developer.', interaction.guild ?? null)],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 
@@ -80,7 +76,7 @@ module.exports = {
             interaction.guild ?? null,
           ),
         ],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     } catch (err) {
       return interaction.reply({
@@ -90,7 +86,7 @@ module.exports = {
             interaction.guild ?? null,
           ),
         ],
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
   },
