@@ -140,7 +140,7 @@ const rest = new REST().setToken(DISCORD_TOKEN);
           let removed = 0;
           for (const name of overlap) {
             const globalCommand = globalByName.get(name);
-            if (!globalCommand?.id) continue;
+            if (!globalCommand.id) continue;
             try {
               await rest.delete(`${globalRoute}/${globalCommand.id}`);
               removed += 1;
