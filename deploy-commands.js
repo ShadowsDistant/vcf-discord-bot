@@ -6,9 +6,36 @@ const { REST, Routes } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 
-const { DISCORD_TOKEN, CLIENT_ID, GUILD_ID } = process.env;
+function normalizeEnvValue(value) {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"'))
+    || (trimmed.startsWith('\'') && trimmed.endsWith('\''))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+const DISCORD_TOKEN = normalizeEnvValue(process.env.DISCORD_TOKEN);
+const CLIENT_ID = normalizeEnvValue(process.env.CLIENT_ID);
+const rawGuildId = normalizeEnvValue(process.env.GUILD_ID);
+const GUILD_ID = rawGuildId || null;
+const SNOWFLAKE_REGEX = /^\d{17,20}$/;
+
 if (!DISCORD_TOKEN || !CLIENT_ID) {
   console.error('❌  Missing required environment variables: DISCORD_TOKEN, CLIENT_ID');
+  process.exit(1);
+}
+
+if (!SNOWFLAKE_REGEX.test(CLIENT_ID)) {
+  console.error(`❌  CLIENT_ID must be a valid Discord snowflake. Received: "${CLIENT_ID}"`);
+  process.exit(1);
+}
+
+if (GUILD_ID && !SNOWFLAKE_REGEX.test(GUILD_ID)) {
+  console.error(`❌  GUILD_ID must be a valid Discord snowflake when set. Received: "${GUILD_ID}"`);
   process.exit(1);
 }
 
