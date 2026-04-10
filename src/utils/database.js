@@ -71,7 +71,8 @@ function clearWarnings(guildId, userId) {
 // ─── Shifts ──────────────────────────────────────────────────────────────────
 
 const SHIFTS_FILE = 'shifts.json';
-let lastShiftRecordId = 0;
+const MIN_SHIFT_DURATION_MS = 1000;
+const lastShiftRecordIds = {};
 
 /**
  * Generate a unique numeric shift record id within a guild history.
@@ -81,9 +82,10 @@ let lastShiftRecordId = 0;
  */
 function generateUniqueShiftId(data, guildId) {
   const used = new Set((data?.[guildId]?.history ?? []).map((s) => s.id).filter((id) => typeof id === 'number'));
-  let id = Math.max(Date.now(), lastShiftRecordId + 1);
+  const lastId = lastShiftRecordIds[guildId] ?? 0;
+  let id = Math.max(Date.now(), lastId + 1);
   while (used.has(id)) id++;
-  lastShiftRecordId = id;
+  lastShiftRecordIds[guildId] = id;
   return id;
 }
 
@@ -301,7 +303,7 @@ function updateShiftRecord(guildId, recordId, updates) {
 
   const existing = history[idx];
   if (typeof updates.durationMs === 'number') {
-    const durationMs = Math.max(1000, Math.floor(updates.durationMs));
+    const durationMs = Math.max(MIN_SHIFT_DURATION_MS, Math.floor(updates.durationMs));
     const endedAt = new Date(new Date(existing.startedAt).getTime() + durationMs).toISOString();
     existing.durationMs = durationMs;
     existing.endedAt = endedAt;

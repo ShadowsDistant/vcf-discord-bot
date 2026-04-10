@@ -20,7 +20,7 @@ module.exports = {
       return interaction.reply({
         embeds: [
           embeds.error(
-            'No shift roles are configured yet. Management must add roles in `/setup staffroles add` before shifts can be started.',
+            'No shift roles are configured yet. Management must configure staff roles first (use `/setup staffroles add`).',
             interaction.guild,
           ),
         ],
