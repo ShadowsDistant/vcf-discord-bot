@@ -8,7 +8,9 @@ const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { formatDuration, makeProgressBar } = require('../../utils/helpers');
 const { PALETTE } = embeds;
-const { hasShiftAccessRole } = require('../../utils/roles');
+const { hasShiftAccessRole, MODERATION_ROLE_IDS, memberHasAnyRole } = require('../../utils/roles');
+
+const MODERATION_MONTHLY_QUOTA_MS = 4 * 60 * 60 * 1000;
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -76,14 +78,21 @@ module.exports = {
 
     // sub === 'user'
     const target = interaction.options.getUser('user') ?? interaction.user;
+    const targetMember = await interaction.guild.members.fetch(target.id).catch(() => null);
+    const isModerationMember = targetMember ? memberHasAnyRole(targetMember, MODERATION_ROLE_IDS) : false;
     const activeShift = db.getActiveShift(interaction.guild.id, target.id);
     const history = db.getUserShiftHistory(interaction.guild.id, target.id);
     const totalMs = history.reduce((sum, s) => sum + s.durationMs, 0);
-    const config = db.getConfig(interaction.guild.id);
-    const wave = db.getCurrentWave(interaction.guild.id);
-    const quotaMs = config.quotaMs ?? 0;
-    const waveTimeMs = wave ? db.getUserShiftTimeInWave(interaction.guild.id, target.id) : 0;
-    const progressPct = quotaMs > 0 ? Math.min(100, (waveTimeMs / quotaMs) * 100) : null;
+    const now = new Date();
+    const currentYear = now.getUTCFullYear();
+    const currentMonth = now.getUTCMonth();
+    const monthTimeMs = history
+      .filter((s) => {
+        const started = new Date(s.startedAt);
+        return started.getUTCFullYear() === currentYear && started.getUTCMonth() === currentMonth;
+      })
+      .reduce((sum, s) => sum + s.durationMs, 0);
+    const progressPct = Math.min(100, (monthTimeMs / MODERATION_MONTHLY_QUOTA_MS) * 100);
 
     const embed = new EmbedBuilder()
       .setColor(PALETTE.shift)
@@ -113,12 +122,12 @@ module.exports = {
       });
     }
 
-    if (wave && quotaMs > 0) {
+    if (isModerationMember) {
       embed.addFields({
-        name: `  Quota Progress (Wave #${wave.waveNumber})`,
+        name: '  Monthly Quota Progress (Moderation)',
         value: [
-          `Completed: **${formatDuration(waveTimeMs)}**`,
-          `Required: **${formatDuration(quotaMs)}**`,
+          `Completed: **${formatDuration(monthTimeMs)}**`,
+          `Required: **${formatDuration(MODERATION_MONTHLY_QUOTA_MS)}**`,
           makeProgressBar(progressPct, 12),
         ].join('\n'),
       });
