@@ -22,8 +22,9 @@ module.exports = {
     if (commandName) {
       const cmd = interaction.client.commands.get(commandName);
       if (!cmd) {
+        const { error } = require('../../utils/embeds');
         return interaction.reply({
-          content: `❌  No command named \`${commandName}\` found.`,
+          embeds: [error(`No command named \`${commandName}\` was found.`, interaction.guild)],
           ephemeral: true,
         });
       }
@@ -63,6 +64,8 @@ module.exports = {
       moderation: '🛡️  Moderation',
       utility: '🔧  Utility',
       shifts: '🕐  Shifts',
+      setup: '⚙️  Setup',
+      dev: '🔧  Developer',
     };
 
     const embed = new EmbedBuilder()

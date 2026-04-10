@@ -147,6 +147,46 @@ function getShiftLeaderboard(guildId) {
   return Object.values(totals).sort((a, b) => b.totalMs - a.totalMs);
 }
 
+// ─── Server Config ───────────────────────────────────────────────────────────
+
+const CONFIG_FILE = 'config.json';
+
+/**
+ * Get the config object for a guild.
+ * @param {string} guildId
+ * @returns {object}
+ */
+function getConfig(guildId) {
+  const data = read(CONFIG_FILE, {});
+  return data[guildId] ?? {};
+}
+
+/**
+ * Set a single config key for a guild.
+ * @param {string} guildId
+ * @param {string} key
+ * @param {*} value
+ */
+function setConfig(guildId, key, value) {
+  const data = read(CONFIG_FILE, {});
+  if (!data[guildId]) data[guildId] = {};
+  data[guildId][key] = value;
+  write(CONFIG_FILE, data);
+}
+
+/**
+ * Delete a single config key for a guild.
+ * @param {string} guildId
+ * @param {string} key
+ */
+function deleteConfig(guildId, key) {
+  const data = read(CONFIG_FILE, {});
+  if (data[guildId]) {
+    delete data[guildId][key];
+    write(CONFIG_FILE, data);
+  }
+}
+
 module.exports = {
   read,
   write,
@@ -159,4 +199,7 @@ module.exports = {
   getUserShiftHistory,
   getAllActiveShifts,
   getShiftLeaderboard,
+  getConfig,
+  setConfig,
+  deleteConfig,
 };

@@ -20,10 +20,16 @@ module.exports = {
     } catch (err) {
       console.error(`Error executing ${interaction.commandName}:`, err);
 
-      const errorEmbed = embeds.error(
-        'An unexpected error occurred while running this command.',
-        interaction.guild ?? null,
-      );
+      const errorEmbed = embeds
+        .error(
+          'An unexpected error occurred while running this command. Please try again later.',
+          interaction.guild ?? null,
+        )
+        .addFields({
+          name: '🔎  Command',
+          value: `\`/${interaction.commandName}\``,
+          inline: true,
+        });
 
       if (interaction.replied || interaction.deferred) {
         await interaction.followUp({ embeds: [errorEmbed], ephemeral: true }).catch(() => null);
