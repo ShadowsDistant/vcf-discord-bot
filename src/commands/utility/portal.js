@@ -55,7 +55,7 @@ module.exports = {
       .base(interaction.guild)
       .setTitle('  Department Portal');
 
-    const description = 'Here is your department portal with handbook links and shift controls.';
+    const description = interaction.guild?.description;
     if (description && description.trim().length > 0) {
       embed.setDescription(description);
     }

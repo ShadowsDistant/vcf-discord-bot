@@ -22,24 +22,6 @@ const COOKIES = [
     rarityEmoji: '🔵',
     image: 'https://orteil.dashnet.org/cookieclicker/img/spookyCookie.png',
   },
-  {
-    name: 'Chocolate Chip Cookie',
-    rarity: 'Common',
-    rarityEmoji: '🟤',
-    image: 'https://orteil.dashnet.org/cookieclicker/img/perfectCookie.png',
-  },
-  {
-    name: 'Sugar Cookie',
-    rarity: 'Common',
-    rarityEmoji: '🟤',
-    image: 'https://orteil.dashnet.org/cookieclicker/img/wrathCookie.png',
-  },
-  {
-    name: 'Snickerdoodle Cookie',
-    rarity: 'Uncommon',
-    rarityEmoji: '🟢',
-    image: 'https://orteil.dashnet.org/cookieclicker/img/spookyCookie.png',
-  },
 ];
 
 module.exports = {
