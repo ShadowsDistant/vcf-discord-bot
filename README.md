@@ -540,6 +540,9 @@ CLIENT_ID=your_application_client_id_here
 # Leave blank to deploy globally (takes up to 1 hour to propagate)
 GUILD_ID=your_test_guild_id
 
+# Optional — when GUILD_ID is set, remove matching global commands to avoid duplicates
+CLEAR_GLOBAL_DUPLICATES=false
+
 # Optional — Discord user ID allowed to use developer commands
 # Defaults to the bot owner ID if not set
 DEV_USER_ID=your_discord_user_id
@@ -550,6 +553,7 @@ DEV_USER_ID=your_discord_user_id
 | `DISCORD_TOKEN` | ✅ | Your bot's secret token from the Developer Portal |
 | `CLIENT_ID` | ✅ | Your application's client/application ID |
 | `GUILD_ID` | ❌ | A single guild ID for guild-scoped (instant) command deployment |
+| `CLEAR_GLOBAL_DUPLICATES` | ❌ | If `true`, removes matching global commands when doing a guild deploy to avoid duplicate slash commands |
 | `DEV_USER_ID` | ❌ | Discord user ID permitted to use `/setstatus`, `/servers`, `/announce` |
 
 > ⚠️ **Never commit your `.env` file.** It is listed in `.gitignore` by default.
@@ -564,6 +568,8 @@ npm run deploy
 
 - If `GUILD_ID` is set, commands are registered to that guild instantly.
 - If `GUILD_ID` is blank, commands are registered globally and may take up to **1 hour** to propagate to all servers.
+- If both global and guild commands share the same names, Discord can show duplicate slash commands until one scope is cleaned up.
+- Set `CLEAR_GLOBAL_DUPLICATES=true` with `GUILD_ID` to auto-remove overlapping global commands.
 
 > Re-run `npm run deploy` whenever you add, remove, or modify commands.
 
