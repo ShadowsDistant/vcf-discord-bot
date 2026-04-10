@@ -150,6 +150,38 @@ const COOKIES = [
   },
 ];
 
+const QUOTE_TEMPLATES = [
+  (name) => `The ${name} smells incredible straight from the oven.`,
+  (name) => `That warm ${name} aroma could stop anyone in their tracks.`,
+  (name) => `One bite of this ${name} and the whole day feels better.`,
+  (name) => `This ${name} looks so fresh it barely made it to the cooling rack.`,
+  (name) => `The texture on this ${name} is exactly what you hoped for.`,
+  (name) => `This ${name} has bakery vibes turned all the way up.`,
+  (name) => `You can almost hear the crunch on this ${name}.`,
+  (name) => `That ${name} sweetness is perfectly balanced.`,
+  (name) => `This ${name} is the kind of treat people brag about baking.`,
+  (name) => `The golden finish on this ${name} is absolutely perfect.`,
+  (name) => `This ${name} came out so well it deserves a victory lap.`,
+  (name) => `That first sniff of this ${name} is pure comfort.`,
+  (name) => `This ${name} is dangerously snackable.`,
+  (name) => `The flavor on this ${name} is spot on.`,
+  (name) => `If treats had trophies, this ${name} would win one.`,
+];
+
+const ITEM_QUOTES = new Map(COOKIES.map((cookie) => [
+  cookie.name,
+  QUOTE_TEMPLATES.map((template) => template(cookie.name)),
+]));
+
+function pickItemQuote(itemName) {
+  const quotes = ITEM_QUOTES.get(itemName);
+  if (!quotes || quotes.length === 0) {
+    return `This ${itemName} smells amazing.`;
+  }
+
+  return quotes[Math.floor(Math.random() * quotes.length)];
+}
+
 function pickWeightedCookie() {
   const totalWeight = COOKIES.reduce((sum, cookie) => sum + cookie.weight, 0);
   let roll = Math.random() * totalWeight;
@@ -169,11 +201,15 @@ module.exports = {
 
   async execute(interaction) {
     const cookie = pickWeightedCookie();
+    const quote = pickItemQuote(cookie.name);
     const embed = embeds.success(`${interaction.user} baked a **${cookie.name}**!`, interaction.guild);
     embed.addFields({
       name: 'Rarity',
       value: cookie.rarity,
       inline: true,
+    }, {
+      name: 'Quote',
+      value: `*${quote}*`,
     });
     if (cookie.image) {
       embed.setThumbnail(cookie.image);
