@@ -282,6 +282,124 @@ function deleteConfig(guildId, key) {
   }
 }
 
+// ─── Automod Config ───────────────────────────────────────────────────────────
+
+const AUTOMOD_FILE = 'automod.json';
+
+/**
+ * Get the full automod config for a guild.
+ * @param {string} guildId
+ * @returns {object}
+ */
+function getAutomodConfig(guildId) {
+  const data = read(AUTOMOD_FILE, {});
+  return (
+    data[guildId] ?? {
+      enabled: false,
+      categories: {},
+      punishment: 'delete',
+      timeoutDuration: 300000, // 5 minutes default
+      logChannelId: null,
+      exemptRoles: [],
+    }
+  );
+}
+
+/**
+ * Save the full automod config for a guild.
+ * @param {string} guildId
+ * @param {object} config
+ */
+function setAutomodConfig(guildId, config) {
+  const data = read(AUTOMOD_FILE, {});
+  data[guildId] = config;
+  write(AUTOMOD_FILE, data);
+}
+
+/**
+ * Toggle a specific automod category on or off.
+ * @param {string} guildId
+ * @param {string} category
+ * @param {boolean} enabled
+ */
+function setAutomodCategory(guildId, category, enabled) {
+  const config = getAutomodConfig(guildId);
+  if (!config.categories) config.categories = {};
+  config.categories[category] = enabled;
+  setAutomodConfig(guildId, config);
+}
+
+// ─── Staff Infractions ────────────────────────────────────────────────────────
+
+const INFRACTIONS_FILE = 'staff_infractions.json';
+
+/**
+ * Add a staff infraction.
+ * @param {string} guildId
+ * @param {string} staffUserId  The staff member receiving the infraction
+ * @param {object} opts
+ * @param {string} opts.issuedById   Moderator/supervisor issuing the infraction
+ * @param {string} opts.reason
+ * @param {string} opts.severity     'minor' | 'moderate' | 'severe'
+ * @param {string} [opts.action]     Any additional disciplinary action taken
+ * @returns {object} The created infraction record
+ */
+function addStaffInfraction(guildId, staffUserId, { issuedById, reason, severity, action }) {
+  const data = read(INFRACTIONS_FILE, {});
+  if (!data[guildId]) data[guildId] = {};
+  if (!data[guildId][staffUserId]) data[guildId][staffUserId] = [];
+  const record = {
+    id: Date.now(),
+    issuedById,
+    reason,
+    severity: severity ?? 'minor',
+    action: action ?? null,
+    timestamp: new Date().toISOString(),
+    active: true,
+  };
+  data[guildId][staffUserId].push(record);
+  write(INFRACTIONS_FILE, data);
+  return record;
+}
+
+/**
+ * Get all infractions for a staff member in a guild.
+ * @param {string} guildId
+ * @param {string} staffUserId
+ * @returns {object[]}
+ */
+function getStaffInfractions(guildId, staffUserId) {
+  const data = read(INFRACTIONS_FILE, {});
+  return data?.[guildId]?.[staffUserId] ?? [];
+}
+
+/**
+ * Remove/void a specific infraction by id.
+ * @param {string} guildId
+ * @param {string} staffUserId
+ * @param {number} infractionId
+ * @returns {boolean} true if removed
+ */
+function removeStaffInfraction(guildId, staffUserId, infractionId) {
+  const data = read(INFRACTIONS_FILE, {});
+  if (!data?.[guildId]?.[staffUserId]) return false;
+  const before = data[guildId][staffUserId].length;
+  data[guildId][staffUserId] = data[guildId][staffUserId].filter((i) => i.id !== infractionId);
+  write(INFRACTIONS_FILE, data);
+  return data[guildId][staffUserId].length < before;
+}
+
+/**
+ * Get all staff infraction records across all staff in a guild.
+ * @param {string} guildId
+ * @returns {object[]} Array of { staffUserId, infractions[] }
+ */
+function getAllStaffInfractions(guildId) {
+  const data = read(INFRACTIONS_FILE, {});
+  const guild = data?.[guildId] ?? {};
+  return Object.entries(guild).map(([staffUserId, infractions]) => ({ staffUserId, infractions }));
+}
+
 module.exports = {
   read,
   write,
@@ -304,4 +422,11 @@ module.exports = {
   getConfig,
   setConfig,
   deleteConfig,
+  getAutomodConfig,
+  setAutomodConfig,
+  setAutomodCategory,
+  addStaffInfraction,
+  getStaffInfractions,
+  removeStaffInfraction,
+  getAllStaffInfractions,
 };

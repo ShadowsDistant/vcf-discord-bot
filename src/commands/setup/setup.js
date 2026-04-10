@@ -188,6 +188,27 @@ module.exports = {
         .addSubcommand((sub) =>
           sub.setName('view').setDescription('View the current quota configuration.'),
         ),
+    )
+
+    // ── SID Role ──────────────────────────────────────────────────────────────
+    .addSubcommandGroup((group) =>
+      group
+        .setName('sid')
+        .setDescription('Configure the Specialized Investigations Division (SID) role.')
+        .addSubcommand((sub) =>
+          sub
+            .setName('set')
+            .setDescription('Assign a role as the SID role.')
+            .addRoleOption((o) =>
+              o.setName('role').setDescription('The role to assign as SID.').setRequired(true),
+            ),
+        )
+        .addSubcommand((sub) =>
+          sub.setName('clear').setDescription('Remove the SID role assignment.'),
+        )
+        .addSubcommand((sub) =>
+          sub.setName('view').setDescription('View the currently configured SID role.'),
+        ),
     ),
 
   async execute(interaction) {
@@ -510,6 +531,51 @@ module.exports = {
               .addFields(
                 { name: '⏱️  Required Shift Time', value: quotaDisplay, inline: true },
                 { name: '🔔  Notification Channel', value: notifCh, inline: true },
+              ),
+          ],
+          ephemeral: true,
+        });
+      }
+    }
+
+    // ── SID Role ──────────────────────────────────────────────────────────────
+
+    if (group === 'sid') {
+      if (sub === 'set') {
+        const role = interaction.options.getRole('role');
+        db.setConfig(guild.id, 'sidRoleId', role.id);
+        return interaction.reply({
+          embeds: [
+            embeds
+              .setup('🔍  SID Role Set', `${role} has been configured as the **Specialized Investigations Division (SID)** role.`, guild)
+              .addFields({ name: '🏷️  Role', value: `${role} (\`${role.id}\`)`, inline: true }),
+          ],
+          ephemeral: true,
+        });
+      }
+
+      if (sub === 'clear') {
+        db.deleteConfig(guild.id, 'sidRoleId');
+        return interaction.reply({
+          embeds: [embeds.success('The SID role assignment has been cleared.', guild)],
+          ephemeral: true,
+        });
+      }
+
+      if (sub === 'view') {
+        const config = db.getConfig(guild.id);
+        const sidMention = config.sidRoleId ? `<@&${config.sidRoleId}>` : '`Not configured`';
+        return interaction.reply({
+          embeds: [
+            embeds
+              .setup('🔍  SID Role', 'Specialized Investigations Division role configuration.', guild)
+              .addFields(
+                { name: '🏷️  SID Role', value: sidMention, inline: true },
+                {
+                  name: '💡  About SID',
+                  value:
+                    'The SID role is used to identify members of the Specialized Investigations Division. Staff with this role can use SID-related features.',
+                },
               ),
           ],
           ephemeral: true,
