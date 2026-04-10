@@ -352,7 +352,7 @@ View the current bot configuration for this server, including the configured mod
 
 ### 👨‍💻 Developer
 
-Developer commands are restricted to the bot owner (user ID `757698506411475005`). Any other user will receive an ephemeral error embed.
+Developer commands are restricted to the user whose ID is set in the `DEV_USER_ID` environment variable. Any other user will receive an ephemeral error embed.
 
 ---
 
@@ -420,6 +420,10 @@ CLIENT_ID=your_application_client_id_here
 # Optional — set to a single guild ID for instant command deployment (for testing)
 # Leave blank to deploy globally (takes up to 1 hour to propagate)
 GUILD_ID=your_test_guild_id
+
+# Optional — Discord user ID allowed to use developer commands
+# Defaults to the bot owner ID if not set
+DEV_USER_ID=your_discord_user_id
 ```
 
 | Variable | Required | Description |
@@ -427,6 +431,7 @@ GUILD_ID=your_test_guild_id
 | `DISCORD_TOKEN` | ✅ | Your bot's secret token from the Developer Portal |
 | `CLIENT_ID` | ✅ | Your application's client/application ID |
 | `GUILD_ID` | ❌ | A single guild ID for guild-scoped (instant) command deployment |
+| `DEV_USER_ID` | ❌ | Discord user ID permitted to use `/setstatus`, `/servers`, `/announce` |
 
 > ⚠️ **Never commit your `.env` file.** It is listed in `.gitignore` by default.
 

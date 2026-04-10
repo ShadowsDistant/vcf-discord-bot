@@ -92,7 +92,12 @@ module.exports = {
             .setup('👋  Welcome Messages Configured', `New members will be greeted in ${channel}.`, guild)
             .addFields(
               { name: '📌  Channel', value: `${channel}`, inline: true },
-              { name: '💬  Message Preview', value: message.replace('{user}', `<@${interaction.user.id}>`).replace('{server}', guild.name) },
+              {
+                name: '💬  Message Preview',
+                value: message
+                  .replace('{user}', `<@${interaction.user.id}>`)
+                  .replace('{server}', guild.name),
+              },
             ),
         ],
         ephemeral: true,

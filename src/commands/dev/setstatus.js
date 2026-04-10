@@ -3,7 +3,7 @@
 const { SlashCommandBuilder, ActivityType } = require('discord.js');
 const embeds = require('../../utils/embeds');
 
-const DEV_USER_ID = '757698506411475005';
+const DEV_USER_ID = process.env.DEV_USER_ID ?? '757698506411475005';
 
 const STATUS_CHOICES = [
   { name: 'Online', value: 'online' },
