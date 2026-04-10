@@ -39,23 +39,23 @@ module.exports = {
 
     const shiftEmbed = embeds
       .shift(
-        '🔴  Shift Ended',
+        '  Shift Ended',
         `Thanks for your work, ${interaction.user}! Great job today.`,
         interaction.guild,
       )
       .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
       .addFields(
-        { name: '👤  Staff Member', value: `${interaction.user}`, inline: true },
-        { name: '🕐  Duration', value: formatDuration(record.durationMs), inline: true },
-        { name: '📅  Started', value: `<t:${startedTs}:T>`, inline: true },
-        { name: '📅  Ended', value: `<t:${endedTs}:T>`, inline: true },
-        { name: '⏱️  Total Time on Record', value: formatDuration(totalMs), inline: true },
-        { name: '📋  Total Shifts', value: `${history.length}`, inline: true },
+        { name: '  Staff Member', value: `${interaction.user}`, inline: true },
+        { name: '  Duration', value: formatDuration(record.durationMs), inline: true },
+        { name: '  Started', value: `<t:${startedTs}:T>`, inline: true },
+        { name: '  Ended', value: `<t:${endedTs}:T>`, inline: true },
+        { name: '⏱  Total Time on Record', value: formatDuration(totalMs), inline: true },
+        { name: '  Total Shifts', value: `${history.length}`, inline: true },
       );
 
     if (wave) {
       shiftEmbed.addFields({
-        name: `📊  Wave #${wave.waveNumber} Time`,
+        name: `  Wave #${wave.waveNumber} Time`,
         value: formatDuration(waveTimeMs),
         inline: true,
       });
@@ -77,14 +77,14 @@ module.exports = {
         if (notifChannel) {
           const notifEmbed = new EmbedBuilder()
             .setColor(PALETTE.success)
-            .setTitle('✅  Quota Met!')
+            .setTitle('  Quota Met!')
             .setDescription(`${interaction.user} has met the shift quota for this wave!`)
             .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
             .addFields(
-              { name: '👤  Staff Member', value: `${interaction.user}`, inline: true },
-              { name: '⏱️  Required', value: formatDuration(quotaMs), inline: true },
-              { name: '✅  Completed', value: formatDuration(waveTimeMs), inline: true },
-              ...(wave ? [{ name: '🌊  Wave', value: `#${wave.waveNumber}`, inline: true }] : []),
+              { name: '  Staff Member', value: `${interaction.user}`, inline: true },
+              { name: '⏱  Required', value: formatDuration(quotaMs), inline: true },
+              { name: '  Completed', value: formatDuration(waveTimeMs), inline: true },
+              ...(wave ? [{ name: '  Wave', value: `#${wave.waveNumber}`, inline: true }] : []),
             )
             .setTimestamp()
             .setFooter({
@@ -108,16 +108,16 @@ module.exports = {
 
       const dmEmbed = new EmbedBuilder()
         .setColor(PALETTE.shift)
-        .setTitle('🔴  Shift Ended — Summary')
+        .setTitle('  Shift Ended — Summary')
         .setDescription(`Your shift at **${interaction.guild.name}** has ended.`)
         .setThumbnail(interaction.guild.iconURL({ dynamic: true }) ?? null)
         .addFields(
-          { name: '🏠  Server', value: interaction.guild.name, inline: true },
-          { name: '🕐  Duration', value: formatDuration(record.durationMs), inline: true },
-          { name: '📅  Started', value: `<t:${startedTs}:T>`, inline: true },
-          { name: '📅  Ended', value: `<t:${endedTs}:T>`, inline: true },
-          { name: '📊  All-Time Total', value: formatDuration(totalMs), inline: true },
-          { name: '📋  Total Shifts', value: `${history.length}`, inline: true },
+          { name: '  Server', value: interaction.guild.name, inline: true },
+          { name: '  Duration', value: formatDuration(record.durationMs), inline: true },
+          { name: '  Started', value: `<t:${startedTs}:T>`, inline: true },
+          { name: '  Ended', value: `<t:${endedTs}:T>`, inline: true },
+          { name: '  All-Time Total', value: formatDuration(totalMs), inline: true },
+          { name: '  Total Shifts', value: `${history.length}`, inline: true },
         )
         .setTimestamp();
 
@@ -125,11 +125,11 @@ module.exports = {
         const quotaMs = config.quotaMs ?? 0;
         const pct = quotaMs > 0 ? Math.min(100, Math.round((waveTimeMs / quotaMs) * 100)) : null;
         dmEmbed.addFields({
-          name: `🌊  Wave #${wave.waveNumber} Progress`,
+          name: `  Wave #${wave.waveNumber} Progress`,
           value: [
             `Time: **${formatDuration(waveTimeMs)}**`,
             quotaMs > 0 ? `Required: **${formatDuration(quotaMs)}**` : null,
-            pct !== null ? `Progress: **${pct}%**${pct >= 100 ? ' ✅' : ''}` : null,
+            pct !== null ? `Progress: **${pct}%**${pct >= 100 ? ' ' : ''}` : null,
           ]
             .filter(Boolean)
             .join('\n'),
@@ -138,7 +138,7 @@ module.exports = {
       }
 
       if (recentLines) {
-        dmEmbed.addFields({ name: '🕐  Recent Shifts (last 5)', value: recentLines });
+        dmEmbed.addFields({ name: '  Recent Shifts (last 5)', value: recentLines });
       }
 
       await interaction.user.send({ embeds: [dmEmbed] }).catch(() => null);

@@ -179,30 +179,30 @@ module.exports = {
       const embed = embeds
         .base(interaction.guild)
         .setColor(0xe8373e) // Roblox red
-        .setTitle(`🎮  ${profile.displayName} (@${profile.name})`)
+        .setTitle(`  ${profile.displayName} (@${profile.name})`)
         .setURL(`https://www.roblox.com/users/${profile.id}/profile`)
         .setDescription(description)
         .addFields(
           { name: '🆔  User ID', value: `\`${profile.id}\``, inline: true },
-          { name: '📅  Account Created', value: createdAt, inline: true },
-          { name: '👥  Friends', value: `${friendCount.toLocaleString()}`, inline: true },
+          { name: '  Account Created', value: createdAt, inline: true },
+          { name: '  Friends', value: `${friendCount.toLocaleString()}`, inline: true },
           {
-            name: '👤  Followers',
+            name: '  Followers',
             value: `${followerCount.toLocaleString()}`,
             inline: true,
           },
           {
-            name: '🔇  Banned',
-            value: profile.isBanned ? '⛔ Yes' : '✅ No',
+            name: '  Banned',
+            value: profile.isBanned ? ' Yes' : ' No',
             inline: true,
           },
           {
-            name: '🔍  Searched Nickname',
+            name: '  Searched Nickname',
             value: `\`${nickname}\``,
             inline: true,
           },
           {
-            name: '🔗  Profile Link',
+            name: '  Profile Link',
             value: `[View on Roblox](https://www.roblox.com/users/${profile.id}/profile)`,
             inline: false,
           },

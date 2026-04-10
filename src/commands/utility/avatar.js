@@ -20,7 +20,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setColor(PALETTE.primary)
-      .setTitle(`🖼️  ${target.tag}'s Avatar`)
+      .setTitle(`  ${target.tag}'s Avatar`)
       .setImage(serverAvatar ?? globalAvatar)
       .setTimestamp()
       .setFooter({

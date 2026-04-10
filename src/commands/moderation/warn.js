@@ -53,7 +53,7 @@ module.exports = {
         embeds
           .modAction({
             action: 'Member Warned',
-            emoji: '⚠️',
+            emoji: '',
             target,
             moderator: interaction.user,
             reason,
@@ -61,7 +61,7 @@ module.exports = {
           })
           .setColor(0xfee75c)
           .addFields({
-            name: '📊  Total Warnings',
+            name: '  Total Warnings',
             value: `${warnings.length}`,
             inline: true,
           }),

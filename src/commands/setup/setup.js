@@ -100,7 +100,7 @@ module.exports = {
       group
         .setName('modroles')
         .setDescription(
-          'Assign roles to moderation permission levels (moderator / senior mod / management).',
+          'Assign roles to moderation permission levels (moderator / senior mod / leadership).',
         )
         .addSubcommand((sub) =>
           sub
@@ -114,7 +114,7 @@ module.exports = {
                 .addChoices(
                   { name: 'Moderator', value: 'moderatorRoleId' },
                   { name: 'Senior Moderator', value: 'seniorModRoleId' },
-                  { name: 'Management', value: 'managementRoleId' },
+                  { name: 'Moderation Leadership', value: 'managementRoleId' },
                 ),
             )
             .addRoleOption((o) =>
@@ -133,7 +133,7 @@ module.exports = {
                 .addChoices(
                   { name: 'Moderator', value: 'moderatorRoleId' },
                   { name: 'Senior Moderator', value: 'seniorModRoleId' },
-                  { name: 'Management', value: 'managementRoleId' },
+                  { name: 'Moderation Leadership', value: 'managementRoleId' },
                 ),
             ),
         )
@@ -224,8 +224,8 @@ module.exports = {
       return interaction.reply({
         embeds: [
           embeds
-            .setup('📋  Mod Log Channel Set', `Moderation actions will now be logged in ${channel}.`, guild)
-            .addFields({ name: '📌  Channel', value: `${channel} (\`${channel.id}\`)`, inline: true }),
+            .setup('  Mod Log Channel Set', `Moderation actions will now be logged in ${channel}.`, guild)
+            .addFields({ name: '  Channel', value: `${channel} (\`${channel.id}\`)`, inline: true }),
         ],
         ephemeral: true,
       });
@@ -235,17 +235,17 @@ module.exports = {
       const channel = interaction.options.getChannel('channel');
       const message =
         interaction.options.getString('message') ??
-        'Welcome to **{server}**, {user}! We hope you enjoy your stay. 🎉';
+        'Welcome to **{server}**, {user}! Please review the server rules.';
       db.setConfig(guild.id, 'welcomeChannelId', channel.id);
       db.setConfig(guild.id, 'welcomeMessage', message);
       return interaction.reply({
         embeds: [
           embeds
-            .setup('👋  Welcome Messages Configured', `New members will be greeted in ${channel}.`, guild)
+            .setup('  Welcome Messages Configured', `New members will be greeted in ${channel}.`, guild)
             .addFields(
-              { name: '📌  Channel', value: `${channel}`, inline: true },
+              { name: '  Channel', value: `${channel}`, inline: true },
               {
-                name: '💬  Message Preview',
+                name: '  Message Preview',
                 value: message
                   .replace('{user}', `<@${interaction.user.id}>`)
                   .replace('{server}', guild.name),
@@ -279,7 +279,7 @@ module.exports = {
       return interaction.reply({
         embeds: [
           embeds.setup(
-            enabled ? '📨  Shift DMs Enabled' : '🔕  Shift DMs Disabled',
+            enabled ? '  Shift DMs Enabled' : '  Shift DMs Disabled',
             enabled
               ? 'Staff will now receive a DM when they clock in and out of shifts.'
               : 'Staff will no longer receive DMs for shift events.',
@@ -296,7 +296,7 @@ module.exports = {
       const logCh = config.logChannelId ? `<#${config.logChannelId}>` : '`Not set`';
       const welcomeCh = config.welcomeChannelId ? `<#${config.welcomeChannelId}>` : '`Not set`';
       const welcomeMsg = config.welcomeMessage ?? '`Not set`';
-      const shiftDms = config.shiftDmsEnabled ? '✅ Enabled' : '❌ Disabled';
+      const shiftDms = config.shiftDmsEnabled ? 'Enabled' : 'Disabled';
 
       const staffRoles = (config.staffRoleIds ?? []);
       const staffRolesDisplay =
@@ -305,7 +305,7 @@ module.exports = {
       const modRoles = [
         `**Moderator:** ${config.moderatorRoleId ? `<@&${config.moderatorRoleId}>` : '`Not set`'}`,
         `**Senior Mod:** ${config.seniorModRoleId ? `<@&${config.seniorModRoleId}>` : '`Not set`'}`,
-        `**Management:** ${config.managementRoleId ? `<@&${config.managementRoleId}>` : '`Not set`'}`,
+        `**Leadership:** ${config.managementRoleId ? `<@&${config.managementRoleId}>` : '`Not set`'}`,
       ].join('\n');
 
       const quotaDisplay = config.quotaMs
@@ -319,18 +319,18 @@ module.exports = {
       return interaction.reply({
         embeds: [
           embeds
-            .setup('⚙️  Server Configuration', `Current bot settings for **${guild.name}**.`, guild)
+            .setup('  Server Configuration', `Current bot settings for **${guild.name}**.`, guild)
             .setThumbnail(guild.iconURL({ dynamic: true }) ?? null)
             .addFields(
-              { name: '📋  Mod Log Channel', value: logCh, inline: true },
-              { name: '👋  Welcome Channel', value: welcomeCh, inline: true },
-              { name: '📨  Shift DMs', value: shiftDms, inline: true },
-              { name: '💬  Welcome Message', value: welcomeMsg },
-              { name: '👥  Staff Roles', value: staffRolesDisplay },
-              { name: '🛡️  Mod Roles', value: modRoles },
-              { name: '🔍  SID Role', value: sidRole, inline: true },
-              { name: '⏱️  Shift Quota', value: quotaDisplay, inline: true },
-              { name: '🔔  Quota Notifications', value: quotaNotifCh, inline: true },
+              { name: '  Mod Log Channel', value: logCh, inline: true },
+              { name: '  Welcome Channel', value: welcomeCh, inline: true },
+              { name: '  Shift DMs', value: shiftDms, inline: true },
+              { name: '  Welcome Message', value: welcomeMsg },
+              { name: '  Staff Roles', value: staffRolesDisplay },
+              { name: '  Mod Roles', value: modRoles },
+              { name: '  SID Role', value: sidRole, inline: true },
+              { name: '⏱  Shift Quota', value: quotaDisplay, inline: true },
+              { name: '  Quota Notifications', value: quotaNotifCh, inline: true },
             ),
         ],
         ephemeral: true,
@@ -355,8 +355,8 @@ module.exports = {
         return interaction.reply({
           embeds: [
             embeds
-              .setup('✅  Staff Role Added', `${role} can now use the shift system.`, guild)
-              .addFields({ name: '🏷️  Role', value: `${role} (\`${role.id}\`)`, inline: true }),
+              .setup('  Staff Role Added', `${role} can now use the shift system.`, guild)
+              .addFields({ name: '  Role', value: `${role} (\`${role.id}\`)`, inline: true }),
           ],
           ephemeral: true,
         });
@@ -373,7 +373,7 @@ module.exports = {
         db.setConfig(guild.id, 'staffRoleIds', staffRoles.filter((id) => id !== role.id));
         return interaction.reply({
           embeds: [
-            embeds.setup('🗑️  Staff Role Removed', `${role} has been removed from the staff list.`, guild),
+            embeds.setup('  Staff Role Removed', `${role} has been removed from the staff list.`, guild),
           ],
           ephemeral: true,
         });
@@ -384,7 +384,7 @@ module.exports = {
           return interaction.reply({
             embeds: [
               embeds.setup(
-                '👥  Staff Roles',
+                '  Staff Roles',
                 'No staff roles are configured. Anyone can currently use the shift system.',
                 guild,
               ),
@@ -395,7 +395,7 @@ module.exports = {
         return interaction.reply({
           embeds: [
             embeds
-              .setup('👥  Staff Roles', 'Roles permitted to use the shift system:', guild)
+              .setup('  Staff Roles', 'Roles permitted to use the shift system:', guild)
               .addFields(
                 staffRoles.map((id, i) => ({
                   name: `Role ${i + 1}`,
@@ -422,16 +422,16 @@ module.exports = {
         const levelLabel = {
           moderatorRoleId: 'Moderator',
           seniorModRoleId: 'Senior Moderator',
-          managementRoleId: 'Management',
+          managementRoleId: 'Moderation Leadership',
         }[levelKey];
 
         return interaction.reply({
           embeds: [
             embeds
-              .setup(`🛡️  Mod Role Set — ${levelLabel}`, `${role} has been assigned to the **${levelLabel}** level.`, guild)
+              .setup(`  Mod Role Set — ${levelLabel}`, `${role} has been assigned to the **${levelLabel}** level.`, guild)
               .addFields(
-                { name: '🏷️  Role', value: `${role}`, inline: true },
-                { name: '📊  Level', value: `\`${levelLabel}\``, inline: true },
+                { name: '  Role', value: `${role}`, inline: true },
+                { name: '  Level', value: `\`${levelLabel}\``, inline: true },
               ),
           ],
           ephemeral: true,
@@ -444,7 +444,7 @@ module.exports = {
         const levelLabel = {
           moderatorRoleId: 'Moderator',
           seniorModRoleId: 'Senior Moderator',
-          managementRoleId: 'Management',
+          managementRoleId: 'Moderation Leadership',
         }[levelKey];
         return interaction.reply({
           embeds: [
@@ -458,14 +458,14 @@ module.exports = {
         const lines = [
           `**Moderator:** ${config.moderatorRoleId ? `<@&${config.moderatorRoleId}>` : '`Not set`'}`,
           `**Senior Moderator:** ${config.seniorModRoleId ? `<@&${config.seniorModRoleId}>` : '`Not set`'}`,
-          `**Management:** ${config.managementRoleId ? `<@&${config.managementRoleId}>` : '`Not set`'}`,
+          `**Leadership:** ${config.managementRoleId ? `<@&${config.managementRoleId}>` : '`Not set`'}`,
         ].join('\n');
         return interaction.reply({
           embeds: [
             embeds
-              .setup('🛡️  Moderation Role Assignments', lines, guild)
+              .setup('  Moderation Role Assignments', lines, guild)
               .addFields({
-                name: '💡  How It Works',
+                name: '  How It Works',
                 value:
                   'When mod roles are configured, users must hold the appropriate (or higher) role to use moderation commands. Higher roles satisfy lower-level checks.',
               }),
@@ -486,10 +486,10 @@ module.exports = {
         return interaction.reply({
           embeds: [
             embeds
-              .setup('⏱️  Shift Quota Set', `Staff members must complete **${hours} hours** of shift time per **${period}** wave.`, guild)
+              .setup('⏱  Shift Quota Set', `Staff members must complete **${hours} hours** of shift time per **${period}** wave.`, guild)
               .addFields(
-                { name: '⏱️  Required Time', value: `\`${hours}h\``, inline: true },
-                { name: '📅  Period', value: `\`${period}\``, inline: true },
+                { name: '⏱  Required Time', value: `\`${hours}h\``, inline: true },
+                { name: '  Period', value: `\`${period}\``, inline: true },
               ),
           ],
           ephemeral: true,
@@ -502,8 +502,8 @@ module.exports = {
         return interaction.reply({
           embeds: [
             embeds
-              .setup('🔔  Quota Notification Channel Set', `Quota notifications will be posted in ${channel}.`, guild)
-              .addFields({ name: '📌  Channel', value: `${channel}`, inline: true }),
+              .setup('  Quota Notification Channel Set', `Quota notifications will be posted in ${channel}.`, guild)
+              .addFields({ name: '  Channel', value: `${channel}`, inline: true }),
           ],
           ephemeral: true,
         });
@@ -529,10 +529,10 @@ module.exports = {
         return interaction.reply({
           embeds: [
             embeds
-              .setup('⏱️  Quota Configuration', 'Current shift quota settings.', guild)
+              .setup('⏱  Quota Configuration', 'Current shift quota settings.', guild)
               .addFields(
-                { name: '⏱️  Required Shift Time', value: quotaDisplay, inline: true },
-                { name: '🔔  Notification Channel', value: notifCh, inline: true },
+                { name: '⏱  Required Shift Time', value: quotaDisplay, inline: true },
+                { name: '  Notification Channel', value: notifCh, inline: true },
               ),
           ],
           ephemeral: true,
@@ -549,8 +549,8 @@ module.exports = {
         return interaction.reply({
           embeds: [
             embeds
-              .setup('🔍  SID Role Set', `${role} has been configured as the **Specialized Investigations Division (SID)** role.`, guild)
-              .addFields({ name: '🏷️  Role', value: `${role} (\`${role.id}\`)`, inline: true }),
+              .setup('  SID Role Set', `${role} has been configured as the **Specialized Investigations Division (SID)** role.`, guild)
+              .addFields({ name: '  Role', value: `${role} (\`${role.id}\`)`, inline: true }),
           ],
           ephemeral: true,
         });
@@ -570,11 +570,11 @@ module.exports = {
         return interaction.reply({
           embeds: [
             embeds
-              .setup('🔍  SID Role', 'Specialized Investigations Division role configuration.', guild)
+              .setup('  SID Role', 'Specialized Investigations Division role configuration.', guild)
               .addFields(
-                { name: '🏷️  SID Role', value: sidMention, inline: true },
+                { name: '  SID Role', value: sidMention, inline: true },
                 {
-                  name: '💡  About SID',
+                  name: '  About SID',
                   value:
                     'The SID role is used to identify members of the Specialized Investigations Division. Staff with this role can use SID-related features.',
                 },

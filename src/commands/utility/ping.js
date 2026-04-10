@@ -10,7 +10,7 @@ module.exports = {
 
   async execute(interaction) {
     const sent = await interaction.reply({
-      embeds: [embeds.info('🏓  Pinging…', 'Calculating latency…', interaction.guild)],
+      embeds: [embeds.info('  Pinging…', 'Calculating latency…', interaction.guild)],
       fetchReply: true,
     });
 
@@ -20,10 +20,10 @@ module.exports = {
     return interaction.editReply({
       embeds: [
         embeds
-          .info('🏓  Pong!', 'Bot is online and responsive.', interaction.guild)
+          .info('  Pong!', 'Bot is online and responsive.', interaction.guild)
           .addFields(
-            { name: '📡  Roundtrip', value: `\`${roundtrip}ms\``, inline: true },
-            { name: '💓  API Heartbeat', value: `\`${apiLatency}ms\``, inline: true },
+            { name: '  Roundtrip', value: `\`${roundtrip}ms\``, inline: true },
+            { name: '  API Heartbeat', value: `\`${apiLatency}ms\``, inline: true },
           ),
       ],
     });

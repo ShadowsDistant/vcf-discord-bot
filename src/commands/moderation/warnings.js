@@ -27,7 +27,7 @@ module.exports = {
         embeds: [
           embeds.info(
             `Warnings for ${target.tag}`,
-            '✅  This user has no warnings.',
+            '  This user has no warnings.',
             interaction.guild,
           ),
         ],
@@ -36,7 +36,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setColor(0xfee75c)
-      .setTitle(`⚠️  Warnings for ${target.tag}`)
+      .setTitle(`  Warnings for ${target.tag}`)
       .setThumbnail(target.displayAvatarURL({ dynamic: true }))
       .setFooter({
         text: `${warnings.length} warning${warnings.length !== 1 ? 's' : ''} total · ${interaction.guild.name}`,

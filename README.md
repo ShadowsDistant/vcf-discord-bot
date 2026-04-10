@@ -8,11 +8,11 @@ A modern, feature-rich Discord bot built with **discord.js v14** featuring advan
 
 - [Features Overview](#features-overview)
 - [Command Reference](#command-reference)
-  - [🛡️ Moderation](#️-moderation)
-  - [🔧 Utility](#-utility)
-  - [🕐 Shifts](#-shifts)
-  - [⚙️ Setup](#️-setup)
-  - [👨‍💻 Developer](#-developer)
+  - [Moderation](#moderation)
+  - [Utility](#utility)
+  - [Shifts](#shifts)
+  - [Setup](#setup)
+  - [Developer](#developer)
 - [Getting Started](#getting-started)
   - [Prerequisites](#prerequisites)
   - [Installation](#installation)
@@ -32,19 +32,19 @@ A modern, feature-rich Discord bot built with **discord.js v14** featuring advan
 
 | Category | Highlights |
 |---|---|
-| 🛡️ **Moderation** | Ban, kick, timeout, warn system, purge, lock/unlock channels, slowmode, role management — with optional mod-role permission levels |
-| 🔧 **Utility** | Ping, userinfo, serverinfo, avatar, botinfo, help |
-| 🕐 **Shifts** | Clock-in/out, staff-role gate, shift history, wave period tracking, quota requirements, DMs on start/end, wave-end mass DM |
-| ⚙️ **Setup** | Admin-only server configuration (mod logs, welcome, staff roles, mod permission levels, quota, shift DMs) |
-| 📋 **Reasons** | Per-server preset ban/kick/warn reasons with autocomplete in mod commands |
-| 👨‍💻 **Developer** | Set bot presence, list guilds, broadcast announcements |
-| 🎨 **Embeds** | Colour-coded, titled embeds for all responses; welcome DM on member join; quota notifications |
+| **Moderation** | Ban, kick, timeout, warn system, purge, lock/unlock channels, slowmode, role management — with optional mod-role permission levels |
+| **Utility** | Ping, userinfo, serverinfo, avatar, botinfo, help |
+| **Shifts** | Clock-in/out, staff-role gate, shift history, wave period tracking, quota requirements, DMs on start/end, wave-end mass DM |
+| **Setup** | Admin-only server configuration (mod logs, welcome, staff roles, mod permission levels, quota, shift DMs, AutoMod) |
+| **Reasons** | Per-server preset ban/kick/warn reasons with autocomplete in mod commands |
+| **Developer** | Set bot presence, list guilds, broadcast announcements |
+| **Embeds** | Colour-coded, titled embeds for all responses; welcome message on member join; quota notifications |
 
 ---
 
 ## Command Reference
 
-### 🛡️ Moderation
+### Moderation
 
 All moderation commands require the corresponding Discord permission. Error responses are always sent **ephemerally** (only visible to the invoking moderator).
 
@@ -328,7 +328,7 @@ View the top 10 staff members ranked by all-time shift time. If you are outside 
 
 ---
 
-### ⚙️ Setup
+### Setup
 
 Setup commands can only be used by members with the **Administrator** permission. They configure server-specific bot behaviour stored persistently in `src/data/config.json`.
 
@@ -351,7 +351,7 @@ Configure an automated welcome message when new members join.
 | `channel` | Text Channel | ✅ | Channel to send welcome messages in |
 | `message` | String | ❌ | Custom message text. Use `{user}` for a mention and `{server}` for the server name. Defaults to a built-in welcome message. |
 
-**Example custom message:** `Hey {user}, welcome to {server}! Read the rules in #rules. 👋`
+**Example custom message:** `Hey {user}, welcome to {server}! Read the rules in #rules.`
 
 ---
 
@@ -392,13 +392,13 @@ Assign a Discord role to a moderation permission level.
 
 | Option | Type | Required | Description |
 |---|---|---|---|
-| `level` | Choice | ✅ | `Moderator`, `Senior Moderator`, or `Management` |
+| `level` | Choice | ✅ | `Moderator`, `Senior Moderator`, or `Moderation Leadership` |
 | `role` | Role | ✅ | The role to assign |
 
 Permission hierarchy:
 - **Moderator** — warn, kick, timeout, lock/unlock, slowmode, purge
 - **Senior Moderator** — ban, unban + all Moderator commands
-- **Management** — all commands
+- **Moderation Leadership** — all commands
 
 When mod roles are configured, users must hold the appropriate role (or higher) to use commands. Higher roles always satisfy lower-level checks.
 
@@ -407,6 +407,37 @@ Remove the role assignment for a moderation level.
 
 #### `/setup modroles view`
 View the current mod-role assignments.
+
+---
+
+#### `/automod toggle <enabled>`
+Enable or disable the AutoMod system for the server.
+
+#### `/automod category <category> <enabled>`
+Toggle a specific AutoMod category.
+
+#### `/automod punishment <preset> [timeout_duration]`
+Configure the AutoMod punishment (`delete`, `delete_timeout`, `delete_kick`, `timeout`).
+
+#### `/automod logchannel <channel>`
+Set the channel used for AutoMod action logs.
+
+#### `/automod exemptrole <role> <add>`
+Add or remove role-based AutoMod exemptions.
+
+#### `/automod status`
+View AutoMod configuration and category status.
+
+AutoMod now includes stronger bypass detection and expanded policy categories:
+- Targeted profanity and abuse
+- Slurs and hate speech
+- Explicit sexual content
+- Threats, blackmail, and doxxing signals
+- Malicious/obfuscated invite and advertising patterns
+- Classified information disclosure signals
+- Political agitation signals
+
+To reduce false positives, general profanity is disabled by default and can be enabled explicitly via `/automod category`.
 
 ---
 
@@ -438,7 +469,7 @@ Toggle whether the bot DMs staff members when they clock in or out.
 
 ---
 
-### 👨‍💻 Developer
+### Developer
 
 Developer commands are restricted to the user whose ID is set in the `DEV_USER_ID` environment variable. Any other user will receive an ephemeral error embed.
 
@@ -688,4 +719,3 @@ Please keep commands consistent with the existing embed design system and follow
 ## License
 
 ISC
-

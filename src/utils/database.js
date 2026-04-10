@@ -296,7 +296,7 @@ function getAutomodConfig(guildId) {
   return (
     data[guildId] ?? {
       enabled: false,
-      categories: {},
+      categories: { profanity: false },
       punishment: 'delete',
       timeoutDuration: 300000, // 5 minutes default
       logChannelId: null,

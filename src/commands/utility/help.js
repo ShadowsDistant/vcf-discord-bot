@@ -30,7 +30,7 @@ module.exports = {
 
       const embed = new EmbedBuilder()
         .setColor(PALETTE.primary)
-        .setTitle(`📖  /${cmd.data.name}`)
+        .setTitle(`  /${cmd.data.name}`)
         .setDescription(cmd.data.description)
         .setTimestamp()
         .setFooter({
@@ -60,16 +60,16 @@ module.exports = {
     }
 
     const categoryEmojis = {
-      moderation: '🛡️  Moderation',
-      utility: '🔧  Utility',
-      shifts: '🕐  Shifts',
-      setup: '⚙️  Setup',
-      dev: '👨‍💻  Developer',
+      moderation: '  Moderation',
+      utility: '  Utility',
+      shifts: '  Shifts',
+      setup: '  Setup',
+      dev: '‍  Developer',
     };
 
     const embed = new EmbedBuilder()
       .setColor(PALETTE.primary)
-      .setTitle('📋  Command List')
+      .setTitle('  Command List')
       .setDescription('Here is a list of all available commands.')
       .setTimestamp()
       .setFooter({

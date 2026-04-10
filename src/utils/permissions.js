@@ -6,7 +6,7 @@ const db = require('./database');
  * Moderation permission levels.
  *  1 = Moderator     (warn, kick, timeout, lock/unlock, slowmode, purge)
  *  2 = Senior Mod    (ban, unban + all level-1)
- *  3 = Management    (all commands, wave management)
+ *  3 = Leadership    (all commands, wave management)
  */
 const MOD_LEVEL = {
   moderator: 1,
@@ -50,4 +50,16 @@ function hasModLevel(member, guildId, requiredLevel) {
   return false;
 }
 
-module.exports = { hasModLevel, MOD_LEVEL };
+/**
+ * Check whether member has the configured SID role.
+ * @param {import('discord.js').GuildMember} member
+ * @param {string} guildId
+ * @returns {boolean}
+ */
+function hasSidRole(member, guildId) {
+  const config = db.getConfig(guildId);
+  const sidRoleId = config.sidRoleId;
+  return Boolean(sidRoleId && member.roles.cache.has(sidRoleId));
+}
+
+module.exports = { hasModLevel, hasSidRole, MOD_LEVEL };

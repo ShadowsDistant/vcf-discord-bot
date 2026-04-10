@@ -4,7 +4,7 @@ const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 
-const TYPE_LABELS = { ban: '🔨  Ban', kick: '👢  Kick', warn: '⚠️  Warn' };
+const TYPE_LABELS = { ban: '  Ban', kick: '  Kick', warn: '  Warn' };
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -109,7 +109,7 @@ module.exports = {
             )
             .addFields(
               { name: '🆔  ID', value: `\`${entry.id}\``, inline: true },
-              { name: '📋  Reason', value: reason },
+              { name: '  Reason', value: reason },
             ),
         ],
         ephemeral: true,
@@ -138,7 +138,7 @@ module.exports = {
       const types = filterType ? [filterType] : ['ban', 'kick', 'warn'];
 
       const embed = embeds
-        .setup('📋  Preset Reasons', 'Configured preset reasons for moderation actions.', guild);
+        .setup('  Preset Reasons', 'Configured preset reasons for moderation actions.', guild);
 
       let anyFound = false;
       for (const type of types) {

@@ -52,14 +52,14 @@ module.exports = {
 
     const shiftEmbed = embeds
       .shift(
-        '🟢  Shift Started',
+        '  Shift Started',
         `Welcome back, ${interaction.user}! Your shift has begun.\n\nUse \`/endshift\` when you're done.`,
         interaction.guild,
       )
       .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
       .addFields(
-        { name: '👤  Staff Member', value: `${interaction.user}`, inline: true },
-        { name: '🕐  Started At', value: `<t:${startedTs}:T> (<t:${startedTs}:R>)`, inline: true },
+        { name: '  Staff Member', value: `${interaction.user}`, inline: true },
+        { name: '  Started At', value: `<t:${startedTs}:T> (<t:${startedTs}:R>)`, inline: true },
       );
 
     await interaction.reply({ embeds: [shiftEmbed] });
@@ -68,12 +68,12 @@ module.exports = {
     if (config.shiftDmsEnabled) {
       const dmEmbed = new EmbedBuilder()
         .setColor(PALETTE.shift)
-        .setTitle('🟢  You Are Now On Shift')
+        .setTitle('  You Are Now On Shift')
         .setDescription(`You clocked in at **${interaction.guild.name}**.`)
         .setThumbnail(interaction.guild.iconURL({ dynamic: true }) ?? null)
         .addFields(
-          { name: '🏠  Server', value: interaction.guild.name, inline: true },
-          { name: '🕐  Started At', value: `<t:${startedTs}:T>`, inline: true },
+          { name: '  Server', value: interaction.guild.name, inline: true },
+          { name: '  Started At', value: `<t:${startedTs}:T>`, inline: true },
         )
         .setTimestamp();
 

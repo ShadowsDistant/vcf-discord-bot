@@ -93,10 +93,10 @@ module.exports = {
     return interaction.reply({
       embeds: [
         embeds
-          .dev('🎮  Presence Updated', 'The bot\'s presence has been changed successfully.', interaction.guild ?? null)
+          .dev('  Presence Updated', 'The bot\'s presence has been changed successfully.', interaction.guild ?? null)
           .addFields(
-            { name: '🔵  Status', value: `\`${status}\``, inline: true },
-            { name: '🎯  Activity', value: activityDisplay, inline: true },
+            { name: '  Status', value: `\`${status}\``, inline: true },
+            { name: '  Activity', value: activityDisplay, inline: true },
           ),
       ],
       ephemeral: true,

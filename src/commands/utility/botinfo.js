@@ -23,15 +23,15 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setColor(PALETTE.primary)
-      .setTitle(`🤖  ${client.user.username}`)
+      .setTitle(`  ${client.user.username}`)
       .setThumbnail(client.user.displayAvatarURL({ dynamic: true, size: 256 }))
       .setDescription('A feature-rich Discord bot built with discord.js.')
       .addFields(
         { name: '🆔  Bot ID', value: `\`${client.user.id}\``, inline: true },
-        { name: '🏷️  Tag', value: `\`${client.user.tag}\``, inline: true },
-        { name: '📅  Created', value: `<t:${createdTs}:D> (<t:${createdTs}:R>)`, inline: true },
+        { name: '  Tag', value: `\`${client.user.tag}\``, inline: true },
+        { name: '  Created', value: `<t:${createdTs}:D> (<t:${createdTs}:R>)`, inline: true },
         {
-          name: '📊  Statistics',
+          name: '  Statistics',
           value: [
             `Servers: **${client.guilds.cache.size.toLocaleString()}**`,
             `Members: **${totalMembers.toLocaleString()}**`,
@@ -40,7 +40,7 @@ module.exports = {
           inline: true,
         },
         {
-          name: '⚙️  Runtime',
+          name: '  Runtime',
           value: [
             `Uptime: **${formatDuration(uptimeMs)}**`,
             `Node.js: **${process.version}**`,
@@ -49,12 +49,12 @@ module.exports = {
           inline: true,
         },
         {
-          name: '💾  Memory',
+          name: '  Memory',
           value: `Heap: **${heapUsedMB} MB** / ${heapTotalMB} MB`,
           inline: true,
         },
         {
-          name: '🏓  Latency',
+          name: '  Latency',
           value: `API Heartbeat: **${Math.round(client.ws.ping)}ms**`,
           inline: true,
         },

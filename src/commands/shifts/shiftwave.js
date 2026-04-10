@@ -51,11 +51,11 @@ module.exports = {
       return interaction.reply({
         embeds: [
           embeds
-            .setup(`🌊  Wave #${wave.waveNumber} Started`, 'A new shift wave period has begun!', guild)
+            .setup(`  Wave #${wave.waveNumber} Started`, 'A new shift wave period has begun!', guild)
             .addFields(
-              { name: '🔢  Wave Number', value: `\`#${wave.waveNumber}\``, inline: true },
-              { name: '📅  Started At', value: `<t:${startedTs}:F>`, inline: true },
-              { name: '👤  Started By', value: `${interaction.user}`, inline: true },
+              { name: '  Wave Number', value: `\`#${wave.waveNumber}\``, inline: true },
+              { name: '  Started At', value: `<t:${startedTs}:F>`, inline: true },
+              { name: '  Started By', value: `${interaction.user}`, inline: true },
             ),
         ],
       });
@@ -97,14 +97,14 @@ module.exports = {
       // Build the channel summary embed
       const summaryEmbed = new EmbedBuilder()
         .setColor(PALETTE.setup)
-        .setTitle(`🏁  Wave #${wave.waveNumber} Closed`)
+        .setTitle(`  Wave #${wave.waveNumber} Closed`)
         .setDescription(
           `The wave period has ended.\n**Period:** <t:${waveStartTs}:D> → <t:${waveEndTs}:D> (${formatDuration(waveDurationMs)})`,
         )
         .addFields(
-          { name: '👥  Participants', value: `${sortedUsers.length}`, inline: true },
-          { name: '✅  Met Quota', value: `${metQuota.length}`, inline: true },
-          { name: '❌  Missed Quota', value: `${missedQuota.length}`, inline: true },
+          { name: '  Participants', value: `${sortedUsers.length}`, inline: true },
+          { name: '  Met Quota', value: `${metQuota.length}`, inline: true },
+          { name: '  Missed Quota', value: `${missedQuota.length}`, inline: true },
         )
         .setTimestamp()
         .setFooter({
@@ -114,13 +114,13 @@ module.exports = {
 
       if (sortedUsers.length > 0) {
         const top = sortedUsers.slice(0, 10);
-        const MEDALS = ['🥇', '🥈', '🥉'];
+        const MEDALS = ['', '', ''];
         summaryEmbed.addFields({
-          name: '🏆  Wave Leaderboard',
+          name: '  Wave Leaderboard',
           value: top
             .map((u, i) => {
               const medal = MEDALS[i] ?? `**${i + 1}.**`;
-              const quotaCheck = quotaMs > 0 ? (u.totalMs >= quotaMs ? ' ✅' : ' ❌') : '';
+              const quotaCheck = quotaMs > 0 ? (u.totalMs >= quotaMs ? ' ' : ' ') : '';
               return `${medal}  <@${u.userId}> — **${formatDuration(u.totalMs)}** (${u.shiftCount} shift${u.shiftCount !== 1 ? 's' : ''})${quotaCheck}`;
             })
             .join('\n'),
@@ -137,20 +137,20 @@ module.exports = {
 
         const dmEmbed = new EmbedBuilder()
           .setColor(metQ === false ? PALETTE.error : PALETTE.shift)
-          .setTitle(`🏁  Wave #${wave.waveNumber} — Your Summary`)
+          .setTitle(`  Wave #${wave.waveNumber} — Your Summary`)
           .setDescription(`The shift wave at **${guild.name}** has ended.`)
           .setThumbnail(guild.iconURL({ dynamic: true }) ?? null)
           .addFields(
-            { name: '🌊  Wave', value: `#${wave.waveNumber}`, inline: true },
-            { name: '⏱️  Your Time', value: formatDuration(u.totalMs), inline: true },
-            { name: '📋  Your Shifts', value: `${u.shiftCount}`, inline: true },
-            { name: '📅  Period', value: `<t:${waveStartTs}:D> → <t:${waveEndTs}:D>`, inline: false },
+            { name: '  Wave', value: `#${wave.waveNumber}`, inline: true },
+            { name: '⏱  Your Time', value: formatDuration(u.totalMs), inline: true },
+            { name: '  Your Shifts', value: `${u.shiftCount}`, inline: true },
+            { name: '  Period', value: `<t:${waveStartTs}:D> → <t:${waveEndTs}:D>`, inline: false },
           )
           .setTimestamp();
 
         if (quotaMs > 0) {
           dmEmbed.addFields({
-            name: metQ ? '✅  Quota Status' : '❌  Quota Status',
+            name: metQ ? '  Quota Status' : '  Quota Status',
             value: [
               `Required: **${formatDuration(quotaMs)}**`,
               `Completed: **${formatDuration(u.totalMs)}**`,
@@ -175,7 +175,7 @@ module.exports = {
         embeds: [
           embeds
             .success(
-              `Wave #${wave.waveNumber} has been closed.\n📨 Sent summaries to **${dmsSent}** staff member${dmsSent !== 1 ? 's' : ''}.\n🌊 Wave **#${newWave.waveNumber}** has started automatically.`,
+              `Wave #${wave.waveNumber} has been closed.\n Sent summaries to **${dmsSent}** staff member${dmsSent !== 1 ? 's' : ''}.\n Wave **#${newWave.waveNumber}** has started automatically.`,
               guild,
             ),
         ],
@@ -190,7 +190,7 @@ module.exports = {
         return interaction.reply({
           embeds: [
             embeds.info(
-              '🌊  No Active Wave',
+              '  No Active Wave',
               'No wave is currently running. Use `/shiftwave start` to begin one.',
               guild,
             ),
@@ -216,33 +216,33 @@ module.exports = {
       const quotaMs = config.quotaMs ?? 0;
       const metQuota = sorted.filter((u) => u.totalMs >= quotaMs).length;
 
-      const MEDALS = ['🥇', '🥈', '🥉'];
+      const MEDALS = ['', '', ''];
       const leaderboardLines = sorted.slice(0, 10).map((u, i) => {
         const medal = MEDALS[i] ?? `**${i + 1}.**`;
-        const check = quotaMs > 0 ? (u.totalMs >= quotaMs ? ' ✅' : ' ❌') : '';
+        const check = quotaMs > 0 ? (u.totalMs >= quotaMs ? ' ' : ' ') : '';
         return `${medal}  <@${u.userId}> — **${formatDuration(u.totalMs)}**${check}`;
       });
 
       const embed = embeds
-        .setup(`🌊  Wave #${wave.waveNumber} Status`, 'Current wave progress.', guild)
+        .setup(`  Wave #${wave.waveNumber} Status`, 'Current wave progress.', guild)
         .addFields(
-          { name: '📅  Started', value: `<t:${startedTs}:F>`, inline: true },
-          { name: '⏱️  Elapsed', value: formatDuration(elapsedMs), inline: true },
-          { name: '👥  Participants', value: `${sorted.length}`, inline: true },
+          { name: '  Started', value: `<t:${startedTs}:F>`, inline: true },
+          { name: '⏱  Elapsed', value: formatDuration(elapsedMs), inline: true },
+          { name: '  Participants', value: `${sorted.length}`, inline: true },
         );
 
       if (quotaMs > 0) {
         embed.addFields({
-          name: '⏱️  Quota',
+          name: '⏱  Quota',
           value: `Required: **${formatDuration(quotaMs)}** — Met by **${metQuota}** / ${sorted.length} staff`,
           inline: false,
         });
       }
 
       if (leaderboardLines.length > 0) {
-        embed.addFields({ name: '🏆  Leaderboard (Wave)', value: leaderboardLines.join('\n') });
+        embed.addFields({ name: '  Leaderboard (Wave)', value: leaderboardLines.join('\n') });
       } else {
-        embed.addFields({ name: '🏆  Leaderboard', value: 'No completed shifts in this wave yet.' });
+        embed.addFields({ name: '  Leaderboard', value: 'No completed shifts in this wave yet.' });
       }
 
       return interaction.reply({ embeds: [embed] });

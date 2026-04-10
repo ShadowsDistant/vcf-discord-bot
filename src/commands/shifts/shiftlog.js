@@ -35,13 +35,13 @@ module.exports = {
 
       if (active.length === 0) {
         return interaction.reply({
-          embeds: [embeds.info('🟡  Active Shifts', 'There are no active shifts right now.', interaction.guild)],
+          embeds: [embeds.info('  Active Shifts', 'There are no active shifts right now.', interaction.guild)],
         });
       }
 
       const embed = new EmbedBuilder()
         .setColor(PALETTE.shift)
-        .setTitle(`🟢  Active Shifts (${active.length})`)
+        .setTitle(`  Active Shifts (${active.length})`)
         .setTimestamp()
         .setFooter({
           text: interaction.guild.name,
@@ -68,15 +68,15 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setColor(PALETTE.shift)
-      .setTitle(`📋  Shift Log — ${target.tag}`)
+      .setTitle(`  Shift Log — ${target.tag}`)
       .setThumbnail(target.displayAvatarURL({ dynamic: true }))
       .addFields(
         {
-          name: '📊  Statistics',
+          name: '  Statistics',
           value: [
             `Completed Shifts: **${history.length}**`,
             `Total Time: **${formatDuration(totalMs)}**`,
-            `Status: ${activeShift ? '🟢 **On Shift**' : '🔴 **Off Shift**'}`,
+            `Status: ${activeShift ? ' **On Shift**' : ' **Off Shift**'}`,
           ].join('\n'),
         },
       )
@@ -89,7 +89,7 @@ module.exports = {
     if (activeShift) {
       const startedTs = Math.floor(new Date(activeShift.startedAt).getTime() / 1000);
       embed.addFields({
-        name: '🟢  Current Shift',
+        name: '  Current Shift',
         value: `Started <t:${startedTs}:R> (<t:${startedTs}:T>)`,
       });
     }
@@ -102,7 +102,7 @@ module.exports = {
         return `<t:${ts}:D> — **${formatDuration(s.durationMs)}**`;
       });
       embed.addFields({
-        name: '🕐  Recent Shifts (last 5)',
+        name: '  Recent Shifts (last 5)',
         value: historyLines.join('\n'),
       });
     }

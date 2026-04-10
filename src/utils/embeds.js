@@ -41,7 +41,7 @@ function base(guild = null) {
 function success(description, guild = null) {
   return base(guild)
     .setColor(PALETTE.success)
-    .setTitle('✅  Success')
+    .setTitle('Success')
     .setDescription(description);
 }
 
@@ -53,7 +53,7 @@ function success(description, guild = null) {
 function error(description, guild = null) {
   return base(guild)
     .setColor(PALETTE.error)
-    .setTitle('⛔  Error')
+    .setTitle('Error')
     .setDescription(description);
 }
 
@@ -65,7 +65,7 @@ function error(description, guild = null) {
 function warning(description, guild = null) {
   return base(guild)
     .setColor(PALETTE.warning)
-    .setTitle('⚠️  Warning')
+    .setTitle('Warning')
     .setDescription(description);
 }
 
@@ -136,17 +136,17 @@ function dev(title, description, guild = null) {
 function modAction({ action, emoji, target, moderator, reason, duration, guild } = {}) {
   const embed = base(guild)
     .setColor(PALETTE.error)
-    .setTitle(`${emoji}  ${action}`)
+    .setTitle(action)
     .setThumbnail(target.displayAvatarURL({ dynamic: true }))
     .addFields(
-      { name: '👤  User', value: `${target} (\`${target.tag}\`)`, inline: true },
-      { name: '🛡️  Moderator', value: `${moderator} (\`${moderator.tag}\`)`, inline: true },
+      { name: 'User', value: `${target} (\`${target.tag}\`)`, inline: true },
+      { name: 'Moderator', value: `${moderator} (\`${moderator.tag}\`)`, inline: true },
     );
 
-  if (duration) embed.addFields({ name: '⏱️  Duration', value: duration, inline: true });
+  if (duration) embed.addFields({ name: 'Duration', value: duration, inline: true });
 
   embed.addFields({
-    name: '📋  Reason',
+    name: 'Reason',
     value: reason ?? 'No reason provided.',
   });
 
