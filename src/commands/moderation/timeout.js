@@ -78,7 +78,7 @@ module.exports = {
         embeds: [
           embeds.modAction({
             action: 'Member Timed Out',
-            emoji: '🔇',
+            emoji: '',
             target,
             moderator: interaction.user,
             reason,

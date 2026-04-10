@@ -3,18 +3,12 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
-const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
+const { hasModLevel, hasSidRole, MOD_LEVEL } = require('../../utils/permissions');
 
 const SEVERITY_COLORS = {
   minor: 0xfee75c,
   moderate: 0xf57c00,
   severe: 0xed4245,
-};
-
-const SEVERITY_EMOJIS = {
-  minor: '🟡',
-  moderate: '🟠',
-  severe: '🔴',
 };
 
 function getStaffRoleIds(guildId) {
@@ -61,12 +55,12 @@ module.exports = {
           o
             .setName('severity')
             .setDescription('Severity of the infraction.')
-            .setRequired(true)
-            .addChoices(
-              { name: '🟡 Minor', value: 'minor' },
-              { name: '🟠 Moderate', value: 'moderate' },
-              { name: '🔴 Severe', value: 'severe' },
-            ),
+              .setRequired(true)
+              .addChoices(
+                { name: 'Minor', value: 'minor' },
+                { name: 'Moderate', value: 'moderate' },
+                { name: 'Severe', value: 'severe' },
+              ),
         )
         .addStringOption((o) =>
           o
@@ -117,12 +111,15 @@ module.exports = {
     ),
 
   async execute(interaction) {
-    // Require management level
-    if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.management)) {
+    // Require SID or moderation leadership level
+    const hasAccess =
+      hasSidRole(interaction.member, interaction.guild.id) ||
+      hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.management);
+    if (!hasAccess) {
       return interaction.reply({
         embeds: [
           embeds.error(
-            'You need the **Management** permission level to manage staff infractions.',
+            'You need the configured **SID** role or moderation leadership access to manage staff infractions.',
             interaction.guild,
           ),
         ],
@@ -178,23 +175,23 @@ module.exports = {
       const infractionEmbed = embeds
         .base(interaction.guild)
         .setColor(SEVERITY_COLORS[severity] ?? 0xfee75c)
-        .setTitle(`${SEVERITY_EMOJIS[severity] ?? '⚠️'}  Staff Infraction Issued`)
+        .setTitle('Staff Infraction Issued')
         .setThumbnail(staffUser.displayAvatarURL({ dynamic: true }))
         .addFields(
           {
-            name: '👤  Staff Member',
+            name: 'Staff Member',
             value: `${staffUser} (\`${staffUser.tag}\`)`,
             inline: true,
           },
           {
-            name: '🛡️  Issued By',
+            name: 'Issued By',
             value: `${interaction.user} (\`${interaction.user.tag}\`)`,
             inline: true,
           },
-          { name: '⚠️  Severity', value: severity.charAt(0).toUpperCase() + severity.slice(1), inline: true },
-          { name: '📋  Reason', value: reason },
-          ...(action ? [{ name: '⚖️  Additional Action', value: action }] : []),
-          { name: '🆔  Infraction ID', value: `\`${record.id}\``, inline: true },
+          { name: 'Severity', value: severity.charAt(0).toUpperCase() + severity.slice(1), inline: true },
+          { name: 'Reason', value: reason },
+          ...(action ? [{ name: 'Additional Action', value: action }] : []),
+          { name: 'Infraction ID', value: `\`${record.id}\``, inline: true },
         );
 
       await interaction.reply({ embeds: [infractionEmbed] });
@@ -204,14 +201,14 @@ module.exports = {
         const dmEmbed = embeds
           .base(null)
           .setColor(SEVERITY_COLORS[severity] ?? 0xfee75c)
-          .setTitle(`${SEVERITY_EMOJIS[severity] ?? '⚠️'}  Staff Infraction — ${interaction.guild.name}`)
+          .setTitle(`Staff Infraction — ${interaction.guild.name}`)
           .setDescription(
             `You have received a **${severity}** staff infraction in **${interaction.guild.name}**.`,
           )
           .addFields(
-            { name: '📋  Reason', value: reason },
-            ...(action ? [{ name: '⚖️  Additional Action', value: action }] : []),
-            { name: '🆔  Infraction ID', value: `\`${record.id}\`` },
+            { name: 'Reason', value: reason },
+            ...(action ? [{ name: 'Additional Action', value: action }] : []),
+            { name: 'Infraction ID', value: `\`${record.id}\`` },
           );
         await staffUser.send({ embeds: [dmEmbed] });
       } catch {
@@ -239,7 +236,7 @@ module.exports = {
         return interaction.reply({
           embeds: [
             embeds.info(
-              '📋  No Infractions',
+                'No Infractions',
               `${staffUser} has no recorded staff infractions.`,
               interaction.guild,
             ),
@@ -250,8 +247,8 @@ module.exports = {
 
       const fieldLines = infractions.map((inf, idx) => {
         const ts = `<t:${Math.floor(new Date(inf.timestamp).getTime() / 1000)}:D>`;
-        const actionLine = inf.action ? `\n⚖️ Action: ${inf.action}` : '';
-        return `**#${idx + 1}** — ${SEVERITY_EMOJIS[inf.severity] ?? '⚠️'} \`${inf.severity}\` — ID: \`${inf.id}\`\n📋 ${inf.reason}${actionLine}\n🕐 ${ts} — Issued by <@${inf.issuedById}>`;
+        const actionLine = inf.action ? `\nAction: ${inf.action}` : '';
+        return `**#${idx + 1}** — \`${inf.severity}\` — ID: \`${inf.id}\`\nReason: ${inf.reason}${actionLine}\nDate: ${ts} — Issued by <@${inf.issuedById}>`;
       });
 
       // Split into chunks of 5 to stay within embed limits
@@ -269,12 +266,12 @@ module.exports = {
       const viewEmbed = embeds
         .base(interaction.guild)
         .setColor(0x5865f2)
-        .setTitle(`📋  Staff Infractions — ${staffUser.tag}`)
+        .setTitle(`Staff Infractions — ${staffUser.tag}`)
         .setThumbnail(staffUser.displayAvatarURL({ dynamic: true }))
         .addFields(
           {
-            name: '📊  Summary',
-            value: `🟡 Minor: **${countSummary.minor}** | 🟠 Moderate: **${countSummary.moderate}** | 🔴 Severe: **${countSummary.severe}**`,
+            name: 'Summary',
+            value: `Minor: **${countSummary.minor}** | Moderate: **${countSummary.moderate}** | Severe: **${countSummary.severe}**`,
           },
           ...chunks.map((chunk, i) => ({
             name: chunks.length > 1 ? `Infractions (${i + 1}/${chunks.length})` : 'Infractions',
@@ -325,7 +322,7 @@ module.exports = {
         return interaction.reply({
           embeds: [
             embeds.info(
-              '📋  Staff Infractions',
+               'Staff Infractions',
               'No staff members have recorded infractions.',
               interaction.guild,
             ),
@@ -340,13 +337,13 @@ module.exports = {
           moderate: e.infractions.filter((i) => i.severity === 'moderate').length,
           severe: e.infractions.filter((i) => i.severity === 'severe').length,
         };
-        return `<@${e.staffUserId}> — 🟡 ${counts.minor} / 🟠 ${counts.moderate} / 🔴 ${counts.severe}`;
+        return `<@${e.staffUserId}> — Minor: ${counts.minor} / Moderate: ${counts.moderate} / Severe: ${counts.severe}`;
       });
 
       const listEmbed = embeds
         .base(interaction.guild)
         .setColor(0x5865f2)
-        .setTitle('📋  All Staff Infractions')
+        .setTitle('All Staff Infractions')
         .setDescription(lines.join('\n'));
 
       return interaction.reply({ embeds: [listEmbed], ephemeral: true });

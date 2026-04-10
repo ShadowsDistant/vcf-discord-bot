@@ -49,7 +49,7 @@ module.exports = {
           embeds: [
             embeds
               .success(`Slowmode disabled in ${channel}.`, interaction.guild)
-              .addFields({ name: '📌  Channel', value: `${channel}`, inline: true }),
+              .addFields({ name: '  Channel', value: `${channel}`, inline: true }),
           ],
         });
       }
@@ -59,12 +59,12 @@ module.exports = {
       return interaction.reply({
         embeds: [
           embeds
-            .info('🐢  Slowmode Set', `Slowmode has been applied to ${channel}.`, interaction.guild)
+            .info('  Slowmode Set', `Slowmode has been applied to ${channel}.`, interaction.guild)
             .setColor(0xfee75c)
             .addFields(
-              { name: '📌  Channel', value: `${channel}`, inline: true },
-              { name: '⏱️  Delay', value: `\`${display}\``, inline: true },
-              { name: '🛡️  Set by', value: `${interaction.user}`, inline: true },
+              { name: '  Channel', value: `${channel}`, inline: true },
+              { name: '⏱  Delay', value: `\`${display}\``, inline: true },
+              { name: '  Set by', value: `${interaction.user}`, inline: true },
             ),
         ],
       });

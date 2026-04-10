@@ -63,7 +63,7 @@ module.exports = {
         embeds: [
           embeds.modAction({
             action: 'Member Kicked',
-            emoji: '👢',
+            emoji: '',
             target,
             moderator: interaction.user,
             reason,

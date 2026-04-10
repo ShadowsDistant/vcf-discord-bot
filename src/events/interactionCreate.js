@@ -50,7 +50,7 @@ module.exports = {
           interaction.guild ?? null,
         )
         .addFields({
-          name: '🔎  Command',
+          name: '  Command',
           value: `\`/${interaction.commandName}\``,
           inline: true,
         });

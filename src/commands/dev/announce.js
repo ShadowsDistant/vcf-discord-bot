@@ -63,7 +63,7 @@ module.exports = {
     const embed = embeds
       .base(interaction.guild ?? null)
       .setColor(colorMap[colorChoice])
-      .setTitle(`📢  ${title}`)
+      .setTitle(`  ${title}`)
       .setDescription(message)
       .setAuthor({
         name: interaction.guild?.name ?? 'Announcement',

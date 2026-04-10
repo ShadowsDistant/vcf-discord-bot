@@ -85,10 +85,10 @@ module.exports = {
             embeds
               .success(`Added ${role} to ${target}.`, interaction.guild)
               .addFields(
-                { name: '👤  Member', value: `${target} (\`${target.tag}\`)`, inline: true },
-                { name: '🏷️  Role', value: `${role}`, inline: true },
-                { name: '🛡️  Moderator', value: `${interaction.user}`, inline: true },
-                { name: '📋  Reason', value: reason },
+                { name: '  Member', value: `${target} (\`${target.tag}\`)`, inline: true },
+                { name: '  Role', value: `${role}`, inline: true },
+                { name: '  Moderator', value: `${interaction.user}`, inline: true },
+                { name: '  Reason', value: reason },
               ),
           ],
         });
@@ -116,10 +116,10 @@ module.exports = {
             embeds
               .success(`Removed ${role} from ${target}.`, interaction.guild)
               .addFields(
-                { name: '👤  Member', value: `${target} (\`${target.tag}\`)`, inline: true },
-                { name: '🏷️  Role', value: `${role}`, inline: true },
-                { name: '🛡️  Moderator', value: `${interaction.user}`, inline: true },
-                { name: '📋  Reason', value: reason },
+                { name: '  Member', value: `${target} (\`${target.tag}\`)`, inline: true },
+                { name: '  Role', value: `${role}`, inline: true },
+                { name: '  Moderator', value: `${interaction.user}`, inline: true },
+                { name: '  Reason', value: reason },
               ),
           ],
         });

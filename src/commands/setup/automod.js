@@ -7,7 +7,7 @@ const {
 } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
-const { getCategoryIds, getCategoryLabel } = require('../../utils/automod');
+const { getCategoryIds, getCategoryLabel, isCategoryEnabledByDefault } = require('../../utils/automod');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
 
 const PUNISHMENT_LABELS = {
@@ -121,12 +121,12 @@ module.exports = {
     ),
 
   async execute(interaction) {
-    // Management-level check
-    if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.management)) {
+    // Senior moderation level check
+    if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.seniorMod)) {
       return interaction.reply({
         embeds: [
           embeds.error(
-            'You need the **Management** permission level to configure automod.',
+            'You need the **Senior Moderator** permission level (or higher) to configure automod.',
             interaction.guild,
           ),
         ],
@@ -259,8 +259,10 @@ module.exports = {
 
       const catLines = allCats
         .map((c) => {
-          const on = catMap[c] !== false;
-          return `${on ? '🟢' : '🔴'} **${getCategoryLabel(c)}** (\`${c}\`)`;
+          const on = Object.prototype.hasOwnProperty.call(catMap, c)
+            ? catMap[c] !== false
+            : isCategoryEnabledByDefault(c);
+          return `${on ? 'Enabled' : 'Disabled'}: **${getCategoryLabel(c)}** (\`${c}\`)`;
         })
         .join('\n');
 
@@ -274,28 +276,28 @@ module.exports = {
       const statusEmbed = embeds
         .base(interaction.guild)
         .setColor(0x5865f2)
-        .setTitle('🤖  AutoMod Configuration')
+        .setTitle('AutoMod Configuration')
         .addFields(
           {
-            name: '⚙️  System Status',
-            value: config.enabled ? '🟢 Enabled' : '🔴 Disabled',
+            name: 'System Status',
+            value: config.enabled ? 'Enabled' : 'Disabled',
             inline: true,
           },
           {
-            name: '⚖️  Punishment',
+            name: 'Punishment',
             value: PUNISHMENT_LABELS[config.punishment ?? 'delete'] ?? config.punishment,
             inline: true,
           },
           {
-            name: '⏱️  Timeout Duration',
+            name: 'Timeout Duration',
             value: config.timeoutDuration
               ? `${Math.round(config.timeoutDuration / 60000)} minute(s)`
               : '5 minutes (default)',
             inline: true,
           },
-          { name: '📋  Filter Categories', value: catLines || 'None configured' },
-          { name: '🛡️  Exempt Roles', value: exemptMentions, inline: true },
-          { name: '📋  Log Channel', value: logMention, inline: true },
+          { name: 'Filter Categories', value: catLines || 'None configured' },
+          { name: 'Exempt Roles', value: exemptMentions, inline: true },
+          { name: 'Log Channel', value: logMention, inline: true },
         );
 
       return interaction.reply({ embeds: [statusEmbed], ephemeral: true });

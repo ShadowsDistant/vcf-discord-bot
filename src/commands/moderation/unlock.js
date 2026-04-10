@@ -31,12 +31,12 @@ module.exports = {
       return interaction.reply({
         embeds: [
           embeds
-            .info('🔓  Channel Unlocked', `${channel} has been unlocked.`, interaction.guild)
+            .info('  Channel Unlocked', `${channel} has been unlocked.`, interaction.guild)
             .setColor(0x57f287)
             .addFields(
-              { name: '📌  Channel', value: `${channel}`, inline: true },
-              { name: '🛡️  Moderator', value: `${interaction.user}`, inline: true },
-              { name: '📋  Reason', value: reason },
+              { name: '  Channel', value: `${channel}`, inline: true },
+              { name: '  Moderator', value: `${interaction.user}`, inline: true },
+              { name: '  Reason', value: reason },
             ),
         ],
       });

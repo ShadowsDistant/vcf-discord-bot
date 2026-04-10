@@ -15,7 +15,7 @@ module.exports = {
 
     const messageTemplate =
       config.welcomeMessage ??
-      'Welcome to **{server}**, {user}! We hope you enjoy your stay. 🎉';
+      'Welcome to **{server}**, {user}! Please review the server rules.';
 
     const welcomeText = messageTemplate
       .replace('{user}', `${member}`)
@@ -28,14 +28,14 @@ module.exports = {
     const embed = embeds
       .base(member.guild)
       .setColor(0x5865f2)
-      .setTitle(`👋  Welcome to ${member.guild.name}!`)
+      .setTitle(`  Welcome to ${member.guild.name}!`)
       .setDescription(welcomeText)
       .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 }))
       .addFields(
-        { name: '👤  Member', value: `${member} (\`${member.user.tag}\`)`, inline: true },
-        { name: '🔢  Member #', value: `\`#${memberCount.toLocaleString()}\``, inline: true },
-        { name: '📅  Account Created', value: `<t:${createdTs}:R>`, inline: true },
-        { name: '📥  Joined At', value: `<t:${joinedTs}:T>`, inline: true },
+        { name: '  Member', value: `${member} (\`${member.user.tag}\`)`, inline: true },
+        { name: '  Member #', value: `\`#${memberCount.toLocaleString()}\``, inline: true },
+        { name: '  Account Created', value: `<t:${createdTs}:R>`, inline: true },
+        { name: '  Joined At', value: `<t:${joinedTs}:T>`, inline: true },
       );
 
     await channel.send({ embeds: [embed] }).catch(() => null);

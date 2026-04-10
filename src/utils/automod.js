@@ -20,19 +20,17 @@
  */
 const CATEGORIES = {
   profanity: {
-    label: 'Profanity & Abusive Language',
+    label: 'Targeted Profanity & Abuse',
     patterns: [
-      'fuck', 'fuk', 'f*ck', 'f**k', 'motherfucker', 'mf',
-      'shit', 'sh1t', 'bullshit',
-      'bitch', 'b1tch', 'son of a bitch',
-      'asshole', 'a55hole', 'dumbass', 'jackass',
-      'bastard', 'dipshit', 'piece of shit',
-      'piss off', 'dickhead', 'prick', 'twat',
-      'wtf', 'stfu', 'gtfo', 'fu',
-      'screw you', 'eat shit',
-      /\bf[\W_]*u[\W_]*c[\W_]*k\b/i,
-      /\bs[\W_]*h[\W_]*i[\W_]*t\b/i,
-      /\bb[\W_]*i[\W_]*t[\W_]*c[\W_]*h\b/i,
+      'fuck you', 'go fuck yourself',
+      'stfu', 'gtfo',
+      'eat shit', 'piece of shit',
+      'you are a bitch', 'youre a bitch', "you're a bitch",
+      'you are an asshole', 'youre an asshole', "you're an asshole",
+      'dumbass', 'jackass', 'dickhead',
+      /\bf[\W_]*u[\W_]*c[\W_]*k[\W_]*(y[\W_]*o[\W_]*u)?\b/i,
+      /\bs[\W_]*t[\W_]*f[\W_]*u\b/i,
+      /\bg[\W_]*t[\W_]*f[\W_]*o\b/i,
     ],
   },
 
@@ -51,6 +49,7 @@ const CATEGORIES = {
       'dyke', 'd1ke', 'd@ke',
       'retard', 'r3tard', 'ret@rd',
       'spastic', 'sp4stic',
+      'mongoloid',
     ],
   },
 
@@ -82,13 +81,14 @@ const CATEGORIES = {
       'slut', 'sl0t', 'sl@t',
       'blowjob', 'blow job', 'bl0wjob',
       'handjob', 'hand job',
-      'anal', '@nal',
+      'anal sex', '@nal sex',
       'dildo', 'd1ldo',
       'masturbate', 'masturbating', 'masturbation',
       'pornhub', 'xvideos', 'xhamster', 'pornography',
       'onlyfans', 'hentai',
       'nude', 'nudes', 'naked pics', 'naked pictures',
-      'child porn', 'cp', 'loli', 'shota',
+      'child porn', 'child pornography', 'loli', 'shota',
+      'sex tape', 'leaked nudes',
       /\bsex(y|ual|ting)?\b/i,
       /\bnsfwb/i,
     ],
@@ -102,6 +102,7 @@ const CATEGORIES = {
       'i will find you', 'ill find you',
       'watch your back', 'you are dead', "you're dead",
       'ur dead', 'dead meat',
+      'kys', 'kill yourself',
       'shoot you', 'shoot up',
       'bomb threat', 'going to bomb',
       'im going to murder', "i'm going to murder",
@@ -166,6 +167,7 @@ const CATEGORIES = {
       'your address is', 'i know where you live',
       'i know your address', 'your ip is',
       'i found your dox', 'dox file',
+      /\b\d{1,5}\s+[a-z0-9.\-'\s]+\s(st|street|ave|avenue|rd|road|blvd|lane|ln|dr|drive)\b/i,
     ],
   },
 
@@ -179,11 +181,60 @@ const CATEGORIES = {
       /\bdm\s+me\s+for\s+(details|info|more)\b/i,
       /\bcheck\s+my\s+(server|discord)\b/i,
       /\bjoin\s+my\s+(server|discord)\b/i,
+      /\bjoin\s+our\s+server\b/i,
       /\bfree\s+nitro\b/i,
       /\bgiveaway\b.{0,30}\bclick\b/i,
       'promotional code',
+      /hxxps?:\/\/\S+/i,
+      /\bdiscord[\W_]*gg[\W_]*\/[\W_]*[a-z0-9]+\b/i,
+      /\bdiscord[\W_]*com[\W_]*\/[\W_]*invite[\W_]*\/[\W_]*[a-z0-9]+\b/i,
     ],
   },
+
+  classified: {
+    label: 'Classified Information Disclosure',
+    patterns: [
+      'classified information',
+      'confidential staff chat',
+      'internal staff channel screenshot',
+      'leaked staff logs',
+      'internal investigation details',
+      'private management discussion',
+      'oversight hearing notes leak',
+      'sid case file',
+      'disciplinary record leak',
+    ],
+  },
+
+  politics: {
+    label: 'Political Discussion & Agitation',
+    patterns: [
+      'vote for', 'vote against',
+      'left wing', 'right wing',
+      'democrat', 'republican',
+      'liberal', 'conservative',
+      'prime minister', 'presidential election',
+      'political party',
+      /\btrump\b/i,
+      /\bbiden\b/i,
+      /\belection fraud\b/i,
+    ],
+  },
+};
+
+const DEFAULT_CATEGORY_STATES = {
+  profanity: false,
+  slurs: true,
+  hate: true,
+  sexual: true,
+  threats: true,
+  drugs: true,
+  spam: true,
+  selfharm: true,
+  doxxing: true,
+  advertising: true,
+  classified: true,
+  politics: true,
 };
 
 // ─── Normalisation Helpers ────────────────────────────────────────────────────
@@ -271,6 +322,10 @@ function strip(text) {
   return text.replace(/[^a-z0-9]/g, '');
 }
 
+function squeezeWhitespace(text) {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
 // ─── Core Scanner ─────────────────────────────────────────────────────────────
 
 /**
@@ -285,6 +340,8 @@ function scanMessage(content, enabledCats) {
 
   const norm = normalise(content);
   const stripped = strip(norm);
+  const squeezed = squeezeWhitespace(norm);
+  const compact = squeezeWhitespace(content.toLowerCase());
 
   for (const catId of enabledCats) {
     const cat = CATEGORIES[catId];
@@ -293,7 +350,7 @@ function scanMessage(content, enabledCats) {
     for (const pattern of cat.patterns) {
       if (pattern instanceof RegExp) {
         // Test against normalised content and also original (lower) for URL patterns
-        if (pattern.test(norm) || pattern.test(content.toLowerCase())) {
+        if (pattern.test(norm) || pattern.test(compact) || pattern.test(content.toLowerCase())) {
           return { triggered: true, category: catId, matchedTerm: pattern.toString() };
         }
       } else {
@@ -307,7 +364,11 @@ function scanMessage(content, enabledCats) {
         }
 
         // 2. Stripped (no separators) test — catches "n.i.g.g.a" style bypasses
-        if (strippedPattern.length >= 4 && stripped.includes(strippedPattern)) {
+        if (strippedPattern.length >= 5 && stripped.includes(strippedPattern)) {
+          return { triggered: true, category: catId, matchedTerm: pattern };
+        }
+
+        if (normPattern.length >= 6 && squeezed.includes(normPattern)) {
           return { triggered: true, category: catId, matchedTerm: pattern };
         }
       }
@@ -339,10 +400,20 @@ function getCategoryLabel(catId) {
   return CATEGORIES[catId]?.label ?? catId;
 }
 
+/**
+ * Default-enabled policy for a category.
+ * @param {string} catId
+ * @returns {boolean}
+ */
+function isCategoryEnabledByDefault(catId) {
+  return DEFAULT_CATEGORY_STATES[catId] ?? true;
+}
+
 module.exports = {
   CATEGORIES,
   scanMessage,
   normalise,
   getCategoryIds,
   getCategoryLabel,
+  isCategoryEnabledByDefault,
 };

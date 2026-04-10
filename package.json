@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "deploy": "node deploy-commands.js",
-    "test": "node --experimental-vm-modules node_modules/.bin/jest --passWithNoTests"
+    "test": "node --test"
   },
   "repository": {
     "type": "git",

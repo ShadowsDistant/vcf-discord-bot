@@ -9,7 +9,7 @@ const db = require('../../utils/database');
 const { formatDuration } = require('../../utils/helpers');
 const { PALETTE } = embeds;
 
-const MEDALS = ['🥇', '🥈', '🥉'];
+const MEDALS = ['', '', ''];
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -23,7 +23,7 @@ module.exports = {
       return interaction.reply({
         embeds: [
           embeds.info(
-            '📊  Shift Leaderboard',
+            '  Shift Leaderboard',
             'No completed shifts yet. Use `/startshift` to begin!',
             interaction.guild,
           ),
@@ -40,7 +40,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setColor(PALETTE.shift)
-      .setTitle('🏆  Shift Leaderboard')
+      .setTitle('  Shift Leaderboard')
       .setDescription(rows.join('\n'))
       .setTimestamp()
       .setFooter({
@@ -53,7 +53,7 @@ module.exports = {
     if (callerRank >= 10) {
       const callerEntry = leaderboard[callerRank];
       embed.addFields({
-        name: '📍  Your Rank',
+        name: '  Your Rank',
         value: `#${callerRank + 1} — **${formatDuration(callerEntry.totalMs)}** (${callerEntry.shiftCount} shift${callerEntry.shiftCount !== 1 ? 's' : ''})`,
       });
     }

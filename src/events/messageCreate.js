@@ -2,7 +2,7 @@
 
 const { Events, PermissionFlagsBits } = require('discord.js');
 const db = require('../utils/database');
-const { scanMessage, getCategoryLabel } = require('../utils/automod');
+const { scanMessage, getCategoryLabel, isCategoryEnabledByDefault } = require('../utils/automod');
 const { hasModLevel, MOD_LEVEL } = require('../utils/permissions');
 const embeds = require('../utils/embeds');
 
@@ -14,14 +14,17 @@ function getEnabledCategories(config) {
   const { getCategoryIds } = require('../utils/automod');
   const allCats = getCategoryIds();
   const categoryMap = config.categories ?? {};
-  return allCats.filter((c) => categoryMap[c] !== false);
+  return allCats.filter((c) => {
+    if (Object.prototype.hasOwnProperty.call(categoryMap, c)) return categoryMap[c] !== false;
+    return isCategoryEnabledByDefault(c);
+  });
 }
 
 function isRoleConfigured(config, key) {
   return Boolean(config?.[key]);
 }
 
-function isModeratorOrManagement(member, guildId) {
+function isModerationStaff(member, guildId) {
   const config = db.getConfig(guildId);
   const hasConfiguredModRoles =
     isRoleConfigured(config, 'moderatorRoleId') ||
@@ -76,8 +79,8 @@ module.exports = {
     const member = message.member ?? await message.guild.members.fetch(message.author.id).catch(() => null);
     if (!member) return;
 
-    // Exempt moderators, senior mods, and management
-    if (isModeratorOrManagement(member, guildId)) return;
+    // Exempt moderation staff
+    if (isModerationStaff(member, guildId)) return;
 
     // Exempt any additional roles the config specifies
     const exemptRoles = automodConfig.exemptRoles ?? [];
@@ -107,7 +110,7 @@ module.exports = {
             .warning(
               `Your message in **${message.guild.name}** was removed because it violated the **${categoryLabel}** automod filter.\n\nPlease review the server rules to avoid further action.`,
             )
-            .setTitle('⚠️  AutoMod — Message Removed'),
+            .setTitle('AutoMod — Message Removed'),
         ],
       });
     } catch {
@@ -141,21 +144,21 @@ module.exports = {
         const logEmbed = embeds
           .base(message.guild)
           .setColor(0xed4245)
-          .setTitle('🤖  AutoMod Action')
+          .setTitle('AutoMod Action')
           .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
           .addFields(
             {
-              name: '👤  User',
+              name: 'User',
               value: `${message.author} (\`${message.author.tag}\`)`,
               inline: true,
             },
-            { name: '📂  Category', value: categoryLabel, inline: true },
-            { name: '⚖️  Action', value: punishmentLabel, inline: true },
+            { name: 'Category', value: categoryLabel, inline: true },
+            { name: 'Action', value: punishmentLabel, inline: true },
             {
-              name: '💬  Message',
+              name: 'Message',
               value: content.length > 1000 ? `${content.slice(0, 997)}…` : content,
             },
-            { name: '📍  Channel', value: `${message.channel}`, inline: true },
+            { name: 'Channel', value: `${message.channel}`, inline: true },
           );
 
         await logChannel.send({ embeds: [logEmbed] }).catch(() => null);

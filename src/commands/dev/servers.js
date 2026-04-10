@@ -33,13 +33,13 @@ module.exports = {
       embeds: [
         embeds
           .dev(
-            `🌐  Server List (${total})`,
+            `  Server List (${total})`,
             listed || 'No servers found.',
             interaction.guild ?? null,
           )
           .addFields(
-            { name: '📊  Total Servers', value: `\`${total}\``, inline: true },
-            { name: '👥  Total Members', value: `\`${totalMembers.toLocaleString()}\``, inline: true },
+            { name: '  Total Servers', value: `\`${total}\``, inline: true },
+            { name: '  Total Members', value: `\`${totalMembers.toLocaleString()}\``, inline: true },
           ),
       ],
       ephemeral: true,

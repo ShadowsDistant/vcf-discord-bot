@@ -39,18 +39,18 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setColor(PALETTE.primary)
-      .setTitle(`🏠  ${guild.name}`)
+      .setTitle(`  ${guild.name}`)
       .setThumbnail(guild.iconURL({ dynamic: true, size: 256 }) ?? null)
       .addFields(
         { name: '🆔  Server ID', value: `\`${guild.id}\``, inline: true },
-        { name: '👑  Owner', value: owner ? `${owner.user}` : 'Unknown', inline: true },
-        { name: '🌍  Region', value: guild.preferredLocale ?? 'Unknown', inline: true },
+        { name: '  Owner', value: owner ? `${owner.user}` : 'Unknown', inline: true },
+        { name: '  Region', value: guild.preferredLocale ?? 'Unknown', inline: true },
         {
-          name: '📅  Created',
+          name: '  Created',
           value: `<t:${Math.floor(guild.createdTimestamp / 1000)}:D> (<t:${Math.floor(guild.createdTimestamp / 1000)}:R>)`,
         },
         {
-          name: '👥  Members',
+          name: '  Members',
           value: [
             `Total: **${guild.memberCount}**`,
             `Humans: **${guild.members.cache.filter((m) => !m.user.bot).size}**`,
@@ -59,7 +59,7 @@ module.exports = {
           inline: true,
         },
         {
-          name: '💬  Channels',
+          name: '  Channels',
           value: [
             `Text: **${textChannels}**`,
             `Voice: **${voiceChannels}**`,
@@ -68,22 +68,22 @@ module.exports = {
           inline: true,
         },
         {
-          name: '🏅  Roles',
+          name: '  Roles',
           value: `${guild.roles.cache.size}`,
           inline: true,
         },
         {
-          name: '✨  Boosts',
+          name: '  Boosts',
           value: `Level **${guild.premiumTier}** — **${guild.premiumSubscriptionCount ?? 0}** boosts`,
           inline: true,
         },
         {
-          name: '🔒  Verification Level',
+          name: '  Verification Level',
           value: VERIFICATION_LEVELS[guild.verificationLevel] ?? 'Unknown',
           inline: true,
         },
         {
-          name: '🔞  NSFW Level',
+          name: '  NSFW Level',
           value: NSFW_LEVELS[guild.nsfwLevel] ?? 'Unknown',
           inline: true,
         },
