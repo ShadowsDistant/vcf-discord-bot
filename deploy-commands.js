@@ -58,18 +58,32 @@ const rest = new REST().setToken(DISCORD_TOKEN);
     console.log(`\n🚀  Deploying ${commands.length} application (/) command(s)…`);
 
     let data;
+    let route;
     if (GUILD_ID) {
       // Guild-scoped deploy (instant, for testing)
-      data = await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
+      route = Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID);
+      data = await rest.put(route, {
         body: commands,
       });
       console.log(`✅  Successfully deployed to guild ${GUILD_ID}`);
     } else {
       // Global deploy (takes up to 1 hour to propagate)
-      data = await rest.put(Routes.applicationCommands(CLIENT_ID), {
+      route = Routes.applicationCommands(CLIENT_ID);
+      data = await rest.put(route, {
         body: commands,
       });
       console.log('✅  Successfully deployed globally');
+    }
+
+    const expected = new Set(commands.map((c) => c.name));
+    const returned = new Set(data.map((c) => c.name));
+    const missing = [...expected].filter((name) => !returned.has(name));
+    if (missing.length > 0) {
+      console.warn(`⚠  ${missing.length} command(s) missing after bulk deploy: ${missing.join(', ')}`);
+      for (const command of commands.filter((c) => missing.includes(c.name))) {
+        await rest.post(route, { body: command });
+        console.log(`  ↳ Re-registered missing command: /${command.name}`);
+      }
     }
 
     console.log(`\n✨  ${data.length} command(s) registered.`);
