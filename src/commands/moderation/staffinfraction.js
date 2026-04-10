@@ -17,6 +17,23 @@ const SEVERITY_EMOJIS = {
   severe: '🔴',
 };
 
+function getStaffRoleIds(guildId) {
+  const config = db.getConfig(guildId);
+  return [
+    ...(config.staffRoleIds ?? []),
+    config.moderatorRoleId,
+    config.seniorModRoleId,
+    config.managementRoleId,
+    config.sidRoleId,
+  ].filter(Boolean);
+}
+
+function isConfiguredStaffMember(member, guildId) {
+  const roleIds = getStaffRoleIds(guildId);
+  if (!roleIds.length) return false;
+  return roleIds.some((roleId) => member.roles.cache.has(roleId));
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('staffinfraction')
@@ -122,11 +139,31 @@ module.exports = {
       const reason = interaction.options.getString('reason');
       const severity = interaction.options.getString('severity');
       const action = interaction.options.getString('action');
+      const staffMember = await interaction.guild.members.fetch(staffUser.id).catch(() => null);
 
       // Cannot infract yourself
       if (staffUser.id === interaction.user.id) {
         return interaction.reply({
           embeds: [embeds.error('You cannot issue an infraction to yourself.', interaction.guild)],
+          ephemeral: true,
+        });
+      }
+
+      if (!staffMember) {
+        return interaction.reply({
+          embeds: [embeds.error('That user is not currently in this server.', interaction.guild)],
+          ephemeral: true,
+        });
+      }
+
+      if (!isConfiguredStaffMember(staffMember, guildId)) {
+        return interaction.reply({
+          embeds: [
+            embeds.error(
+              'That user is not part of the configured staff team. Configure staff/mod/SID roles in `/setup` before issuing staff infractions.',
+              interaction.guild,
+            ),
+          ],
           ephemeral: true,
         });
       }
