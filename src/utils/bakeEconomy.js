@@ -26,6 +26,7 @@ function cookieClickerImage(fileName) {
   if (
     fileName.includes('..')
     || fileName.startsWith('/')
+    || fileName.startsWith('\\')
     || fileName.includes('://')
     || !/^[A-Za-z0-9 _.-]+\.(png|gif|jpe?g|webp)$/i.test(fileName)
   ) {

@@ -55,10 +55,10 @@ function getErrorDetails(err) {
 }
 
 function getButtonOwnerId(interaction) {
-  const metadataOwnerId = interaction.message?.interactionMetadata?.user?.id
+  const commandOwnerId = interaction.message?.interactionMetadata?.user?.id
     ?? interaction.message?.interaction?.user?.id
     ?? null;
-  return metadataOwnerId;
+  return commandOwnerId;
 }
 
 module.exports = {
