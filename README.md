@@ -438,7 +438,7 @@ Toggle whether the bot DMs staff members when they clock in or out.
 
 ---
 
-### 📋 Reasons
+### 👨‍💻 Developer
 
 Developer commands are restricted to the user whose ID is set in the `DEV_USER_ID` environment variable. Any other user will receive an ephemeral error embed.
 
