@@ -32,17 +32,14 @@ function hasModLevel(member, _guildId, requiredLevel) {
   const hasNonLeadManagementRole = [...ROLE_IDS.helpManagementAccess]
     .filter((id) => id !== ROLE_IDS.leadOverseer)
     .some((id) => member.roles.cache.has(id));
-  const managementPermissionMode = db.getConfig(_guildId).oversightManagementPermissionMode === 'MODERATOR'
-    ? 'MODERATOR'
-    : 'ALL';
+  const managementPermissionMode = db.getConfig(_guildId).oversightManagementPermissionMode === 'MODERATOR';
   const hasManagementAllAccess = hasLeadOverseerRole
-    || (managementPermissionMode === 'ALL' && hasNonLeadManagementRole);
-  const hasManagementModeratorAccess = managementPermissionMode === 'MODERATOR' && hasNonLeadManagementRole;
+    || (!managementPermissionMode && hasNonLeadManagementRole);
 
   if (requiredLevel <= MOD_LEVEL.moderator) {
     return (
       hasManagementAllAccess
-      || hasManagementModeratorAccess
+      || (managementPermissionMode && hasNonLeadManagementRole)
       || [...MODERATION_ROLE_IDS].some((id) => member.roles.cache.has(id))
     );
   }
