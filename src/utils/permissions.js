@@ -28,20 +28,22 @@ const MOD_LEVEL = {
  * @returns {boolean}
  */
 function hasModLevel(member, _guildId, requiredLevel) {
+  const hasManagementRole = [...MANAGEMENT_ROLE_IDS].some((id) => member.roles.cache.has(id));
+
   if (requiredLevel <= MOD_LEVEL.moderator) {
-    return [...MODERATION_ROLE_IDS].some((id) => member.roles.cache.has(id));
+    return hasManagementRole || [...MODERATION_ROLE_IDS].some((id) => member.roles.cache.has(id));
   }
   if (requiredLevel <= MOD_LEVEL.seniorMod) {
     return (
-      member.roles.cache.has(ROLE_IDS.moderation.moderator)
+      hasManagementRole
       || member.roles.cache.has(ROLE_IDS.moderation.seniorModerator)
     );
   }
-  return [...MANAGEMENT_ROLE_IDS].some((id) => member.roles.cache.has(id));
+  return hasManagementRole;
 }
 
 /**
- * Check whether member has the configured SID role.
+ * Check whether member has any SID role.
  * @param {import('discord.js').GuildMember} member
  * @param {string} _guildId
  * @returns {boolean}

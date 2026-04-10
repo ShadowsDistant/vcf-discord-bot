@@ -16,6 +16,13 @@ module.exports = {
     if (interaction.isButton()) {
       if (interaction.customId.startsWith('userinfo_roblox:')) {
         const [, targetId, encodedQuery] = interaction.customId.split(':');
+        if (!targetId) {
+          return interaction.reply({
+            embeds: [embeds.error('Invalid Roblox button payload.', interaction.guild)],
+            ephemeral: true,
+          });
+        }
+
         const targetUser = await interaction.client.users.fetch(targetId).catch(() => null);
         const targetMember = targetUser
           ? await interaction.guild.members.fetch(targetUser.id).catch(() => null)

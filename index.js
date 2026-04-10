@@ -51,7 +51,6 @@ for (const commandPath of collectCommandFiles(commandsPath)) {
       client.commands.set(command.data.name, command);
       console.log(`  ↳ Loaded command: ${command.data.name}`);
     } else {
-      commandLoadErrors.push({ file, error: 'missing data or execute export' });
       console.warn(`  ⚠  Skipping ${file}: missing data or execute export.`);
     }
   } catch (err) {

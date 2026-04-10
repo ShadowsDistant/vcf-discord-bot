@@ -59,21 +59,21 @@ module.exports = {
 
       if (MANAGEMENT_COMMANDS.has(cmd.data.name) && !canSeeManagement) {
         return interaction.reply({
-          embeds: [embedError('No command named that was found.', interaction.guild)],
+          embeds: [embedError('No command with that name was found.', interaction.guild)],
           ephemeral: true,
         });
       }
       const modCommandPath = path.join(__dirname, '..', 'moderation', `${cmd.data.name}.js`);
       if (fs.existsSync(modCommandPath) && !canSeeModeration) {
         return interaction.reply({
-          embeds: [embedError('No command named that was found.', interaction.guild)],
+          embeds: [embedError('No command with that name was found.', interaction.guild)],
           ephemeral: true,
         });
       }
       const devCommandPath = path.join(__dirname, '..', 'dev', `${cmd.data.name}.js`);
       if (fs.existsSync(devCommandPath) && !canSeeDev) {
         return interaction.reply({
-          embeds: [embedError('No command named that was found.', interaction.guild)],
+          embeds: [embedError('No command with that name was found.', interaction.guild)],
           ephemeral: true,
         });
       }

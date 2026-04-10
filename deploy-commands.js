@@ -37,7 +37,6 @@ for (const commandPath of collectCommandFiles(commandsPath)) {
       commands.push(command.data.toJSON());
       console.log(`  ↳ Registering: /${command.data.name}`);
     } else {
-      commandLoadErrors.push({ file, error: 'missing data or execute export' });
       console.warn(`  ⚠  Skipping ${file}: missing data or execute export.`);
     }
   } catch (err) {
