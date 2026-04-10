@@ -27,6 +27,8 @@ module.exports = {
     .setDescription('View your department portal, handbook links, and shift controls.'),
 
   async execute(interaction) {
+    await interaction.guild.members.fetch().catch(() => null);
+
     const departments = getMemberDepartments(interaction.member);
     if (!departments.length) {
       return interaction.reply({

@@ -14,26 +14,42 @@ if (!DISCORD_TOKEN || !CLIENT_ID) {
 
 const commands = [];
 const commandsPath = path.join(__dirname, 'src', 'commands');
+const commandLoadErrors = [];
 
-for (const folder of fs.readdirSync(commandsPath)) {
-  const folderPath = path.join(commandsPath, folder);
-  if (!fs.statSync(folderPath).isDirectory()) continue;
-
-  for (const file of fs.readdirSync(folderPath).filter((f) => f.endsWith('.js'))) {
-    const commandPath = path.join(folderPath, file);
-    try {
-      const command = require(commandPath);
-      if (command.data && command.execute) {
-        commands.push(command.data.toJSON());
-        console.log(`  ↳ Registering: /${command.data.name}`);
-      } else {
-        console.warn(`  ⚠  Skipping ${file}: missing data or execute export.`);
-      }
-    } catch (err) {
-      console.warn(`  ⚠  Skipping ${file}: failed to load command module.`);
-      console.warn(`     ${err.message}`);
+function collectCommandFiles(dir) {
+  const files = [];
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...collectCommandFiles(fullPath));
+    } else if (entry.isFile() && entry.name.endsWith('.js')) {
+      files.push(fullPath);
     }
   }
+  return files;
+}
+
+for (const commandPath of collectCommandFiles(commandsPath)) {
+  const file = path.basename(commandPath);
+  try {
+    const command = require(commandPath);
+    if (command.data && command.execute) {
+      commands.push(command.data.toJSON());
+      console.log(`  ↳ Registering: /${command.data.name}`);
+    } else {
+      commandLoadErrors.push({ file, error: 'missing data or execute export' });
+      console.warn(`  ⚠  Skipping ${file}: missing data or execute export.`);
+    }
+  } catch (err) {
+    commandLoadErrors.push({ file, error: err.stack || err.message });
+    console.warn(`  ⚠  Skipping ${file}: failed to load command module.`);
+    console.warn(`     ${err.stack || err.message}`);
+  }
+}
+
+if (commandLoadErrors.length > 0) {
+  console.error(`❌  ${commandLoadErrors.length} command module(s) failed to load. Aborting deployment.`);
+  process.exit(1);
 }
 
 const rest = new REST().setToken(DISCORD_TOKEN);

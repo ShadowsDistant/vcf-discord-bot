@@ -10,7 +10,7 @@ const {
   isDevUser,
 } = require('../../utils/roles');
 
-const MANAGEMENT_COMMANDS = new Set(['shiftmanage', 'shiftwave', 'automod', 'reasons', 'setup']);
+const MANAGEMENT_COMMANDS = new Set(['shiftmanage', 'shiftwave', 'automod', 'reasons']);
 const MODERATION_RANK_BY_COMMAND = {
   ban: 'Senior Moderator+',
   unban: 'Senior Moderator+',
@@ -63,12 +63,6 @@ module.exports = {
           ephemeral: true,
         });
       }
-      if (cmd.data.name === 'portal' && !interaction.inGuild()) {
-        return interaction.reply({
-          embeds: [embedError('This command is only available in servers.', interaction.guild)],
-          ephemeral: true,
-        });
-      }
       const modCommandPath = path.join(__dirname, '..', 'moderation', `${cmd.data.name}.js`);
       if (fs.existsSync(modCommandPath) && !canSeeModeration) {
         return interaction.reply({
@@ -102,7 +96,6 @@ module.exports = {
     const commandsPath = path.join(__dirname, '..');
 
     for (const folder of fs.readdirSync(commandsPath)) {
-      if (folder === 'setup') continue;
       if (folder === 'moderation' && !canSeeModeration) continue;
       if (folder === 'dev' && !canSeeDev) continue;
 
@@ -129,6 +122,7 @@ module.exports = {
       moderation: '  Moderation',
       utility: '  Utility',
       shifts: '  Shifts',
+      setup: '  Management',
       dev: '‍  Developer',
     };
 

@@ -1,6 +1,11 @@
 'use strict';
 
-const { MODERATION_ROLE_IDS, SID_ROLE_IDS, MANAGEMENT_ROLE_IDS } = require('./roles');
+const {
+  MODERATION_ROLE_IDS,
+  SID_ROLE_IDS,
+  MANAGEMENT_ROLE_IDS,
+  ROLE_IDS,
+} = require('./roles');
 
 /**
  * Moderation permission levels.
@@ -27,7 +32,10 @@ function hasModLevel(member, _guildId, requiredLevel) {
     return [...MODERATION_ROLE_IDS].some((id) => member.roles.cache.has(id));
   }
   if (requiredLevel <= MOD_LEVEL.seniorMod) {
-    return member.roles.cache.has('1376295710626021505') || member.roles.cache.has('1419796682123509872');
+    return (
+      member.roles.cache.has(ROLE_IDS.moderation.moderator)
+      || member.roles.cache.has(ROLE_IDS.moderation.seniorModerator)
+    );
   }
   return [...MANAGEMENT_ROLE_IDS].some((id) => member.roles.cache.has(id));
 }
