@@ -1,17 +1,47 @@
 'use strict';
 
-const { Events, MessageFlags } = require('discord.js');
+const {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+  Events,
+  MessageFlags,
+  ModalBuilder,
+  StringSelectMenuBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+} = require('discord.js');
 const embeds = require('../utils/embeds');
 const db = require('../utils/database');
 const { formatDuration } = require('../utils/helpers');
 const { fetchRobloxProfileByUsername, createRobloxEmbed } = require('../utils/roblox');
 const { ROLE_IDS } = require('../utils/roles');
 const { UPDATE_LOGS, createUpdateEmbed } = require('../utils/updateLogs');
+const economy = require('../utils/bakeEconomy');
 const { version: botVersion } = require('../../package.json');
 
 /** Commands whose `reason` option supports preset-reason autocomplete. */
 const REASON_AUTOCOMPLETE_COMMANDS = new Set(['ban', 'kick', 'warn']);
 const ERROR_DETAIL_LIMIT = 500;
+
+async function sendBakeAdminLog(interaction, targetUserId, action, details) {
+  const channelId = economy.getAdminLogChannelId(interaction.guild.id);
+  if (!channelId) return;
+  const channel = await interaction.guild.channels.fetch(channelId).catch(() => null);
+  if (!channel || !channel.isTextBased()) return;
+  const embed = new EmbedBuilder()
+    .setColor(0xed4245)
+    .setTitle('Bake Admin Action')
+    .setDescription([
+      `**Moderator:** ${interaction.user.tag} (\`${interaction.user.id}\`)`,
+      `**Target:** <@${targetUserId}> (\`${targetUserId}\`)`,
+      `**Action:** ${action}`,
+      `**Details:** ${details}`,
+    ].join('\n'))
+    .setTimestamp();
+  await channel.send({ embeds: [embed] }).catch(() => null);
+}
 
 function getErrorDetails(err) {
   if (!err) return 'Unknown error.';
@@ -28,6 +58,166 @@ module.exports = {
   name: Events.InteractionCreate,
   async execute(interaction) {
     if (interaction.isButton()) {
+      if (interaction.customId.startsWith('bake_golden_claim:')) {
+        const [, ownerId, token] = interaction.customId.split(':');
+        if (ownerId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('That Golden Cookie belongs to someone else, crumb thief.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const result = economy.claimGoldenCookie(interaction.guild.id, interaction.user.id, token);
+        if (!result.ok) {
+          return interaction.reply({
+            embeds: [embeds.warning(result.reason, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        return interaction.reply({
+          embeds: [embeds.success(result.description, interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (interaction.customId.startsWith('bakery_nav:')) {
+        const view = interaction.customId.split(':')[1];
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, view);
+        const components = economy.buildDashboardComponents(snapshot.user, view);
+        return interaction.update({ embeds: [embed], components });
+      }
+
+      if (interaction.customId === 'bakery_open_marketplace') {
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const market = economy.getMarketplaceEmbed(interaction.guild, snapshot.guildState, snapshot.user, 0, 'all');
+        const components = economy.getMarketplaceComponents(snapshot.guildState, 0, 'all');
+        return interaction.update({ embeds: [market.embed], components });
+      }
+
+      if (interaction.customId === 'bakery_set_name') {
+        return interaction.showModal(economy.modalForBakeryName());
+      }
+
+      if (interaction.customId === 'bakery_set_listing' || interaction.customId === 'market_list_item') {
+        return interaction.showModal(economy.modalForListItem());
+      }
+
+      if (interaction.customId.startsWith('bakery_build_buy:')) {
+        const [, buildingId, qtyRaw] = interaction.customId.split(':');
+        const quantity = Number.parseInt(qtyRaw, 10);
+        const result = economy.buyBuilding(interaction.guild.id, interaction.user.id, buildingId, quantity);
+        if (!result.ok) {
+          return interaction.reply({
+            embeds: [embeds.warning(result.reason, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'buildings', { buildingId });
+        const components = economy.buildDashboardComponents(snapshot.user, 'buildings', { buildingId });
+        return interaction.update({ embeds: [embed], components });
+      }
+
+      if (interaction.customId.startsWith('bakery_upgrade_buy:')) {
+        const upgradeId = interaction.customId.split(':')[1];
+        const result = economy.buyUpgrade(interaction.guild.id, interaction.user.id, upgradeId);
+        if (!result.ok) {
+          return interaction.reply({
+            embeds: [embeds.warning(result.reason, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'upgrades', { upgradeId });
+        const components = economy.buildDashboardComponents(snapshot.user, 'upgrades', { upgradeId });
+        return interaction.update({ embeds: [embed], components });
+      }
+
+      if (interaction.customId.startsWith('bakery_item_action:')) {
+        const [, action, itemId] = interaction.customId.split(':');
+        let result = null;
+        if (action === 'sell') result = economy.sellInventoryItem(interaction.guild.id, interaction.user.id, itemId, false);
+        if (action === 'sellall') result = economy.sellInventoryItem(interaction.guild.id, interaction.user.id, itemId, true);
+        if (action === 'consume') result = economy.consumeInventoryItem(interaction.guild.id, interaction.user.id, itemId);
+        if (action === 'inspect') {
+          const details = economy.inspectItem(interaction.guild.id, interaction.user.id, itemId);
+          if (!details) {
+            return interaction.reply({
+              embeds: [embeds.error('Could not inspect that item.', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          return interaction.reply({
+            embeds: [economy.buildItemInspectEmbed(interaction.guild, details)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (!result?.ok) {
+          return interaction.reply({
+            embeds: [embeds.warning(result?.reason ?? 'Could not process item action.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const dashboard = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'inventory');
+        const components = economy.buildDashboardComponents(snapshot.user, 'inventory');
+        return interaction.update({ embeds: [dashboard], components });
+      }
+
+      if (interaction.customId.startsWith('market_prev:') || interaction.customId.startsWith('market_next:')) {
+        const [, pageRaw, rarityFilter] = interaction.customId.split(':');
+        const currentPage = Number.parseInt(pageRaw, 10) || 0;
+        const targetPage = interaction.customId.startsWith('market_prev:') ? currentPage - 1 : currentPage + 1;
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const market = economy.getMarketplaceEmbed(interaction.guild, snapshot.guildState, snapshot.user, targetPage, rarityFilter || 'all');
+        const components = economy.getMarketplaceComponents(snapshot.guildState, market.pageIndex, rarityFilter || 'all');
+        return interaction.update({ embeds: [market.embed], components });
+      }
+
+      if (interaction.customId === 'market_my_listings') {
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const mine = (snapshot.guildState.marketplace.listings ?? []).filter((listing) => listing.sellerId === interaction.user.id);
+        if (!mine.length) {
+          return interaction.reply({
+            embeds: [embeds.info('My Listings', 'You have no active listings.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const listEmbed = embeds.info(
+          'My Listings',
+          mine.slice(0, 10).map((listing) => `\`${listing.id}\` • ${economy.ITEM_MAP.get(listing.itemId)?.name ?? listing.itemId} x${listing.quantity} @ ${economy.toCookieNumber(listing.pricePerUnit)}`).join('\n'),
+          interaction.guild,
+        );
+        const row = new ActionRowBuilder().addComponents(
+          mine.slice(0, 5).map((listing) => new ButtonBuilder()
+            .setCustomId(`market_cancel:${listing.id}`)
+            .setLabel(`Cancel #${listing.id}`)
+            .setStyle(ButtonStyle.Danger)),
+        );
+        return interaction.reply({ embeds: [listEmbed], components: [row], flags: MessageFlags.Ephemeral });
+      }
+
+      if (interaction.customId.startsWith('market_cancel:')) {
+        const listingId = Number.parseInt(interaction.customId.split(':')[1], 10);
+        const result = economy.cancelListing(interaction.guild.id, interaction.user.id, listingId);
+        if (!result.ok) {
+          return interaction.reply({
+            embeds: [embeds.warning(result.reason, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        return interaction.reply({
+          embeds: [embeds.success(`Listing #${listingId} cancelled and returned to inventory.`, interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_view_refresh:')) {
+        const targetUserId = interaction.customId.split(':')[1];
+        const embed = economy.getUserDataEmbed(interaction.guild, targetUserId);
+        return interaction.update({ embeds: [embed] });
+      }
+
       if (interaction.customId.startsWith('userinfo_roblox:')) {
         const [, targetId, encodedQuery] = interaction.customId.split(':');
         if (!targetId) {
@@ -189,6 +379,201 @@ module.exports = {
     }
 
     if (interaction.isStringSelectMenu()) {
+      if (interaction.customId.startsWith('bakery_inventory_filter:')) {
+        const page = Number.parseInt(interaction.customId.split(':')[1], 10) || 0;
+        const rarityFilter = interaction.values[0] ?? 'all';
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'inventory', { page, rarityFilter });
+        const components = economy.buildDashboardComponents(snapshot.user, 'inventory', { page, rarityFilter });
+        return interaction.update({ embeds: [embed], components });
+      }
+
+      if (interaction.customId === 'bakery_inventory_item') {
+        const itemId = interaction.values[0];
+        const item = economy.ITEM_MAP.get(itemId);
+        if (!item) {
+          return interaction.reply({
+            embeds: [embeds.error('Unknown inventory item selection.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const inspect = economy.inspectItem(interaction.guild.id, interaction.user.id, itemId);
+        const actionRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`bakery_item_action:sell:${itemId}`).setLabel('Sell').setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId(`bakery_item_action:sellall:${itemId}`).setLabel('Sell All').setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId(`bakery_item_action:consume:${itemId}`).setLabel('Consume').setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId(`bakery_item_action:inspect:${itemId}`).setLabel('Inspect').setStyle(ButtonStyle.Secondary),
+        );
+        return interaction.reply({
+          embeds: [economy.buildItemInspectEmbed(interaction.guild, inspect)],
+          components: [actionRow],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (interaction.customId === 'bakery_building_select') {
+        const buildingId = interaction.values[0];
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'buildings', { buildingId });
+        const components = economy.buildDashboardComponents(snapshot.user, 'buildings', { buildingId });
+        return interaction.update({ embeds: [embed], components });
+      }
+
+      if (interaction.customId === 'bakery_upgrade_select') {
+        const upgradeId = interaction.values[0];
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'upgrades', { upgradeId });
+        const components = economy.buildDashboardComponents(snapshot.user, 'upgrades', { upgradeId });
+        return interaction.update({ embeds: [embed], components });
+      }
+
+      if (interaction.customId.startsWith('market_filter:')) {
+        const page = Number.parseInt(interaction.customId.split(':')[1], 10) || 0;
+        const rarityFilter = interaction.values[0] ?? 'all';
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const market = economy.getMarketplaceEmbed(interaction.guild, snapshot.guildState, snapshot.user, page, rarityFilter);
+        const components = economy.getMarketplaceComponents(snapshot.guildState, market.pageIndex, rarityFilter);
+        return interaction.update({ embeds: [market.embed], components });
+      }
+
+      if (interaction.customId === 'market_select_listing') {
+        const listingId = Number.parseInt(interaction.values[0], 10);
+        const result = economy.buyListing(interaction.guild.id, interaction.user.id, listingId);
+        if (!result.ok) {
+          return interaction.reply({
+            embeds: [embeds.warning(result.reason, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const market = economy.getMarketplaceEmbed(interaction.guild, snapshot.guildState, snapshot.user, 0, 'all');
+        const components = economy.getMarketplaceComponents(snapshot.guildState, 0, 'all');
+        return interaction.update({ embeds: [market.embed], components });
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_action:')) {
+        const [, actorId, targetId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin menu is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const action = interaction.values[0];
+        if (['give_cookies', 'remove_cookies', 'give_item', 'set_building', 'set_log_channel', 'set_mod_role'].includes(action)) {
+          const modal = economy.modalForAdminAction(actorId, targetId, action);
+          return interaction.showModal(modal);
+        }
+        if (action === 'unlock_upgrade') {
+          return interaction.reply({
+            embeds: [embeds.info('Unlock Upgrade', 'Select upgrade to unlock.', interaction.guild)],
+            components: [
+              new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder()
+                  .setCustomId(`bakeadmin_upgrade_select:${actorId}:${targetId}`)
+                  .setPlaceholder('Select upgrade')
+                  .addOptions(economy.UPGRADES.slice(0, 25).map((upgrade) => ({ label: upgrade.name.slice(0, 100), value: upgrade.id }))),
+              ),
+            ],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'grant_achievement') {
+          return interaction.reply({
+            embeds: [embeds.info('Grant Achievement', 'Select milestone to grant.', interaction.guild)],
+            components: [
+              new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder()
+                  .setCustomId(`bakeadmin_achievement_select:${actorId}:${targetId}`)
+                  .setPlaceholder('Select achievement')
+                  .addOptions(economy.ACHIEVEMENTS.slice(0, 25).map((achievement) => ({ label: achievement.name.slice(0, 100), value: achievement.id }))),
+              ),
+            ],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'trigger_golden') {
+          economy.adminForceGolden(interaction.guild.id, targetId);
+          await sendBakeAdminLog(interaction, targetId, 'Trigger Golden Cookie', 'Forced Golden Cookie on next /bake');
+          return interaction.reply({
+            embeds: [embeds.success(`Forced Golden Cookie for <@${targetId}> on next bake.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'reset_user') {
+          const modal = new ModalBuilder()
+            .setCustomId(`bakeadmin_modal:${actorId}:${targetId}:reset_user`)
+            .setTitle('Reset User Data')
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId('confirm')
+                  .setLabel('Type RESET to confirm')
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true),
+              ),
+            );
+          return interaction.showModal(modal);
+        }
+        if (action === 'view_user') {
+          const statsEmbed = economy.getUserDataEmbed(interaction.guild, targetId);
+          const refresh = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`bakeadmin_view_refresh:${targetId}`).setLabel('Refresh').setStyle(ButtonStyle.Secondary),
+          );
+          return interaction.reply({
+            embeds: [statsEmbed],
+            components: [refresh],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_upgrade_select:')) {
+        const [, actorId, targetId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const upgradeId = interaction.values[0];
+        const ok = economy.adminUnlockUpgrade(interaction.guild.id, targetId, upgradeId);
+        if (!ok) {
+          return interaction.reply({
+            embeds: [embeds.error('Could not unlock that upgrade.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        await sendBakeAdminLog(interaction, targetId, 'Unlock Upgrade', `Upgrade: ${upgradeId}`);
+        return interaction.reply({
+          embeds: [embeds.success(`Unlocked upgrade \`${upgradeId}\` for <@${targetId}>.`, interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_achievement_select:')) {
+        const [, actorId, targetId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const achievementId = interaction.values[0];
+        const ok = economy.adminGrantAchievement(interaction.guild.id, targetId, achievementId);
+        if (!ok) {
+          return interaction.reply({
+            embeds: [embeds.error('Could not grant that achievement.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        await sendBakeAdminLog(interaction, targetId, 'Grant Achievement', `Achievement: ${achievementId}`);
+        return interaction.reply({
+          embeds: [embeds.success(`Granted achievement \`${achievementId}\` to <@${targetId}>.`, interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
       if (interaction.customId === 'updates_log_select') {
         const selectedIndex = Number.parseInt(interaction.values[0], 10);
         if (!Number.isInteger(selectedIndex) || selectedIndex < 1 || selectedIndex >= UPDATE_LOGS.length) {
@@ -201,6 +586,155 @@ module.exports = {
         const selected = UPDATE_LOGS[selectedIndex];
         const updatedEmbed = createUpdateEmbed(interaction.guild, botVersion, selected, selectedIndex);
         return interaction.update({ embeds: [updatedEmbed], components: interaction.message.components });
+      }
+    }
+
+    if (interaction.isModalSubmit()) {
+      if (interaction.customId === 'bakery_modal_name') {
+        const name = interaction.fields.getTextInputValue('name').trim();
+        const emoji = interaction.fields.getTextInputValue('emoji').trim();
+        if (!name) {
+          return interaction.reply({
+            embeds: [embeds.error('Bakery name cannot be empty.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        economy.setBakeryIdentity(interaction.guild.id, interaction.user.id, name, emoji || undefined);
+        return interaction.reply({
+          embeds: [embeds.success(`Your bakery is now **${emoji || '🍪'} ${name}**. Branding complete.`, interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (interaction.customId === 'market_modal_list') {
+        const itemId = interaction.fields.getTextInputValue('itemId').trim().toLowerCase();
+        const quantity = Number.parseInt(interaction.fields.getTextInputValue('quantity').trim(), 10);
+        const price = Number.parseInt(interaction.fields.getTextInputValue('price').trim(), 10);
+        if (!economy.ITEM_MAP.has(itemId)) {
+          return interaction.reply({
+            embeds: [embeds.error('Invalid item ID.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (!Number.isInteger(quantity) || quantity <= 0 || !Number.isInteger(price) || price <= 0) {
+          return interaction.reply({
+            embeds: [embeds.error('Quantity and price must be positive integers.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const result = economy.listItemForSale(interaction.guild.id, interaction.user.id, interaction.user.tag, itemId, quantity, price);
+        if (!result.ok) {
+          return interaction.reply({
+            embeds: [embeds.warning(result.reason, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        return interaction.reply({
+          embeds: [embeds.success(`Listed **${quantity}x ${economy.ITEM_MAP.get(itemId).name}** for **${economy.toCookieNumber(price)}** each.`, interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_modal:')) {
+        const [, actorId, targetId, action] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin modal is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'give_cookies' || action === 'remove_cookies') {
+          const amountRaw = interaction.fields.getTextInputValue('amount').trim();
+          const amount = Number.parseInt(amountRaw, 10);
+          if (!Number.isInteger(amount) || amount <= 0) {
+            return interaction.reply({
+              embeds: [embeds.error('Amount must be a positive integer.', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          const delta = action === 'remove_cookies' ? -amount : amount;
+          economy.adminGiveCookies(interaction.guild.id, targetId, delta);
+          await sendBakeAdminLog(interaction, targetId, action === 'remove_cookies' ? 'Remove Cookies' : 'Give Cookies', `${delta} cookies`);
+          return interaction.reply({
+            embeds: [embeds.success(`${delta >= 0 ? 'Gave' : 'Removed'} **${economy.toCookieNumber(Math.abs(delta))}** cookies ${delta >= 0 ? 'to' : 'from'} <@${targetId}>.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'give_item') {
+          const itemId = interaction.fields.getTextInputValue('itemId').trim().toLowerCase();
+          const quantity = Number.parseInt(interaction.fields.getTextInputValue('quantity').trim(), 10);
+          if (!Number.isInteger(quantity) || quantity <= 0) {
+            return interaction.reply({
+              embeds: [embeds.error('Quantity must be a positive integer.', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          const ok = economy.adminGiveItem(interaction.guild.id, targetId, itemId, quantity);
+          if (!ok) {
+            return interaction.reply({
+              embeds: [embeds.error('Invalid item ID.', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          await sendBakeAdminLog(interaction, targetId, 'Give Item', `${itemId} x${quantity}`);
+          return interaction.reply({
+            embeds: [embeds.success(`Gave **${quantity}x ${economy.ITEM_MAP.get(itemId).name}** to <@${targetId}>.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'set_building') {
+          const buildingId = interaction.fields.getTextInputValue('buildingId').trim();
+          const count = Number.parseInt(interaction.fields.getTextInputValue('count').trim(), 10);
+          if (!Number.isInteger(count) || count < 0) {
+            return interaction.reply({
+              embeds: [embeds.error('Count must be a non-negative integer.', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          const ok = economy.adminSetBuilding(interaction.guild.id, targetId, buildingId, count);
+          if (!ok) {
+            return interaction.reply({
+              embeds: [embeds.error('Invalid building ID.', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          await sendBakeAdminLog(interaction, targetId, 'Set Building Count', `${buildingId}=${count}`);
+          return interaction.reply({
+            embeds: [embeds.success(`Set **${buildingId}** to **${count}** for <@${targetId}>.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'set_log_channel') {
+          const channelId = interaction.fields.getTextInputValue('value').trim();
+          economy.setAdminLogChannel(interaction.guild.id, channelId);
+          return interaction.reply({
+            embeds: [embeds.success(`Set bake admin log channel to <#${channelId}>.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'set_mod_role') {
+          const roleId = interaction.fields.getTextInputValue('value').trim();
+          economy.setAdminModRoleId(interaction.guild.id, roleId);
+          return interaction.reply({
+            embeds: [embeds.success(`Set bake admin mod role to <@&${roleId}>.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'reset_user') {
+          const confirm = interaction.fields.getTextInputValue('confirm').trim();
+          if (confirm !== 'RESET') {
+            return interaction.reply({
+              embeds: [embeds.warning('Reset cancelled. Type `RESET` exactly next time.', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          economy.adminResetUser(interaction.guild.id, targetId);
+          await sendBakeAdminLog(interaction, targetId, 'Reset User', 'Full economy reset');
+          return interaction.reply({
+            embeds: [embeds.success(`Reset all baking data for <@${targetId}>.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
       }
     }
 

@@ -1,6 +1,11 @@
 'use strict';
 
-const { SlashCommandBuilder } = require('discord.js');
+const {
+  SlashCommandBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} = require('discord.js');
 const embeds = require('../../utils/embeds');
 
 module.exports = {
@@ -9,6 +14,13 @@ module.exports = {
     .setDescription('Show a condensed version of the server rules.'),
 
   async execute(interaction) {
+    const links = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setLabel('View Full Rules')
+        .setStyle(ButtonStyle.Link)
+        .setURL('https://docs.valleycorrectional.xyz/community-rules/our-rules'),
+    );
+
     return interaction.reply({
       embeds: [
         embeds
@@ -29,6 +41,7 @@ module.exports = {
             iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined,
           }),
       ],
+      components: [links],
     });
   },
 };
