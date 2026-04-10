@@ -8,9 +8,9 @@ const UPDATE_LOGS = [
     version: 'v1.0.0',
     date: '2026-04-10',
     changes: [
-      'Introduced staff portal improvements and role-gated access controls.',
-      'Added updates browsing, rarity-based baking, and enhanced staff utilities.',
-      'Expanded moderation shift visibility tools and quality-of-life command updates.',
+      'Added Cookie Clicker Fandom-backed bake thumbnails with consistent small image sizing.',
+      'Improved slash command reliability and user-facing command handling updates.',
+      'Expanded moderation, utility, and shift quality-of-life improvements for public release.',
     ],
   },
   {
