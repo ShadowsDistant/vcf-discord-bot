@@ -34,12 +34,18 @@ for (const folder of fs.readdirSync(commandsPath)) {
   if (!fs.statSync(folderPath).isDirectory()) continue;
 
   for (const file of fs.readdirSync(folderPath).filter((f) => f.endsWith('.js'))) {
-    const command = require(path.join(folderPath, file));
-    if (command.data && command.execute) {
-      client.commands.set(command.data.name, command);
-      console.log(`  ↳ Loaded command: ${command.data.name}`);
-    } else {
-      console.warn(`  ⚠  Skipping ${file}: missing data or execute export.`);
+    const commandPath = path.join(folderPath, file);
+    try {
+      const command = require(commandPath);
+      if (command.data && command.execute) {
+        client.commands.set(command.data.name, command);
+        console.log(`  ↳ Loaded command: ${command.data.name}`);
+      } else {
+        console.warn(`  ⚠  Skipping ${file}: missing data or execute export.`);
+      }
+    } catch (err) {
+      console.warn(`  ⚠  Skipping ${file}: failed to load command module.`);
+      console.warn(`     ${err.message}`);
     }
   }
 }
