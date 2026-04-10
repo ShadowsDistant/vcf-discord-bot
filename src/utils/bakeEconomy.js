@@ -621,7 +621,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     const currentType = getMilkType(user.milkLevel);
     const nextType = MILK_TYPES.find((type) => type.pct > user.milkLevel);
     const start = [...MILK_TYPES].reverse().find((type) => type.pct <= user.milkLevel)?.pct ?? 0;
-    const target = nextType?.pct ?? user.milkLevel || 1;
+    const target = nextType?.pct ?? (user.milkLevel || 1);
     embed.setDescription(`Current milk: **${currentType}**`);
     embed.addFields(
       { name: 'Milk level', value: `${toCookieNumber(user.milkLevel)}%`, inline: true },
