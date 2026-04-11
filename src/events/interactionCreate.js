@@ -28,6 +28,7 @@ const ERROR_DETAIL_LIMIT = 500;
 const MAX_SELECT_MENU_OPTIONS = 25;
 const DEFAULT_GUIDE_SECTION = 'info';
 const BAKERY_RENAME_TTL_MS = 10 * 60 * 1000;
+const SPECIAL_COOKIE_EVENT_CHANNEL_ID = '1492310367869862089';
 const pendingBakeryRenameSelections = new Map();
 const guideViewSelections = new Map();
 
@@ -96,6 +97,27 @@ async function sendBakeAdminLog(interaction, targetUserId, action, details) {
       `**Details:** ${details}`,
     ].join('\n'))
     .setTimestamp();
+  await channel.send({ embeds: [embed] }).catch(() => null);
+}
+
+async function sendSpecialCookieHuntStartLog(interaction, durationMinutes, endsAt) {
+  const channel = await interaction.guild.channels.fetch(SPECIAL_COOKIE_EVENT_CHANNEL_ID).catch(() => null);
+  if (!channel || !channel.isTextBased()) return;
+  const endsAtTs = Math.floor(endsAt / 1000);
+  const embed = new EmbedBuilder()
+    .setColor(0xfee75c)
+    .setTitle('🎉 Special Cookie Hunt Started')
+    .setDescription([
+      `Started by <@${interaction.user.id}>.`,
+      'Special cookie drops are now boosted for all bakers.',
+      `Duration: **${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}**`,
+      `Ends: <t:${endsAtTs}:R>`,
+    ].join('\n'))
+    .setTimestamp()
+    .setFooter({
+      text: interaction.guild.name,
+      iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined,
+    });
   await channel.send({ embeds: [embed] }).catch(() => null);
 }
 
@@ -747,7 +769,7 @@ module.exports = {
           });
         }
         const action = interaction.values[0];
-        if (['give_cookies', 'remove_cookies', 'give_item', 'set_building', 'set_log_channel'].includes(action)) {
+        if (['give_cookies', 'remove_cookies', 'give_item', 'set_building', 'set_log_channel', 'start_event'].includes(action)) {
           const modal = economy.modalForAdminAction(actorId, targetId, action);
           return interaction.showModal(modal);
         }
@@ -1167,6 +1189,23 @@ module.exports = {
           await sendBakeAdminLog(interaction, targetId, 'Reset User', 'Full economy reset');
           return interaction.reply({
             embeds: [embeds.success(`Reset all baking data for <@${targetId}>.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'start_event') {
+          const durationRaw = interaction.fields.getTextInputValue('durationMinutes').trim();
+          const durationMinutes = Number.parseInt(durationRaw, 10);
+          if (!Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 1440) {
+            return interaction.reply({
+              embeds: [embeds.error('Duration must be a whole number between 1 and 1440 minutes.', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          const event = economy.adminStartEvent(interaction.guild.id, durationMinutes);
+          await sendBakeAdminLog(interaction, targetId, 'Start Event', `Special Cookie Hunt for ${durationMinutes} minute(s)`);
+          await sendSpecialCookieHuntStartLog(interaction, durationMinutes, event.endsAt);
+          return interaction.reply({
+            embeds: [embeds.success(`Started **Special Cookie Hunt** for **${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}**.`, interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }

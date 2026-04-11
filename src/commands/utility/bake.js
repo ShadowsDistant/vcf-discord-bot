@@ -87,6 +87,7 @@ function buildBakeOutcome(guild, userId) {
     newlyEarned,
     burnt,
     rankUpdate,
+    activeEvent,
   } = result;
   const rarity = economy.RARITY[item.rarity];
   const dropChance = economy.getItemDropChance(user, item, new Date()) * 100;
@@ -140,6 +141,14 @@ function buildBakeOutcome(guild, userId) {
     });
   }
 
+  if (activeEvent?.id === 'special_cookie_hunt' && Number.isFinite(activeEvent.endsAt)) {
+    const secondsRemaining = Math.max(1, Math.floor((activeEvent.endsAt - Date.now()) / 1000));
+    embed.addFields({
+      name: '🎉 Active Event: Special Cookie Hunt',
+      value: `Special cookie drops are boosted.\nEnds in **${secondsRemaining}s**.`,
+    });
+  }
+
   const components = [
     new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId('bake_again').setLabel('Bake Again').setStyle(ButtonStyle.Primary).setEmoji(economy.getButtonEmoji(guild, ['cookie', 'plain_cookie', 'plain_cookies'], '🍪')),
@@ -190,7 +199,7 @@ async function postSpecialCookieEvent(guild, bakerUser, event) {
     .setColor(event.details.color)
     .setTitle(`${event.details.title}: ${event.item.name}`)
     .setDescription([
-      `${economy.getItemEmoji(event.item, guild)} <@${bakerUser.id}> just baked **${event.item.name}**!`,
+      `${economy.getItemEmoji(event.item.id, guild)} <@${bakerUser.id}> just baked **${event.item.name}**!`,
       event.details.description,
       `Total special cookies owned: **${economy.toCookieNumber(event.totalSpecialCookies)}**`,
     ].join('\n'))

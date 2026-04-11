@@ -25,6 +25,8 @@ const GIFT_BOX_OPTION_PREFIX = 'gift:';
 const BAKE_ADMIN_ROLE_ID = '1492510387579654205';
 const DEFAULT_COOKIE_IMAGE = null;
 const SPECIAL_COOKIE_IDS = ['perfectcookie', 'goldcookie', 'spoopiercookie'];
+const BAKE_EVENT_SPECIAL_COOKIE_HUNT = 'special_cookie_hunt';
+const SPECIAL_COOKIE_EVENT_BOOST_CHANCE = 0.2;
 
 const RARITY = {
   common: { id: 'common', name: 'Common', weight: 50, valueMultiplier: 1, color: 0xa3a3a3, emoji: '🍪' },
@@ -696,6 +698,7 @@ function getDefaultGuildState() {
       adminLogChannelId: null,
       adminModRoleId: BAKE_ADMIN_ROLE_ID,
       goldenCookieDurationMs: 15000,
+      bakeEvent: null,
     },
   };
 }
@@ -948,8 +951,20 @@ function formatRankReward(rank) {
   if (rewards.cookies) lines.push(`+${toCookieNumber(rewards.cookies)} cookies`);
   if (rewards.forceGoldenCookie) lines.push('Guaranteed Golden Cookie on next bake');
   if (rewards.clickFrenzyCharges) lines.push(`+${rewards.clickFrenzyCharges} Click Frenzy charge(s)`);
-  if (rewards.unlockTier && RARITY[rewards.unlockTier]) lines.push(`Unlocks ${RARITY[rewards.unlockTier].name} tier`);
+  if (rewards.unlockTier && RARITY[rewards.unlockTier]) {
+    lines.push(`Unlocks ${RARITY[rewards.unlockTier].name} tier drops (you can now roll ${RARITY[rewards.unlockTier].name} items while baking)`);
+  }
   return lines.length ? lines.join('\n') : 'No one-time reward.';
+}
+
+function getActiveBakeEvent(guildState, nowTs = Date.now()) {
+  const event = guildState.settings?.bakeEvent ?? null;
+  if (!event) return null;
+  if (typeof event.endsAt !== 'number' || event.endsAt <= nowTs) {
+    guildState.settings.bakeEvent = null;
+    return null;
+  }
+  return event;
 }
 
 function getRankProgressToNext(user) {
@@ -1223,6 +1238,7 @@ function bake(guildId, userId) {
   cleanMarketplace(guildState);
   const user = getUserState(guildState, userId);
   const nowTs = Date.now();
+  const activeEvent = getActiveBakeEvent(guildState, nowTs);
   const passive = applyPassiveIncome(user, nowTs);
 
   if (user.pendingGoldenCookie?.expiresAt <= nowTs) user.pendingGoldenCookie = null;
@@ -1234,7 +1250,16 @@ function bake(guildId, userId) {
   user.totalBakes += 1;
 
   const burntItem = ITEM_MAP.get('burnt_cookie') ?? ITEMS[0];
-  const item = burnt ? burntItem : weightedPickItem(user, new Date(nowTs));
+  const boostedSpecialItemIds = SPECIAL_COOKIE_IDS.filter((itemId) => ITEM_MAP.has(itemId));
+  const boostedEventRoll = activeEvent?.id === BAKE_EVENT_SPECIAL_COOKIE_HUNT
+    && boostedSpecialItemIds.length > 0
+    && Math.random() < SPECIAL_COOKIE_EVENT_BOOST_CHANCE;
+  const boostedItemId = boostedEventRoll
+    ? boostedSpecialItemIds[Math.floor(Math.random() * boostedSpecialItemIds.length)]
+    : null;
+  const item = burnt
+    ? burntItem
+    : (boostedItemId ? ITEM_MAP.get(boostedItemId) : weightedPickItem(user, new Date(nowTs)));
   // Burnt bakes keep a display item for UX feedback, but intentionally grant no inventory or item-stat progression as the penalty.
   if (!burnt) registerItemBake(guildState, user, item, userId);
 
@@ -1249,7 +1274,15 @@ function bake(guildId, userId) {
   const rankUpdate = syncUserRank(user);
   writeState(data);
   return {
-    user, item, passive, manualYield: yieldAmount, golden, newlyEarned, burnt, rankUpdate,
+    user,
+    item,
+    passive,
+    manualYield: yieldAmount,
+    golden,
+    newlyEarned,
+    burnt,
+    rankUpdate,
+    activeEvent: activeEvent ? { id: activeEvent.id, endsAt: activeEvent.endsAt } : null,
   };
 }
 
@@ -2196,6 +2229,20 @@ function adminSetRank(guildId, targetUserId, rankId) {
   return true;
 }
 
+function adminStartEvent(guildId, durationMinutes) {
+  const data = readState();
+  const guildState = getGuildState(data, guildId);
+  const nowTs = Date.now();
+  const durationMs = Math.max(60_000, Math.floor(durationMinutes * 60_000));
+  guildState.settings.bakeEvent = {
+    id: BAKE_EVENT_SPECIAL_COOKIE_HUNT,
+    startedAt: nowTs,
+    endsAt: nowTs + durationMs,
+  };
+  writeState(data);
+  return guildState.settings.bakeEvent;
+}
+
 function adminGrantRewardBox(guildId, targetUserId, rewardBoxId, quantity) {
   const { data, target } = adminEnsureTarget(guildId, targetUserId);
   if (!REWARD_BOX_MAP.has(rewardBoxId)) return false;
@@ -2228,6 +2275,7 @@ function buildBakeAdminEmbed(guild, actorId, targetId) {
         '• Set Rank',
         '• Grant Reward Gift Box',
         '• Trigger Golden Cookie',
+        '• Start Special Cookie Event',
         '• Ban/Unban Bake Commands',
         '• Reset User',
         '• View User Data',
@@ -2254,6 +2302,7 @@ function buildBakeAdminComponents(actorId, targetId) {
       { label: 'Set Rank', value: 'set_rank' },
       { label: 'Grant Reward Gift Box', value: 'grant_reward_box' },
       { label: 'Trigger Golden Cookie', value: 'trigger_golden' },
+      { label: 'Start Event', value: 'start_event' },
       { label: 'Ban Bake Commands', value: 'ban_bake' },
       { label: 'Unban Bake Commands', value: 'unban_bake' },
       { label: 'Reset User', value: 'reset_user' },
@@ -2305,6 +2354,18 @@ function modalForAdminAction(actorId, targetId, action) {
         .setCustomId('value')
         .setLabel('Channel mention or ID')
         .setPlaceholder('#logs or 123456789012345678')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)),
+    );
+    return modal;
+  }
+  if (action === 'start_event') {
+    modal.setTitle('Start Bake Event');
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(new TextInputBuilder()
+        .setCustomId('durationMinutes')
+        .setLabel('Event duration (minutes)')
+        .setPlaceholder('e.g. 30')
         .setStyle(TextInputStyle.Short)
         .setRequired(true)),
     );
@@ -2486,6 +2547,7 @@ module.exports = {
   adminForceGolden,
   adminSetBakeBan,
   adminSetRank,
+  adminStartEvent,
   adminGrantRewardBox,
   adminResetUser,
   getUserDataEmbed,
