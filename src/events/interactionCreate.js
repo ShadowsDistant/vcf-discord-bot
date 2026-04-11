@@ -563,7 +563,7 @@ module.exports = {
           });
         }
         const action = interaction.values[0];
-        if (['give_cookies', 'remove_cookies', 'give_item', 'set_building', 'set_log_channel', 'set_mod_role'].includes(action)) {
+        if (['give_cookies', 'remove_cookies', 'give_item', 'set_building', 'set_log_channel'].includes(action)) {
           const modal = economy.modalForAdminAction(actorId, targetId, action);
           return interaction.showModal(modal);
         }
@@ -823,20 +823,6 @@ module.exports = {
           economy.setAdminLogChannel(interaction.guild.id, channelId);
           return interaction.reply({
             embeds: [embeds.success(`Set bake admin log channel to <#${channelId}>.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
-          });
-        }
-        if (action === 'set_mod_role') {
-          const roleId = parseMentionOrId(interaction.fields.getTextInputValue('value'), 'role');
-          if (!roleId || !interaction.guild.roles.cache.has(roleId)) {
-            return interaction.reply({
-              embeds: [embeds.error('Invalid role. Use a role mention like `@Moderator` or a role ID.', interaction.guild)],
-              flags: MessageFlags.Ephemeral,
-            });
-          }
-          economy.setAdminModRoleId(interaction.guild.id, roleId);
-          return interaction.reply({
-            embeds: [embeds.success(`Set bake admin mod role to <@&${roleId}>.`, interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }

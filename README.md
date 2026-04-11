@@ -33,7 +33,7 @@ A modern, feature-rich Discord bot built with **discord.js v14** featuring advan
 | Category | Highlights |
 |---|---|
 | **Moderation** | Ban, kick, timeout, warn system, purge, lock/unlock channels, slowmode, role management — with optional mod-role permission levels |
-| **Utility** | Ping, userinfo, serverinfo, avatar, botinfo, help |
+| **Utility** | Ping, userinfo, serverinfo, avatar, botinfo, help, updates |
 | **Shifts** | Clock-in/out, staff-role gate, shift history, wave period tracking, quota requirements, DMs on start/end, wave-end mass DM |
 | **Setup** | Admin-only server configuration (mod logs, welcome, staff roles, mod permission levels, quota, shift DMs, AutoMod) |
 | **Reasons** | Per-server preset ban/kick/warn reasons with autocomplete in mod commands |
@@ -263,6 +263,13 @@ List all available commands grouped by category, or get detailed info on a speci
 | Option | Type | Required | Description |
 |---|---|---|---|
 | `command` | String | ❌ | Command name to get detailed help for |
+
+---
+
+#### `/updates`
+View the latest public release notes and browse previous update logs from an interactive selector.
+
+Shows: current bot version, latest log version/date, and recent public changes.
 
 ---
 

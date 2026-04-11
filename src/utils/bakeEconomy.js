@@ -1084,7 +1084,7 @@ function bake(guildId, userId) {
 
   const burntItem = ITEM_MAP.get('burnt_cookie') ?? ITEMS[0];
   const item = burnt ? burntItem : weightedPickItem(user, new Date(nowTs));
-  if (!burnt) registerItemBake(guildState, user, item, userId);
+  registerItemBake(guildState, user, item, userId);
 
   let golden = null;
   const forceGolden = user.forceGoldenCookieOnNextBake;
@@ -1856,13 +1856,6 @@ function getAdminModRoleId(guildId) {
   return guildState.settings.adminModRoleId ?? BAKE_ADMIN_ROLE_ID;
 }
 
-function setAdminModRoleId(guildId) {
-  const data = readState();
-  const guildState = getGuildState(data, guildId);
-  guildState.settings.adminModRoleId = BAKE_ADMIN_ROLE_ID;
-  writeState(data);
-}
-
 function adminEnsureTarget(guildId, targetUserId) {
   const data = readState();
   const guildState = getGuildState(data, guildId);
@@ -1965,7 +1958,6 @@ function buildBakeAdminComponents(actorId, targetId) {
       { label: 'Reset User', value: 'reset_user' },
       { label: 'View User Data', value: 'view_user' },
       { label: 'Set Admin Log Channel', value: 'set_log_channel' },
-      { label: 'Set Admin Mod Role', value: 'set_mod_role' },
     );
   return [new ActionRowBuilder().addComponents(select)];
 }
@@ -2005,13 +1997,13 @@ function modalForAdminAction(actorId, targetId, action) {
     );
     return modal;
   }
-  if (action === 'set_log_channel' || action === 'set_mod_role') {
-    modal.setTitle(action === 'set_log_channel' ? 'Set Log Channel' : 'Set Mod Role');
+  if (action === 'set_log_channel') {
+    modal.setTitle('Set Log Channel');
     modal.addComponents(
       new ActionRowBuilder().addComponents(new TextInputBuilder()
         .setCustomId('value')
-        .setLabel(action === 'set_log_channel' ? 'Channel mention or ID' : 'Role mention or ID')
-        .setPlaceholder(action === 'set_log_channel' ? '#logs or 123456789012345678' : '@Moderator or 123456789012345678')
+        .setLabel('Channel mention or ID')
+        .setPlaceholder('#logs or 123456789012345678')
         .setStyle(TextInputStyle.Short)
         .setRequired(true)),
     );
@@ -2147,7 +2139,6 @@ module.exports = {
   modalForAdminAction,
   getAdminLogChannelId,
   setAdminLogChannel,
-  setAdminModRoleId,
   adminGiveCookies,
   adminGiveItem,
   adminUnlockUpgrade,

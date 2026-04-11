@@ -5,6 +5,15 @@ const { PALETTE } = require('./embeds');
 
 const UPDATE_LOGS = [
   {
+    version: 'v1.0.1',
+    date: '2026-04-11',
+    changes: [
+      'Fixed burnt-cookie baking so burnt items are consistently tracked in inventory and item statistics.',
+      'Removed bake-admin mod-role setter UI/action to keep bake-admin authorization fixed to the designated role.',
+      'Standardized slash command deployment as global-only and removed single-server deployment configuration.',
+    ],
+  },
+  {
     version: 'v1.0.0',
     date: '2026-04-10',
     changes: [
