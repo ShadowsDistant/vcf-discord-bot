@@ -20,109 +20,8 @@ const PASSIVE_CAP_MS = 24 * 60 * 60 * 1000;
 const MARKET_LISTING_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const MARKET_FEE_RATE = 0.05;
 const BASE_GOLDEN_CHANCE = 0.03;
-const FANDOM_FILE_BASE = 'https://cookieclicker.fandom.com/wiki/Special:FilePath/';
-
-function cookieClickerImage(fileName) {
-  if (
-    fileName.includes('..')
-    || fileName.startsWith('/')
-    || fileName.startsWith('\\')
-    || fileName.includes('://')
-    || !/^[A-Za-z0-9 _.-]+\.(png|gif|jpe?g|webp)$/i.test(fileName)
-  ) {
-    return `${FANDOM_FILE_BASE}Plain_cookies.png`;
-  }
-  return `${FANDOM_FILE_BASE}${encodeURIComponent(fileName)}`;
-}
-
-const DEFAULT_COOKIE_IMAGE = cookieClickerImage('Plain_cookies.png');
-const DEFAULT_UPGRADE_IMAGE = cookieClickerImage('Plain_cursor.png');
-
-const BUILDING_IMAGES = {
-  cursor: cookieClickerImage('Cursor_64px.png'),
-  grandma: cookieClickerImage('Grandmas.gif'),
-  farm: cookieClickerImage('Farm.png'),
-  mine: cookieClickerImage('Mine_new.png'),
-  factory: cookieClickerImage('Factory_new.png'),
-  bank: cookieClickerImage('Bank.png'),
-  temple: cookieClickerImage('Temple.png'),
-  wizardTower: cookieClickerImage('Wizardtower.png'),
-  shipment: cookieClickerImage('Shipment_new.png'),
-  alchemyLab: cookieClickerImage('Alchemylab.png'),
-  portal: cookieClickerImage('Portal_new.png'),
-  timeMachine: cookieClickerImage('Timemachine_new.png'),
-  antimatterCondenser: cookieClickerImage('Antim.png'),
-  prism: cookieClickerImage('Prism.png'),
-  chancemaker: cookieClickerImage('Chancemaker.png'),
-  fractalEngine: cookieClickerImage('Fractal_engine.png'),
-  javascriptConsole: cookieClickerImage('Javascript_console.png'),
-  idleverse: cookieClickerImage('Idleverse.gif'),
-  cortexBaker: cookieClickerImage('Cortex_Baker.gif'),
-};
-
-const COOKIE_IMAGE_BY_NAME = {
-  'Plain Cookie': cookieClickerImage('Plain_cookies.png'),
-  'Chocolate Chip Cookie': cookieClickerImage('Chocolate_chip_cookie.png'),
-  'Oatmeal Cookie': cookieClickerImage('Oatmeal_raisin_cookies.png'),
-  'Sugar Cookie': cookieClickerImage('Sugar_cookies.png'),
-  'Butter Cookie': cookieClickerImage('Butter_cookies.png'),
-  Shortbread: cookieClickerImage('Shortbread_biscuits.png'),
-  Gingersnap: cookieClickerImage('Gingersnaps.png'),
-  Snickerdoodle: cookieClickerImage('Snickerdoodles.png'),
-  'Peanut Butter Cookie': cookieClickerImage('Peanut_butter_cookies.png'),
-  'White Chocolate Macadamia': cookieClickerImage('White_chocolate_macadamia_nut_cookies.png'),
-  Macaron: cookieClickerImage('Macaroons.png'),
-  Stroopwafel: cookieClickerImage('Stroopwafels.png'),
-  Biscotti: cookieClickerImage('Biscotti.png'),
-  Madeleine: cookieClickerImage('Madeleines.png'),
-};
-
-const MILK_IMAGES = {
-  plain: cookieClickerImage('MilkPlain.png'),
-  chocolate: cookieClickerImage('MilkChocolate.png'),
-  strawberry: cookieClickerImage('MilkStrawberry.png'),
-  vanilla: cookieClickerImage('MilkVanilla.png'),
-  honey: cookieClickerImage('MilkHoney.png'),
-  caramel: cookieClickerImage('MilkCaramel.png'),
-  banana: cookieClickerImage('MilkBanana.png'),
-  lime: cookieClickerImage('MilkLime.png'),
-  blueberry: cookieClickerImage('MilkBlueberry.png'),
-  zebra: cookieClickerImage('MilkZebra.png'),
-};
-
-const ACHIEVEMENT_IMAGES = {
-  baked_100: cookieClickerImage('Plain_cookies.png'),
-  baked_1k: cookieClickerImage('Chocolate_chip_cookie.png'),
-  baked_10k: cookieClickerImage('Oatmeal_raisin_cookies.png'),
-  baked_100k: cookieClickerImage('Butter_cookies.png'),
-  baked_1m: cookieClickerImage('Shortbread_biscuits.png'),
-  spend_10k: cookieClickerImage('Bank.png'),
-  spend_100k: cookieClickerImage('Bank.png'),
-  spend_1m: cookieClickerImage('Bank.png'),
-  rare_first: cookieClickerImage('Prism.png'),
-  epic_first: cookieClickerImage('Portal_new.png'),
-  legendary_first: cookieClickerImage('Timemachine_new.png'),
-  mythic_first: cookieClickerImage('Idleverse.gif'),
-  celestial_first: cookieClickerImage('Cortex_Baker.gif'),
-  discover_10: cookieClickerImage('Javascript_console.png'),
-  discover_25: cookieClickerImage('Fractal_engine.png'),
-  discover_50: cookieClickerImage('Idleverse.gif'),
-  discover_all: cookieClickerImage('Cortex_Baker.gif'),
-  cps_100: cookieClickerImage('Factory_new.png'),
-  cps_10k: cookieClickerImage('Wizardtower.png'),
-  cps_1m: cookieClickerImage('Portal_new.png'),
-  cps_1b: cookieClickerImage('Antim.png'),
-  market_10: cookieClickerImage('Bank.png'),
-  market_50: cookieClickerImage('Bank.png'),
-  golden_10: cookieClickerImage('Prism.png'),
-  golden_50: cookieClickerImage('Chancemaker.png'),
-  bakery_named: cookieClickerImage('Factory_new.png'),
-  milk_1000: cookieClickerImage('MilkZebra.png'),
-  one_of_each: cookieClickerImage('Farm.png'),
-  single_50: cookieClickerImage('Factory_new.png'),
-  single_100: cookieClickerImage('Shipment_new.png'),
-  single_200: cookieClickerImage('Cortex_Baker.gif'),
-};
+const DEFAULT_COOKIE_IMAGE = null;
+const DEFAULT_UPGRADE_IMAGE = null;
 
 const RARITY = {
   common: { id: 'common', name: 'Common', weight: 50, valueMultiplier: 1, color: 0xa3a3a3, emoji: '🍪' },
@@ -254,7 +153,7 @@ function buildItem(name, rarity, baseValue, flavorText, image = null) {
     rarity,
     baseValue,
     flavorText,
-    image: image ?? COOKIE_IMAGE_BY_NAME[name] ?? DEFAULT_COOKIE_IMAGE,
+    image: image ?? DEFAULT_COOKIE_IMAGE,
   };
 }
 
@@ -500,23 +399,15 @@ function getItemEmoji(itemOrId, guild) {
 }
 
 function getMilkImage(milkType) {
-  const key = milkType.toLowerCase().replace(/\s*milk$/, '');
-  return MILK_IMAGES[key] ?? MILK_IMAGES.plain;
+  return DEFAULT_COOKIE_IMAGE;
 }
 
 function getCookieImage(itemOrId) {
-  if (!itemOrId) return DEFAULT_COOKIE_IMAGE;
-  if (typeof itemOrId === 'object' && itemOrId.image) return itemOrId.image;
-  if (typeof itemOrId === 'string') {
-    const item = ITEM_MAP.get(itemOrId);
-    if (item?.image) return item.image;
-    return COOKIE_IMAGE_BY_NAME[itemOrId] ?? DEFAULT_COOKIE_IMAGE;
-  }
   return DEFAULT_COOKIE_IMAGE;
 }
 
 function getBuildingImage(buildingId) {
-  return BUILDING_IMAGES[buildingId] ?? DEFAULT_UPGRADE_IMAGE;
+  return DEFAULT_UPGRADE_IMAGE;
 }
 
 function getUpgradeImage(upgradeId) {
@@ -525,7 +416,7 @@ function getUpgradeImage(upgradeId) {
 }
 
 function getAchievementImage(achievementId) {
-  return ACHIEVEMENT_IMAGES[achievementId] ?? DEFAULT_COOKIE_IMAGE;
+  return DEFAULT_COOKIE_IMAGE;
 }
 
 function computeCps(user, nowTs = Date.now()) {
@@ -751,7 +642,6 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
 
   if (view === 'home') {
     embed.setDescription('The ovens roar. The crumbs whisper. The economy expands.');
-    embed.setThumbnail(getCookieImage(user.rarestItemId));
     embed.addFields(
       { name: '🍪 Cookies', value: `**${toCookieNumber(user.cookies)}**`, inline: true },
       { name: '⚙️ CPS', value: `**${toCookieNumber(cps)}**`, inline: true },
@@ -773,7 +663,6 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
       { name: 'Marketplace tx', value: `${user.marketplaceBuys} buys • ${user.marketplaceSells} sells`, inline: true },
     );
     const rarest = user.rarestItemId ? ITEM_MAP.get(user.rarestItemId)?.name ?? 'Unknown' : 'None';
-    embed.setThumbnail(getCookieImage(user.rarestItemId));
     embed.addFields({ name: 'Rarest baked item', value: rarest });
     if ((user.transactionHistory ?? []).length) {
       const history = user.transactionHistory.slice(-5).reverse().map((tx) =>
@@ -796,7 +685,6 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     } else {
       const page = Math.max(0, Math.min(options.page ?? 0, Math.floor((entries.length - 1) / 8)));
       const pageEntries = entries.slice(page * 8, page * 8 + 8);
-      embed.setThumbnail(getCookieImage(pageEntries[0]?.item));
       embed.setDescription(pageEntries
         .map((entry) => `${getItemEmoji(entry.item, guild)} **${entry.item.name}** x${entry.qty} • value ${toCookieNumber(entry.item.baseValue * RARITY[entry.item.rarity].valueMultiplier)}`)
         .join('\n'));
@@ -814,7 +702,6 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     const start = [...MILK_TYPES].reverse().find((type) => type.pct <= user.milkLevel)?.pct ?? 0;
     const target = nextType?.pct ?? (user.milkLevel || 1);
     embed.setDescription(`Current milk: **${currentType}**`);
-    embed.setThumbnail(getMilkImage(currentType));
     embed.addFields(
       { name: 'Milk level', value: `${toCookieNumber(user.milkLevel)}%`, inline: true },
       { name: 'Achievements', value: `${user.milestones.length}/${ACHIEVEMENTS.length}`, inline: true },
@@ -830,7 +717,6 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
       : null;
     const spotlight = lastEarned ?? ACHIEVEMENTS.find((a) => !earned.has(a.id)) ?? ACHIEVEMENTS[0];
     embed.setDescription('Milestones that feed your glorious milk pipeline.');
-    embed.setThumbnail(getAchievementImage(spotlight.id));
     const lines = ACHIEVEMENTS.slice(0, 20).map((a) => `${earned.has(a.id) ? '✅' : getCookieFallbackEmoji(guild)} **${a.name}** — ${a.desc}`);
     embed.addFields({ name: 'Achievement board', value: lines.join('\n').slice(0, 1024) });
     embed.addFields({ name: 'Progress', value: `${earned.size}/${ACHIEVEMENTS.length}` });
@@ -840,7 +726,6 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     const selected = BUILDING_MAP.get(options.buildingId ?? 'cursor') ?? BUILDINGS[0];
     const owned = user.buildings[selected.id] ?? 0;
     embed.setDescription(selected.description);
-    embed.setThumbnail(getBuildingImage(selected.id));
     embed.addFields(
       { name: 'Owned', value: toCookieNumber(owned), inline: true },
       { name: 'Base CPS', value: toCookieNumber(selected.baseCps), inline: true },
@@ -857,7 +742,6 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     const unlocked = selected.unlockedWhen(user);
     const purchased = user.upgrades.includes(selected.id);
     embed.setDescription(selected.effect);
-    embed.setThumbnail(getUpgradeImage(selected.id));
     embed.addFields(
       { name: 'Category', value: selected.category, inline: true },
       { name: 'Cost', value: toCookieNumber(selected.cost), inline: true },
@@ -1486,7 +1370,6 @@ function buildItemInspectEmbed(guild, itemDetails) {
     .setColor(rarity.color)
     .setTitle(`${getItemEmoji(item, guild)} ${item.name}`)
     .setDescription(item.flavorText)
-    .setThumbnail(getCookieImage(item))
     .addFields(
       { name: 'Rarity', value: rarity.name, inline: true },
       { name: 'Base value', value: toCookieNumber(item.baseValue * rarity.valueMultiplier), inline: true },
