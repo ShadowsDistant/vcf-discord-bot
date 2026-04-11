@@ -1624,6 +1624,7 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
   );
 
   if (view === 'inventory') {
+    const rarityFilter = options.rarityFilter ?? 'all';
     const raritySelect = new StringSelectMenuBuilder()
       .setCustomId(`bakery_inventory_filter:${options.page ?? 0}`)
       .setPlaceholder('Filter by rarity')
@@ -1635,11 +1636,15 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
 
     const itemOptions = Object.entries(user.inventory)
       .filter(([, qty]) => qty > 0)
-      .map(([itemId, qty]) => ({
-        label: `${ITEM_MAP.get(itemId)?.name ?? itemId}`.slice(0, 100),
-        description: `Item • Owned: ${toCookieNumber(qty)}`.slice(0, 100),
-        value: itemId,
-        emoji: getItemEmoji(itemId, options.guild),
+      .map(([itemId, qty]) => ({ itemId, qty, item: ITEM_MAP.get(itemId) }))
+      .filter((entry) => entry.item)
+      .filter((entry) => rarityFilter === 'all' || entry.item.rarity === rarityFilter)
+      .sort((a, b) => compareRarity(b.item.id, a.item.id) || (b.qty - a.qty) || a.item.name.localeCompare(b.item.name))
+      .map((entry) => ({
+        label: entry.item.name.slice(0, 100),
+        description: `${RARITY[entry.item.rarity].name} • Owned: ${toCookieNumber(entry.qty)}`.slice(0, 100),
+        value: entry.itemId,
+        emoji: getItemEmoji(entry.item, options.guild),
       }))
       .slice(0, 25);
     const rewardGiftOptions = Object.entries(user.rewardGifts ?? {})
