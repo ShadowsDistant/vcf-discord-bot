@@ -13,7 +13,6 @@ const {
   userMention,
 } = require('discord.js');
 const db = require('./database');
-const { ROLE_IDS } = require('./roles');
 
 const ECONOMY_FILE = 'bake_economy.json';
 const PASSIVE_CAP_MS = 24 * 60 * 60 * 1000;
@@ -21,6 +20,7 @@ const MARKET_LISTING_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const MARKET_FEE_RATE = 0.05;
 const BASE_GOLDEN_CHANCE = 0.03;
 const BURNT_BAKE_CHANCE = 0.03;
+const BAKE_ADMIN_ROLE_ID = '1492510387579654205';
 const DEFAULT_COOKIE_IMAGE = null;
 
 const RARITY = {
@@ -504,7 +504,7 @@ function getDefaultGuildState() {
     marketplace: { listings: [], nextListingId: 1 },
     settings: {
       adminLogChannelId: null,
-      adminModRoleId: ROLE_IDS.moderationAccess,
+      adminModRoleId: BAKE_ADMIN_ROLE_ID,
       goldenCookieDurationMs: 15000,
     },
   };
@@ -1569,13 +1569,13 @@ function setAdminLogChannel(guildId, channelId) {
 function getAdminModRoleId(guildId) {
   const data = readState();
   const guildState = getGuildState(data, guildId);
-  return guildState.settings.adminModRoleId ?? ROLE_IDS.moderationAccess;
+  return guildState.settings.adminModRoleId ?? BAKE_ADMIN_ROLE_ID;
 }
 
-function setAdminModRoleId(guildId, roleId) {
+function setAdminModRoleId(guildId) {
   const data = readState();
   const guildState = getGuildState(data, guildId);
-  guildState.settings.adminModRoleId = roleId;
+  guildState.settings.adminModRoleId = BAKE_ADMIN_ROLE_ID;
   writeState(data);
 }
 
@@ -1820,8 +1820,7 @@ function getUserDataEmbed(guild, targetUserId) {
 }
 
 function isBakeAdminAuthorized(member, guildId) {
-  const roleId = getAdminModRoleId(guildId);
-  return member.roles.cache.has(roleId);
+  return member.roles.cache.has(BAKE_ADMIN_ROLE_ID);
 }
 
 module.exports = {

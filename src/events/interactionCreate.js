@@ -568,7 +568,11 @@ module.exports = {
                 new StringSelectMenuBuilder()
                   .setCustomId(`bakeadmin_achievement_select:${actorId}:${targetId}`)
                   .setPlaceholder('Select achievement')
-                  .addOptions(economy.ACHIEVEMENTS.slice(0, 25).map((achievement) => ({ label: achievement.name.slice(0, 100), value: achievement.id }))),
+                  .addOptions(economy.ACHIEVEMENTS.slice(0, 25).map((achievement) => ({
+                    label: achievement.name.slice(0, 100),
+                    value: achievement.id,
+                    emoji: economy.getAchievementEmoji(achievement, interaction.guild),
+                  }))),
               ),
             ],
             flags: MessageFlags.Ephemeral,
