@@ -9,6 +9,33 @@ const {
 } = require('discord.js');
 const economy = require('../../utils/bakeEconomy');
 
+const BURNT_BAKE_LINES = [
+  'You forgot the timer and summoned a smoke alarm solo.',
+  'The oven achieved sentience and chose arson.',
+  'That batch came out looking like fossil fuel.',
+  'You baked a cookie and unlocked charcoal mode.',
+  'The dough saw the heat and gave up immediately.',
+  'Congratulations, you invented edible ash.',
+  'The tray is fine. The cookies are a crime scene.',
+  'Your bakery now smells like dramatic failure.',
+  'The cookies were brave, but the fire was braver.',
+  'You asked for crisp. The oven heard apocalypse.',
+  'One bite and your dentist filed a complaint.',
+  'This batch is sponsored by overconfidence.',
+  'You discovered a new rarity: overtoasted.',
+  'The dough turned into a warning label.',
+  'Kitchen status: smoky, crunchy, regrettable.',
+  'You made cookies with notes of campfire and sadness.',
+  'Heat level: yes. Cookie level: no.',
+  'The batch got promoted to pure carbon.',
+  'Your timer called. It said “too late.”',
+  'Fresh from the oven: one premium burnt disaster.',
+];
+
+function randomBurntLine() {
+  return BURNT_BAKE_LINES[Math.floor(Math.random() * BURNT_BAKE_LINES.length)];
+}
+
 function buildBakeReply(guild, userId) {
   const result = economy.bake(guild.id, userId);
   const {
@@ -23,13 +50,14 @@ function buildBakeReply(guild, userId) {
   const rarity = economy.RARITY[item.rarity];
   const dropChance = economy.getItemDropChance(user, item) * 100;
   const cps = economy.computeCps(user, Date.now());
+  const itemEmoji = economy.getItemEmoji(item, guild);
   const description = burnt
-    ? `The batch came out **burnt**. No cookies gained from this bake.`
+    ? `${itemEmoji} **Burnt batch!** ${randomBurntLine()}\nNo cookies gained from this bake.`
     : `You baked **${item.name}** and pocketed **${economy.toCookieNumber(manualYield)}** manual cookies.`;
 
   const embed = new EmbedBuilder()
     .setColor(rarity.color)
-    .setTitle(`${economy.getItemEmoji(item, guild)} Fresh Batch: ${item.name}`)
+    .setTitle(burnt ? `Fresh Batch: ${item.name}` : `${itemEmoji} Fresh Batch: ${item.name}`)
     .setDescription(description)
     .setTimestamp()
     .addFields(
