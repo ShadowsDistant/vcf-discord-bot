@@ -136,6 +136,16 @@ const RARITY = {
 };
 
 const RARITY_ORDER = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic', 'celestial', 'secret'];
+const RARITY_EMOJI_CANDIDATES = {
+  common: ['common', 'cookie_common', 'bake_common', 'cc_common'],
+  uncommon: ['uncommon', 'cookie_uncommon', 'bake_uncommon', 'cc_uncommon'],
+  rare: ['rare', 'cookie_rare', 'bake_rare', 'cc_rare'],
+  epic: ['epic', 'cookie_epic', 'bake_epic', 'cc_epic'],
+  legendary: ['legendary', 'cookie_legendary', 'bake_legendary', 'cc_legendary'],
+  mythic: ['mythic', 'cookie_mythic', 'bake_mythic', 'cc_mythic'],
+  celestial: ['celestial', 'cookie_celestial', 'bake_celestial', 'cc_celestial'],
+  secret: ['secret', 'cookie_secret', 'bake_secret', 'cc_secret'],
+};
 
 const TIER_UNLOCKS = {
   rare: (u) => u.totalBakes >= 500 || u.unlockedTiers.includes('rare'),
@@ -450,6 +460,40 @@ function getMilkType(milkPct) {
   return current;
 }
 
+function normalizeEmojiName(value) {
+  return String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function getCustomGuildEmoji(guild, candidates = []) {
+  const cache = guild?.emojis?.cache;
+  if (!cache || cache.size === 0) return null;
+  const normalizedCandidates = candidates.map(normalizeEmojiName).filter(Boolean);
+  if (normalizedCandidates.length === 0) return null;
+  const matched = cache.find((emoji) => normalizedCandidates.includes(normalizeEmojiName(emoji.name)));
+  if (!matched) return null;
+  return `<${matched.animated ? 'a' : ''}:${matched.name}:${matched.id}>`;
+}
+
+function getRarityEmoji(rarityId, guild) {
+  const rarity = RARITY[rarityId];
+  if (!rarity) return '🍪';
+  const customEmoji = getCustomGuildEmoji(guild, RARITY_EMOJI_CANDIDATES[rarityId] ?? [rarityId]);
+  return customEmoji ?? rarity.emoji;
+}
+
+function getItemEmoji(itemOrId, guild) {
+  const item = typeof itemOrId === 'string' ? ITEM_MAP.get(itemOrId) : itemOrId;
+  if (!item) return '🍪';
+  const customEmoji = getCustomGuildEmoji(guild, [
+    item.id,
+    item.name,
+    `cookie_${item.id}`,
+    `${item.id}_cookie`,
+    `cc_${item.id}`,
+  ]);
+  return customEmoji ?? getRarityEmoji(item.rarity, guild);
+}
+
 function getMilkImage(milkType) {
   const key = milkType.toLowerCase().replace(/\s*milk$/, '');
   return MILK_IMAGES[key] ?? MILK_IMAGES.plain;
@@ -749,7 +793,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
       const pageEntries = entries.slice(page * 8, page * 8 + 8);
       embed.setThumbnail(getCookieImage(pageEntries[0]?.item));
       embed.setDescription(pageEntries
-        .map((entry) => `${RARITY[entry.item.rarity].emoji} **${entry.item.name}** x${entry.qty} • value ${toCookieNumber(entry.item.baseValue * RARITY[entry.item.rarity].valueMultiplier)}`)
+        .map((entry) => `${getItemEmoji(entry.item, guild)} **${entry.item.name}** x${entry.qty} • value ${toCookieNumber(entry.item.baseValue * RARITY[entry.item.rarity].valueMultiplier)}`)
         .join('\n'));
       embed.addFields({
         name: 'Collection',
@@ -846,7 +890,7 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
       .setPlaceholder('Filter by rarity')
       .addOptions(
         { label: 'All rarities', value: 'all' },
-        ...RARITY_ORDER.map((id) => ({ label: RARITY[id].name, value: id })),
+        ...RARITY_ORDER.map((id) => ({ label: RARITY[id].name, value: id, emoji: getRarityEmoji(id, options.guild) })),
       );
     rows.push(new ActionRowBuilder().addComponents(raritySelect));
 
@@ -857,6 +901,7 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
         label: `${ITEM_MAP.get(itemId)?.name ?? itemId}`.slice(0, 100),
         description: `Owned: ${qty}`,
         value: itemId,
+        emoji: getItemEmoji(itemId, options.guild),
       }));
     if (itemOptions.length) {
       rows.push(
@@ -874,7 +919,7 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
     const buildingMenu = new StringSelectMenuBuilder()
       .setCustomId('bakery_building_select')
       .setPlaceholder('Choose a building')
-      .addOptions(BUILDINGS.slice(0, 25).map((b) => ({ label: b.name, value: b.id })));
+      .addOptions(BUILDINGS.slice(0, 25).map((b) => ({ label: b.name, value: b.id, emoji: getCustomGuildEmoji(options.guild, [b.id, b.name, `building_${b.id}`, `cc_${b.id}`]) ?? '🏗️' })));
     rows.push(new ActionRowBuilder().addComponents(buildingMenu));
     const selectedBuilding = options.buildingId ?? 'cursor';
     rows.push(
@@ -892,7 +937,11 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
         new StringSelectMenuBuilder()
           .setCustomId('bakery_upgrade_select')
           .setPlaceholder('Choose an upgrade')
-          .addOptions(UPGRADES.slice(0, 25).map((u) => ({ label: u.name.slice(0, 100), value: u.id }))),
+          .addOptions(UPGRADES.slice(0, 25).map((u) => ({
+            label: u.name.slice(0, 100),
+            value: u.id,
+            emoji: getCustomGuildEmoji(options.guild, [u.id, `upgrade_${u.id}`, `cc_${u.id}`, u.buildingId].filter(Boolean)) ?? '🧪',
+          }))),
       ),
     );
     const selectedUpgrade = options.upgradeId ?? UPGRADES[0].id;
@@ -979,10 +1028,9 @@ function claimGoldenCookie(guildId, userId, token) {
   return { ok: true, reward, description, user };
 }
 
-function getListingDisplay(listing) {
+function getListingDisplay(listing, guild) {
   const item = ITEM_MAP.get(listing.itemId);
-  const rarity = item ? RARITY[item.rarity] : null;
-  return `${rarity ? rarity.emoji : '🍪'} **${item?.name ?? listing.itemId}** x${listing.quantity} • ${toCookieNumber(listing.pricePerUnit)} each • Seller: <@${listing.sellerId}>`;
+  return `${item ? getItemEmoji(item, guild) : '🍪'} **${item?.name ?? listing.itemId}** x${listing.quantity} • ${toCookieNumber(listing.pricePerUnit)} each • Seller: <@${listing.sellerId}>`;
 }
 
 function getMarketplaceEmbed(guild, guildState, user, page = 0, rarityFilter = 'all') {
@@ -998,7 +1046,7 @@ function getMarketplaceEmbed(guild, guildState, user, page = 0, rarityFilter = '
     .setColor(0xf1c40f)
     .setTitle('🏪 Cookie Marketplace')
     .setDescription(pageListings.length
-      ? pageListings.map((listing) => `\`${listing.id}\` • ${getListingDisplay(listing)}`).join('\n')
+      ? pageListings.map((listing) => `\`${listing.id}\` • ${getListingDisplay(listing, guild)}`).join('\n')
       : 'No listings match that filter. The stalls are eerily quiet.')
     .setTimestamp();
 
@@ -1431,7 +1479,7 @@ function buildItemInspectEmbed(guild, itemDetails) {
   const rarity = RARITY[item.rarity];
   const embed = new EmbedBuilder()
     .setColor(rarity.color)
-    .setTitle(`${rarity.emoji} ${item.name}`)
+    .setTitle(`${getItemEmoji(item, guild)} ${item.name}`)
     .setDescription(item.flavorText)
     .setThumbnail(getCookieImage(item))
     .addFields(
@@ -1507,6 +1555,8 @@ module.exports = {
   isBakeAdminAuthorized,
   computeCps,
   getBuildingPrice,
+  getRarityEmoji,
+  getItemEmoji,
   getAchievementImage,
   getCookieImage,
   getBuildingImage,

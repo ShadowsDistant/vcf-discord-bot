@@ -11,7 +11,7 @@ module.exports = {
   async execute(interaction) {
     const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
     const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'home');
-    const components = economy.buildDashboardComponents(snapshot.user, 'home');
+    const components = economy.buildDashboardComponents(snapshot.user, 'home', { guild: interaction.guild });
     return interaction.reply({ embeds: [embed], components });
   },
 };
