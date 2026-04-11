@@ -125,7 +125,7 @@ const ACHIEVEMENT_IMAGES = {
 };
 
 const RARITY = {
-  common: { id: 'common', name: 'Common', weight: 50, valueMultiplier: 1, color: 0xa3a3a3, emoji: '⬜' },
+  common: { id: 'common', name: 'Common', weight: 50, valueMultiplier: 1, color: 0xa3a3a3, emoji: '🍪' },
   uncommon: { id: 'uncommon', name: 'Uncommon', weight: 25, valueMultiplier: 3, color: 0x57f287, emoji: '🟩' },
   rare: { id: 'rare', name: 'Rare', weight: 13, valueMultiplier: 10, color: 0x5865f2, emoji: '🟦' },
   epic: { id: 'epic', name: 'Epic', weight: 7, valueMultiplier: 30, color: 0x9b59b6, emoji: '🟪' },
@@ -475,16 +475,20 @@ function getCustomGuildEmoji(guild, candidates = []) {
   return `<${matched.animated ? 'a' : ''}:${matched.name}:${matched.id}>`;
 }
 
+function getCookieFallbackEmoji(guild) {
+  return getCustomGuildEmoji(guild, ['plain_cookie', 'cookie', 'cookies', 'cc_cookie']) ?? '🍪';
+}
+
 function getRarityEmoji(rarityId, guild) {
   const rarity = RARITY[rarityId];
-  if (!rarity) return '🍪';
+  if (!rarity) return getCookieFallbackEmoji(guild);
   const customEmoji = getCustomGuildEmoji(guild, RARITY_EMOJI_CANDIDATES[rarityId] ?? [rarityId]);
-  return customEmoji ?? rarity.emoji;
+  return customEmoji ?? rarity.emoji ?? getCookieFallbackEmoji(guild);
 }
 
 function getItemEmoji(itemOrId, guild) {
   const item = typeof itemOrId === 'string' ? ITEM_MAP.get(itemOrId) : itemOrId;
-  if (!item) return '🍪';
+  if (!item) return getCookieFallbackEmoji(guild);
   const customEmoji = getCustomGuildEmoji(guild, [
     item.id,
     item.name,
@@ -827,7 +831,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     const spotlight = lastEarned ?? ACHIEVEMENTS.find((a) => !earned.has(a.id)) ?? ACHIEVEMENTS[0];
     embed.setDescription('Milestones that feed your glorious milk pipeline.');
     embed.setThumbnail(getAchievementImage(spotlight.id));
-    const lines = ACHIEVEMENTS.slice(0, 20).map((a) => `${earned.has(a.id) ? '✅' : '⬜'} **${a.name}** — ${a.desc}`);
+    const lines = ACHIEVEMENTS.slice(0, 20).map((a) => `${earned.has(a.id) ? '✅' : getCookieFallbackEmoji(guild)} **${a.name}** — ${a.desc}`);
     embed.addFields({ name: 'Achievement board', value: lines.join('\n').slice(0, 1024) });
     embed.addFields({ name: 'Progress', value: `${earned.size}/${ACHIEVEMENTS.length}` });
   }
@@ -920,7 +924,7 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
     const buildingMenu = new StringSelectMenuBuilder()
       .setCustomId('bakery_building_select')
       .setPlaceholder('Choose a building')
-      .addOptions(BUILDINGS.slice(0, 25).map((b) => ({ label: b.name, value: b.id, emoji: getCustomGuildEmoji(options.guild, [b.id, b.name, `building_${b.id}`, `cc_${b.id}`]) ?? '🏗️' })));
+      .addOptions(BUILDINGS.slice(0, 25).map((b) => ({ label: b.name, value: b.id, emoji: getCustomGuildEmoji(options.guild, [b.id, b.name, `building_${b.id}`, `cc_${b.id}`]) ?? getCookieFallbackEmoji(options.guild) })));
     rows.push(new ActionRowBuilder().addComponents(buildingMenu));
     const selectedBuilding = options.buildingId ?? 'cursor';
     rows.push(
@@ -941,7 +945,7 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
           .addOptions(UPGRADES.slice(0, 25).map((u) => ({
             label: u.name.slice(0, 100),
             value: u.id,
-            emoji: getCustomGuildEmoji(options.guild, [u.id, `upgrade_${u.id}`, `cc_${u.id}`, u.buildingId].filter(Boolean)) ?? '🧪',
+            emoji: getCustomGuildEmoji(options.guild, [u.id, `upgrade_${u.id}`, `cc_${u.id}`, u.buildingId].filter(Boolean)) ?? getCookieFallbackEmoji(options.guild),
           }))),
       ),
     );
