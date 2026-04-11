@@ -1639,7 +1639,8 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
         description: `Item • Owned: ${toCookieNumber(qty)}`.slice(0, 100),
         value: itemId,
         emoji: getItemEmoji(itemId, options.guild),
-      }));
+      }))
+      .slice(0, 25);
     const rewardGiftOptions = Object.entries(user.rewardGifts ?? {})
       .filter(([, qty]) => qty > 0)
       .map(([rewardBoxId, qty]) => {
@@ -1652,9 +1653,11 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
           emoji: getRewardBoxEmoji(rewardBox, options.guild),
         };
       })
-      .filter(Boolean);
+      .filter(Boolean)
+      .slice(0, 25);
 
-    const inventoryOptions = [...itemOptions, ...rewardGiftOptions].slice(0, 25);
+    const remainingGiftSlots = Math.max(0, 25 - itemOptions.length);
+    const inventoryOptions = [...itemOptions, ...rewardGiftOptions.slice(0, remainingGiftSlots)];
     if (inventoryOptions.length) {
       rows.push(
         new ActionRowBuilder().addComponents(
