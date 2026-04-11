@@ -136,6 +136,11 @@ module.exports = {
     .setDescription('Bake cookies, trigger events, and grow your chaotic pastry empire.'),
 
   async execute(interaction) {
+    if (!interaction.guild) {
+      return interaction.reply({
+        content: 'This command can only be used inside a server.',
+      });
+    }
     return interaction.reply(buildBakeReply(interaction.guild, interaction.user.id));
   },
   buildBakeReply,
