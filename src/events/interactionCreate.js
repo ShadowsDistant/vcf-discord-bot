@@ -221,6 +221,13 @@ module.exports = {
         return interaction.reply({ embeds: [listEmbed], components: [row], flags: MessageFlags.Ephemeral });
       }
 
+      if (interaction.customId === 'market_back_bakery') {
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'home');
+        const components = economy.buildDashboardComponents(snapshot.user, 'home', { guild: interaction.guild });
+        return interaction.update({ embeds: [embed], components });
+      }
+
       if (interaction.customId.startsWith('market_cancel:')) {
         const listingId = Number.parseInt(interaction.customId.split(':')[1], 10);
         const result = economy.cancelListing(interaction.guild.id, interaction.user.id, listingId);

@@ -289,13 +289,9 @@ const ACHIEVEMENT_EMOJI_ALIASES = {
   bakery_named: ['Labor_of_love'],
   milk_1000: ['And_beyond'],
   one_of_each: ['Ecumenopolis'],
-  // Intentional shared visuals: these legacy IDs and new building-tier IDs represent adjacent milestones.
-  single_50: ['Builder'],
-  single_100: ['Engineer'],
-  single_200: ['Architect'],
-  architect: ['Architect'],
-  builder: ['Builder'],
-  engineer: ['Engineer'],
+  single_50: ['Grandmas'],
+  single_100: ['Chancemaker'],
+  single_200: ['Cortex_Baker'],
   augmenter: ['Augmenter'],
   enhancer: ['Enhancer'],
 };
@@ -373,8 +369,8 @@ const ACHIEVEMENTS = [
   { id: 'spend_10k', name: 'Retail Therapy', desc: 'Spend 10,000 cookies.', check: (u) => u.cookiesSpent >= 10000 },
   { id: 'spend_100k', name: 'Cookie Investor', desc: 'Spend 100,000 cookies.', check: (u) => u.cookiesSpent >= 100000 },
   { id: 'spend_1m', name: 'Big Dough Energy', desc: 'Spend 1,000,000 cookies.', check: (u) => u.cookiesSpent >= 1000000 },
-  { id: 'architect', name: 'Architect', desc: 'Own at least 20 total buildings.', check: (u) => getTotalBuildingsOwned(u) >= 20 },
-  { id: 'builder', name: 'Builder', desc: 'Own at least 50 total buildings.', check: (u) => getTotalBuildingsOwned(u) >= 50 },
+  { id: 'builder', name: 'Builder', desc: 'Own at least 20 total buildings.', check: (u) => getTotalBuildingsOwned(u) >= 20 },
+  { id: 'architect', name: 'Architect', desc: 'Own at least 50 total buildings.', check: (u) => getTotalBuildingsOwned(u) >= 50 },
   { id: 'engineer', name: 'Engineer', desc: 'Own at least 100 total buildings.', check: (u) => getTotalBuildingsOwned(u) >= 100 },
   { id: 'augmenter', name: 'Augmenter', desc: 'Purchase 5 upgrades.', check: (u) => (u.upgrades ?? []).length >= 5 },
   { id: 'enhancer', name: 'Enhancer', desc: 'Purchase 10 upgrades.', check: (u) => (u.upgrades ?? []).length >= 10 },
@@ -682,6 +678,7 @@ function getAchievementEmoji(achievementOrId, guild) {
 }
 
 function getEarnedAchievementIds(user) {
+  // Milestones may contain legacy IDs from previous achievement sets; keep only currently defined achievements.
   return (user.milestones ?? []).filter((id) => ACHIEVEMENT_IDS.has(id));
 }
 
@@ -893,7 +890,8 @@ function getThemeColor(theme) {
 }
 
 function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
-  const cps = computeCps(user, Date.now());
+  const nowTs = Date.now();
+  const cps = computeCps(user, nowTs);
   const totalItems = ITEMS.length;
   const discovered = user.uniqueItemsDiscovered.length;
   const titlePrefix = `${user.bakeryEmoji ?? '🍪'} ${user.bakeryName ?? 'Unnamed Bakery'}`;
@@ -902,9 +900,12 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
   const collectionEmoji = getCustomGuildEmoji(guild, ['Polymath', 'Cookie_Clicker']) ?? '📚';
   const buildingEmoji = getCustomGuildEmoji(guild, ['Builder', 'Factory_new']) ?? '🏗️';
   const achievementEmoji = getCustomGuildEmoji(guild, ['Cookie_Clicker', 'Builder']) ?? '🏆';
+  const passiveEmoji = getCustomGuildEmoji(guild, ['CookieProduction6', 'CookieProduction10']) ?? '📈';
   const homeMilkType = getMilkType(user.milkLevel);
   const homeMilkKey = homeMilkType.toLowerCase().replace(/\s*milk$/, '');
   const homeMilkEmoji = getCustomGuildEmoji(guild, MILK_EMOJI_ALIASES[homeMilkKey] ?? []) ?? '🥛';
+  const passiveElapsedMs = Math.min(Math.max(0, nowTs - (user.lastInteraction ?? nowTs)), PASSIVE_CAP_MS);
+  const passiveSinceLastCommand = Math.floor((passiveElapsedMs / 1000) * cps);
 
   const embed = new EmbedBuilder()
     .setColor(getThemeColor(user.bakeryTheme))
@@ -924,6 +925,11 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
       { name: `${cookieEmoji} Cookies`, value: `**${toCookieNumber(user.cookies)}**`, inline: true },
       { name: `${cpsEmoji} CPS`, value: `**${toCookieNumber(cps)}**`, inline: true },
       { name: `${homeMilkEmoji} Milk`, value: `**${toCookieNumber(user.milkLevel)}%** (${homeMilkType})`, inline: true },
+      {
+        name: `${passiveEmoji} Since last command`,
+        value: `+${toCookieNumber(passiveSinceLastCommand)} (${Math.floor(passiveElapsedMs / 1000)}s)`,
+        inline: true,
+      },
       { name: `${collectionEmoji} Collection`, value: `Discovered: **${discovered}/${totalItems}**`, inline: true },
       { name: `${buildingEmoji} Buildings`, value: `Owned: **${toCookieNumber(getTotalBuildingsOwned(user))}**`, inline: true },
       { name: `${achievementEmoji} Achievements`, value: `**${getEarnedAchievementCount(user)}/${ACHIEVEMENTS.length}**`, inline: true },
@@ -1321,6 +1327,7 @@ function getMarketplaceComponents(guildState, page = 0, rarityFilter = 'all') {
       new ButtonBuilder().setCustomId(`market_next:${pageIndex}:${rarityFilter}`).setLabel('Next').setStyle(ButtonStyle.Secondary).setDisabled(pageIndex >= pageCount - 1),
       new ButtonBuilder().setCustomId('market_list_item').setLabel('List Item').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId('market_my_listings').setLabel('My Listings').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId('market_back_bakery').setLabel('Back to Bakery').setStyle(ButtonStyle.Secondary),
     ),
   );
   return rows;
