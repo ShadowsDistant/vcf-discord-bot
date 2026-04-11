@@ -466,8 +466,8 @@ const ACHIEVEMENTS = [
 
 const ACHIEVEMENT_IDS = new Set(ACHIEVEMENTS.map((achievement) => achievement.id));
 
-function buildItem(name, rarity, baseValue, flavorText, image = null) {
-  const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+function buildItem(name, rarity, baseValue, flavorText, image = null, idOverride = null) {
+  const id = idOverride ?? name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
   return {
     id,
     name,
@@ -526,9 +526,9 @@ const ITEMS = [
   buildItem('Flavor Text Cookie', 'legendary', 145, 'Self-aware and very descriptive.'),
   buildItem('Burnt Cookie', 'legendary', 150, 'Charred but weirdly powerful.'),
   buildItem('Birthday Cookie', 'legendary', 155, 'Confetti-grade sugar celebration.'),
-  buildItem('PerfectCookie', 'legendary', 160, 'Mathematically flawless.'),
-  buildItem('GoldCookie', 'legendary', 170, 'Pure gilded snack economics.'),
-  buildItem('SpoopierCookie', 'legendary', 200, 'Unsettlingly delicious.'),
+  buildItem('Perfect Cookie', 'legendary', 160, 'Mathematically flawless.', null, 'perfectcookie'),
+  buildItem('Gold Cookie', 'legendary', 170, 'Pure gilded snack economics.', null, 'goldcookie'),
+  buildItem('Spoopier Cookie', 'legendary', 200, 'Unsettlingly delicious.', null, 'spoopiercookie'),
   buildItem('Cookie Dough', 'mythic', 450, 'Unbaked potential with immense value.'),
   buildItem('Cookie Bars', 'mythic', 500, 'Dense, rich, and highly tradable.'),
   buildItem('Cookie Crumbs', 'mythic', 550, 'Tiny fragments of big power.'),
@@ -836,7 +836,6 @@ function applyRankRewards(user, rank) {
   const rewards = rank.rewards ?? {};
   if (rewards.cookies) {
     user.cookies += rewards.cookies;
-    user.cookiesBakedAllTime += rewards.cookies;
   }
   if (rewards.forceGoldenCookie) user.forceGoldenCookieOnNextBake = true;
   if (rewards.clickFrenzyCharges) {

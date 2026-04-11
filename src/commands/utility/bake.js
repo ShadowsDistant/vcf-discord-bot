@@ -50,14 +50,14 @@ function buildBakeReply(guild, userId) {
     rankUpdate,
   } = result;
   const rarity = economy.RARITY[item.rarity];
-  const dropChance = economy.getItemDropChance(user, item) * 100;
+  const dropChance = economy.getItemDropChance(user, item, new Date()) * 100;
   const cps = economy.computeCps(user, Date.now());
   const itemEmoji = economy.getItemEmoji(item, guild);
   const sellValue = economy.getItemSellValue(item);
   const titlePrefix = burnt ? '' : `${itemEmoji} `;
   const batchLabel = burnt ? 'Burnt Batch' : 'Fresh Batch';
   const description = burnt
-    ? `${itemEmoji} **Burnt batch!** ${randomBurntLine()}\nNo cookies gained from this bake.`
+    ? `${itemEmoji} **Burnt Batch!** ${randomBurntLine()}\nNo cookies gained from this bake.`
     : `You baked **${item.name}** and pocketed **${economy.toCookieNumber(manualYield)}** manual cookies.`;
 
   const embed = new EmbedBuilder()
