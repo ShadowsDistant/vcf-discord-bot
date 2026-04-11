@@ -10,6 +10,8 @@ const {
 const economy = require('../../utils/bakeEconomy');
 const BAKE_COOLDOWN_MS = 30_000;
 const bakeCooldowns = new Map();
+const COOLDOWN_PRUNE_INTERVAL_MS = 5 * 60 * 1000;
+let lastCooldownPruneAt = 0;
 
 const BURNT_BAKE_LINES = [
   'You forgot the timer and summoned a smoke alarm solo.',
@@ -37,6 +39,14 @@ const BURNT_BAKE_LINE_COUNT = BURNT_BAKE_LINES.length;
 
 function randomBurntLine() {
   return BURNT_BAKE_LINES[Math.floor(Math.random() * BURNT_BAKE_LINE_COUNT)];
+}
+
+function pruneCooldowns(now = Date.now()) {
+  if ((now - lastCooldownPruneAt) < COOLDOWN_PRUNE_INTERVAL_MS) return;
+  for (const [key, lastUsedAt] of bakeCooldowns.entries()) {
+    if ((now - lastUsedAt) > BAKE_COOLDOWN_MS) bakeCooldowns.delete(key);
+  }
+  lastCooldownPruneAt = now;
 }
 
 function buildBakeReply(guild, userId) {
@@ -151,6 +161,7 @@ module.exports = {
     }
     const cooldownKey = `${interaction.guild.id}:${interaction.user.id}`;
     const now = Date.now();
+    pruneCooldowns(now);
     const nextAllowed = (bakeCooldowns.get(cooldownKey) ?? 0) + BAKE_COOLDOWN_MS;
     if (nextAllowed > now) {
       const remainingSeconds = Math.ceil((nextAllowed - now) / 1000);

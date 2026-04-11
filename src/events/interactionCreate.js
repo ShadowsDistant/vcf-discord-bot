@@ -25,12 +25,39 @@ const { version: botVersion } = require('../../package.json');
 /** Commands whose `reason` option supports preset-reason autocomplete. */
 const REASON_AUTOCOMPLETE_COMMANDS = new Set(['ban', 'kick', 'warn']);
 const ERROR_DETAIL_LIMIT = 500;
+const MAX_SELECT_MENU_OPTIONS = 25;
+const BAKERY_RENAME_TTL_MS = 10 * 60 * 1000;
 const pendingBakeryRenameSelections = new Map();
+
+function prunePendingBakeryRenameSelections(now = Date.now()) {
+  for (const [key, entry] of pendingBakeryRenameSelections.entries()) {
+    if ((entry?.expiresAt ?? 0) <= now) pendingBakeryRenameSelections.delete(key);
+  }
+}
+
+function setPendingBakeryRenameSelection(guildId, userId, bakeryName) {
+  prunePendingBakeryRenameSelections();
+  pendingBakeryRenameSelections.set(`${guildId}:${userId}`, {
+    bakeryName,
+    expiresAt: Date.now() + BAKERY_RENAME_TTL_MS,
+  });
+}
+
+function getPendingBakeryRenameSelection(guildId, userId) {
+  prunePendingBakeryRenameSelections();
+  const entry = pendingBakeryRenameSelections.get(`${guildId}:${userId}`);
+  if (!entry) return null;
+  return entry.bakeryName ?? null;
+}
+
+function clearPendingBakeryRenameSelection(guildId, userId) {
+  pendingBakeryRenameSelections.delete(`${guildId}:${userId}`);
+}
 
 function buildInventoryItemSelectOptions(user, guild) {
   return Object.entries(user.inventory ?? {})
     .filter(([, qty]) => qty > 0)
-    .slice(0, 25)
+    .slice(0, MAX_SELECT_MENU_OPTIONS)
     .map(([itemId, qty]) => ({
       label: `${economy.ITEM_MAP.get(itemId)?.name ?? itemId}`.slice(0, 100),
       description: `Owned: ${qty}`.slice(0, 100),
@@ -179,8 +206,8 @@ module.exports = {
         const currentPage = Number.parseInt(interaction.customId.split(':')[1], 10) || 0;
         const targetPage = interaction.customId.startsWith('bakery_codex_prev:') ? currentPage - 1 : currentPage + 1;
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
-        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'guide', { section: 'info', page: targetPage });
-        const components = economy.buildDashboardComponents(snapshot.user, 'guide', { section: 'info', page: targetPage, guild: interaction.guild });
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'guide', { section: 'cookies', page: targetPage });
+        const components = economy.buildDashboardComponents(snapshot.user, 'guide', { section: 'cookies', page: targetPage, guild: interaction.guild });
         return interaction.update({ embeds: [embed], components });
       }
 
@@ -591,8 +618,7 @@ module.exports = {
 
       if (interaction.customId === 'bakery_name_emoji_select') {
         const itemId = interaction.values[0];
-        const key = `${interaction.guild.id}:${interaction.user.id}`;
-        const bakeryName = pendingBakeryRenameSelections.get(key);
+        const bakeryName = getPendingBakeryRenameSelection(interaction.guild.id, interaction.user.id);
         if (!bakeryName) {
           return interaction.reply({
             embeds: [embeds.warning('Bakery rename timed out. Please run Set Bakery Name again.', interaction.guild)],
@@ -608,7 +634,7 @@ module.exports = {
         }
         const selectedEmoji = economy.getItemEmoji(itemId, interaction.guild);
         economy.setBakeryIdentity(interaction.guild.id, interaction.user.id, bakeryName, selectedEmoji);
-        pendingBakeryRenameSelections.delete(key);
+        clearPendingBakeryRenameSelection(interaction.guild.id, interaction.user.id);
         return interaction.update({
           embeds: [embeds.success(`Your bakery is now **${selectedEmoji} ${bakeryName}**. Branding complete.`, interaction.guild)],
           components: [],
@@ -799,7 +825,7 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
-        pendingBakeryRenameSelections.set(`${interaction.guild.id}:${interaction.user.id}`, name);
+        setPendingBakeryRenameSelection(interaction.guild.id, interaction.user.id, name);
         return interaction.reply({
           embeds: [embeds.info('Choose Bakery Emoji', 'Select a cookie from your inventory to use as your bakery emoji.', interaction.guild)],
           components: [

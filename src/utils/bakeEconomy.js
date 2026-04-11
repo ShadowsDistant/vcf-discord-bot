@@ -1373,7 +1373,14 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
           const rarity = RARITY[item.rarity];
           const price = getItemSellValue(item);
           const dropChancePct = getItemDropChance(user, item, chanceDate) * 100;
-          return `${getItemEmoji(item, guild)} **${item.name}**\n\`${item.id}\`\n${item.flavorText}\nRarity: **${rarity.name}**\nDrop chance: **${dropChancePct.toFixed(3)}%**\nSell value: **${toCookieNumber(price)}**`;
+          return [
+            `${getItemEmoji(item, guild)} **${item.name}**`,
+            `\`${item.id}\``,
+            item.flavorText,
+            `Rarity: **${rarity.name}**`,
+            `Drop chance: **${dropChancePct.toFixed(3)}%**`,
+            `Sell value: **${toCookieNumber(price)}**`,
+          ].join('\n');
         })
         .join('\n\n')
         .slice(0, 4096));
