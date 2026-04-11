@@ -565,6 +565,7 @@ npm run deploy
 ```
 
 - Commands are registered globally and may take up to **1 hour** to propagate to all servers.
+- Deployment also clears legacy guild-scoped command registrations to prevent old slash commands from lingering.
 
 > Re-run `npm run deploy` whenever you add, remove, or modify commands.
 

@@ -94,6 +94,76 @@ if (missingBakeCommands.length > 0) {
 
 const rest = new REST().setToken(DISCORD_TOKEN);
 
+async function fetchAllBotGuilds() {
+  const guilds = [];
+  let before;
+
+  while (true) {
+    const batch = await rest.get(Routes.userGuilds(), {
+      query: {
+        limit: 200,
+        ...(before ? { before } : {}),
+      },
+    });
+
+    if (!Array.isArray(batch) || batch.length === 0) break;
+    guilds.push(...batch);
+    if (batch.length < 200) break;
+    before = batch[batch.length - 1]?.id;
+  }
+
+  return guilds;
+}
+
+async function clearLegacyGuildCommands() {
+  console.log('\n🧹  Checking for legacy guild-scoped commands…');
+
+  let guilds = [];
+  try {
+    guilds = await fetchAllBotGuilds();
+  } catch (err) {
+    console.warn(`⚠️  Failed to fetch bot guild list for cleanup: ${err.message}`);
+    return;
+  }
+
+  if (guilds.length === 0) {
+    console.log('ℹ️  No guilds found for cleanup.');
+    return;
+  }
+
+  let clearedGuilds = 0;
+  let removedCommands = 0;
+  let failedGuilds = 0;
+
+  for (const guild of guilds) {
+    const guildId = guild?.id;
+    if (!SNOWFLAKE_REGEX.test(guildId)) continue;
+
+    try {
+      const guildCommands = await rest.get(Routes.applicationGuildCommands(CLIENT_ID, guildId));
+      if (!Array.isArray(guildCommands) || guildCommands.length === 0) continue;
+
+      await rest.put(Routes.applicationGuildCommands(CLIENT_ID, guildId), { body: [] });
+      clearedGuilds += 1;
+      removedCommands += guildCommands.length;
+      console.log(`  ↳ Cleared ${guildCommands.length} command(s) from guild ${guild.name || guildId}`);
+    } catch (err) {
+      failedGuilds += 1;
+      console.warn(`  ⚠️  Failed clearing guild ${guild.name || guildId}: ${err.message}`);
+    }
+  }
+
+  if (clearedGuilds === 0) {
+    console.log('ℹ️  No legacy guild-scoped commands found.');
+    return;
+  }
+
+  console.log(`✅  Cleared ${removedCommands} legacy command(s) across ${clearedGuilds} guild(s).`);
+  if (failedGuilds > 0) {
+    console.warn(`⚠️  Cleanup failed in ${failedGuilds} guild(s); rerun deploy if stale commands remain.`);
+  }
+}
+
 (async () => {
   try {
     console.log(`\n🚀  Deploying ${commands.length} application (/) command(s)…`);
@@ -103,6 +173,8 @@ const rest = new REST().setToken(DISCORD_TOKEN);
     console.log('ℹ️  Global command propagation can take up to 1 hour.');
 
     console.log(`\n✨  ${data.length} command(s) registered.`);
+
+    await clearLegacyGuildCommands();
   } catch (err) {
     console.error('❌  Deployment failed:', err);
     process.exit(1);
