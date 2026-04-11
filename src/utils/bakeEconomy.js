@@ -1636,7 +1636,7 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
       .filter(([, qty]) => qty > 0)
       .map(([itemId, qty]) => ({
         label: `${ITEM_MAP.get(itemId)?.name ?? itemId}`.slice(0, 100),
-        description: `Item • Owned: ${qty}`.slice(0, 100),
+        description: `Item • Owned: ${toCookieNumber(qty)}`.slice(0, 100),
         value: itemId,
         emoji: getItemEmoji(itemId, options.guild),
       }));
@@ -1647,7 +1647,7 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
         if (!rewardBox) return null;
         return {
           label: rewardBox.name.slice(0, 100),
-          description: `Gift Box • Owned: ${qty}`.slice(0, 100),
+          description: `Gift Box • Owned: ${toCookieNumber(qty)}`.slice(0, 100),
           value: `${GIFT_BOX_OPTION_PREFIX}${rewardBox.id}`,
           emoji: getRewardBoxEmoji(rewardBox, options.guild),
         };

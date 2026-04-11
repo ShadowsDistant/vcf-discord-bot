@@ -576,6 +576,12 @@ module.exports = {
 
       if (interaction.customId === 'bakery_inventory_item') {
         const itemId = interaction.values[0] ?? '';
+        if (!itemId) {
+          return interaction.reply({
+            embeds: [embeds.error('Unknown inventory item selection.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
         if (itemId.startsWith(economy.GIFT_BOX_OPTION_PREFIX)) {
           const rewardBoxId = itemId.slice(economy.GIFT_BOX_OPTION_PREFIX.length);
           const result = economy.openRewardGift(interaction.guild.id, interaction.user.id, rewardBoxId);
