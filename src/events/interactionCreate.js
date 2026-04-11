@@ -29,6 +29,7 @@ const MAX_SELECT_MENU_OPTIONS = 25;
 const DEFAULT_GUIDE_SECTION = 'info';
 const BAKERY_RENAME_TTL_MS = 10 * 60 * 1000;
 const SPECIAL_COOKIE_EVENT_CHANNEL_ID = '1492310367869862089';
+const COMPONENT_EXPIRY_MS = 10 * 60 * 1000;
 const pendingBakeryRenameSelections = new Map();
 const guideViewSelections = new Map();
 
@@ -132,11 +133,17 @@ function getErrorDetails(err) {
   return `${combined.slice(0, ERROR_DETAIL_LIMIT - 3)}...`;
 }
 
-function getButtonOwnerId(interaction) {
+function getComponentOwnerId(interaction) {
   const commandOwnerId = interaction.message?.interactionMetadata?.user?.id
     ?? interaction.message?.interaction?.user?.id
     ?? null;
   return commandOwnerId;
+}
+
+function isComponentExpired(interaction, nowTs = Date.now()) {
+  const createdTs = interaction.message?.createdTimestamp;
+  if (!Number.isFinite(createdTs)) return false;
+  return (nowTs - createdTs) > COMPONENT_EXPIRY_MS;
 }
 
 function normalizeLookupValue(value) {
@@ -180,6 +187,12 @@ module.exports = {
   name: Events.InteractionCreate,
   async execute(interaction) {
     if (interaction.isButton()) {
+      if (isComponentExpired(interaction)) {
+        return interaction.reply({
+          embeds: [embeds.warning('These buttons have expired. Run the command again to refresh.', interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
       if (interaction.customId.startsWith('bake_golden_claim:')) {
         const [, ownerId, token] = interaction.customId.split(':');
         if (ownerId !== interaction.user.id) {
@@ -201,7 +214,7 @@ module.exports = {
         });
       }
 
-      const ownerId = getButtonOwnerId(interaction);
+      const ownerId = getComponentOwnerId(interaction);
       if (ownerId && ownerId !== interaction.user.id) {
         return interaction.reply({
           embeds: [embeds.error('These buttons belong to someone else\'s command.', interaction.guild)],
@@ -582,6 +595,19 @@ module.exports = {
     }
 
     if (interaction.isStringSelectMenu()) {
+      if (isComponentExpired(interaction)) {
+        return interaction.reply({
+          embeds: [embeds.warning('These select menus have expired. Run the command again to refresh.', interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      const ownerId = getComponentOwnerId(interaction);
+      if (ownerId && ownerId !== interaction.user.id) {
+        return interaction.reply({
+          embeds: [embeds.error('These select menus belong to someone else\'s command.', interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
       if (interaction.customId === 'bakery_nav_select') {
         const requestedView = interaction.values[0] ?? 'home';
         const view = requestedView === 'codex' ? 'guide' : requestedView;
