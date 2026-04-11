@@ -1635,7 +1635,7 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
       .filter(([, qty]) => qty > 0)
       .map(([itemId, qty]) => ({
         label: `${ITEM_MAP.get(itemId)?.name ?? itemId}`.slice(0, 100),
-        description: `Owned: ${qty}`,
+        description: `Item • Owned: ${qty}`.slice(0, 100),
         value: itemId,
         emoji: getItemEmoji(itemId, options.guild),
       }));
