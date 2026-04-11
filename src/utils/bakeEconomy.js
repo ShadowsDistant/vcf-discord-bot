@@ -455,6 +455,26 @@ function getMilkImage(milkType) {
   return MILK_IMAGES[key] ?? MILK_IMAGES.plain;
 }
 
+function getCookieImage(itemOrId) {
+  if (!itemOrId) return DEFAULT_COOKIE_IMAGE;
+  if (typeof itemOrId === 'object' && itemOrId.image) return itemOrId.image;
+  if (typeof itemOrId === 'string') {
+    const item = ITEM_MAP.get(itemOrId);
+    if (item?.image) return item.image;
+    return COOKIE_IMAGE_BY_NAME[itemOrId] ?? DEFAULT_COOKIE_IMAGE;
+  }
+  return DEFAULT_COOKIE_IMAGE;
+}
+
+function getBuildingImage(buildingId) {
+  return BUILDING_IMAGES[buildingId] ?? DEFAULT_UPGRADE_IMAGE;
+}
+
+function getUpgradeImage(upgradeId) {
+  const upgrade = UPGRADE_MAP.get(upgradeId);
+  return getBuildingImage(upgrade?.buildingId);
+}
+
 function getAchievementImage(achievementId) {
   return ACHIEVEMENT_IMAGES[achievementId] ?? DEFAULT_COOKIE_IMAGE;
 }
@@ -682,7 +702,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
 
   if (view === 'home') {
     embed.setDescription('The ovens roar. The crumbs whisper. The economy expands.');
-    embed.setThumbnail(DEFAULT_COOKIE_IMAGE);
+    embed.setThumbnail(getCookieImage(user.rarestItemId));
     embed.addFields(
       { name: '🍪 Cookies', value: `**${toCookieNumber(user.cookies)}**`, inline: true },
       { name: '⚙️ CPS', value: `**${toCookieNumber(cps)}**`, inline: true },
@@ -704,6 +724,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
       { name: 'Marketplace tx', value: `${user.marketplaceBuys} buys • ${user.marketplaceSells} sells`, inline: true },
     );
     const rarest = user.rarestItemId ? ITEM_MAP.get(user.rarestItemId)?.name ?? 'Unknown' : 'None';
+    embed.setThumbnail(getCookieImage(user.rarestItemId));
     embed.addFields({ name: 'Rarest baked item', value: rarest });
     if ((user.transactionHistory ?? []).length) {
       const history = user.transactionHistory.slice(-5).reverse().map((tx) =>
@@ -726,6 +747,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     } else {
       const page = Math.max(0, Math.min(options.page ?? 0, Math.floor((entries.length - 1) / 8)));
       const pageEntries = entries.slice(page * 8, page * 8 + 8);
+      embed.setThumbnail(getCookieImage(pageEntries[0]?.item));
       embed.setDescription(pageEntries
         .map((entry) => `${RARITY[entry.item.rarity].emoji} **${entry.item.name}** x${entry.qty} • value ${toCookieNumber(entry.item.baseValue * RARITY[entry.item.rarity].valueMultiplier)}`)
         .join('\n'));
@@ -769,7 +791,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     const selected = BUILDING_MAP.get(options.buildingId ?? 'cursor') ?? BUILDINGS[0];
     const owned = user.buildings[selected.id] ?? 0;
     embed.setDescription(selected.description);
-    if (BUILDING_IMAGES[selected.id]) embed.setThumbnail(BUILDING_IMAGES[selected.id]);
+    embed.setThumbnail(getBuildingImage(selected.id));
     embed.addFields(
       { name: 'Owned', value: toCookieNumber(owned), inline: true },
       { name: 'Base CPS', value: toCookieNumber(selected.baseCps), inline: true },
@@ -786,7 +808,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     const unlocked = selected.unlockedWhen(user);
     const purchased = user.upgrades.includes(selected.id);
     embed.setDescription(selected.effect);
-    embed.setThumbnail(BUILDING_IMAGES[selected.buildingId] ?? DEFAULT_UPGRADE_IMAGE);
+    embed.setThumbnail(getUpgradeImage(selected.id));
     embed.addFields(
       { name: 'Category', value: selected.category, inline: true },
       { name: 'Cost', value: toCookieNumber(selected.cost), inline: true },
@@ -1411,6 +1433,7 @@ function buildItemInspectEmbed(guild, itemDetails) {
     .setColor(rarity.color)
     .setTitle(`${rarity.emoji} ${item.name}`)
     .setDescription(item.flavorText)
+    .setThumbnail(getCookieImage(item))
     .addFields(
       { name: 'Rarity', value: rarity.name, inline: true },
       { name: 'Base value', value: toCookieNumber(item.baseValue * rarity.valueMultiplier), inline: true },
@@ -1485,4 +1508,8 @@ module.exports = {
   computeCps,
   getBuildingPrice,
   getAchievementImage,
+  getCookieImage,
+  getBuildingImage,
+  getMilkImage,
+  getUpgradeImage,
 };

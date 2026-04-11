@@ -39,7 +39,7 @@ module.exports = {
       });
     }
 
-    if (item.image) embed.setThumbnail(item.image);
+    embed.setThumbnail(economy.getCookieImage(item.id));
     if (newlyEarned.length > 0) {
       embed.setAuthor({
         name: 'New achievement unlocked!',
