@@ -47,11 +47,13 @@ function buildBakeReply(guild, userId) {
     golden,
     newlyEarned,
     burnt,
+    rankUpdate,
   } = result;
   const rarity = economy.RARITY[item.rarity];
   const dropChance = economy.getItemDropChance(user, item) * 100;
   const cps = economy.computeCps(user, Date.now());
   const itemEmoji = economy.getItemEmoji(item, guild);
+  const sellValue = economy.getItemSellValue(item);
   const titlePrefix = burnt ? '' : `${itemEmoji} `;
   const batchLabel = burnt ? 'Burnt Batch' : 'Fresh Batch';
   const description = burnt
@@ -67,6 +69,7 @@ function buildBakeReply(guild, userId) {
       { name: 'Rarity', value: `${economy.getRarityEmoji(item.rarity, guild)} ${rarity.name}\nChance: **${dropChance.toFixed(3)}%**`, inline: true },
       { name: 'Cookies', value: economy.toCookieNumber(user.cookies), inline: true },
       { name: 'CPS', value: economy.toCookieNumber(cps), inline: true },
+      { name: 'Sell value', value: economy.toCookieNumber(sellValue), inline: true },
       { name: 'Passive payout', value: `+${economy.toCookieNumber(passive.gained)} (${Math.floor(passive.elapsedMs / 1000)}s)`, inline: true },
     );
 
@@ -87,12 +90,23 @@ function buildBakeReply(guild, userId) {
     });
   }
 
+  if ((rankUpdate?.unlockedRanks?.length ?? 0) > 0) {
+    const unlockedRank = rankUpdate.unlockedRanks[rankUpdate.unlockedRanks.length - 1];
+    const nextRank = rankUpdate.nextRank;
+    embed.addFields({
+      name: `${economy.getRankEmoji(unlockedRank, guild)} Rank unlocked: ${unlockedRank.name}`,
+      value: nextRank
+        ? `Next rank: ${economy.getRankEmoji(nextRank, guild)} **${nextRank.name}**\nRequirements:\n${economy.formatRankRequirements(nextRank)}\nReward:\n${economy.formatRankReward(nextRank)}`
+        : 'You reached the highest rank. 👑',
+    });
+  }
+
   const components = [
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('bake_again').setLabel('Bake Again').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId('bakery_nav:buildings').setLabel('Store').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId('bakery_nav:inventory').setLabel('Inventory').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId('bakery_nav:stats').setLabel('Stats').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('bake_again').setLabel('Bake Again').setStyle(ButtonStyle.Primary).setEmoji(economy.getButtonEmoji(guild, ['cookie', 'plain_cookie', 'plain_cookies'], '🍪')),
+      new ButtonBuilder().setCustomId('bakery_nav:buildings').setLabel('Store').setStyle(ButtonStyle.Success).setEmoji(economy.getButtonEmoji(guild, ['Builder', 'building'], '🏪')),
+      new ButtonBuilder().setCustomId('bakery_nav:inventory').setLabel('Inventory').setStyle(ButtonStyle.Secondary).setEmoji(economy.getButtonEmoji(guild, ['Cookie_dough', 'inventory'], '🎒')),
+      new ButtonBuilder().setCustomId('bakery_nav:stats').setLabel('Stats').setStyle(ButtonStyle.Secondary).setEmoji(economy.getButtonEmoji(guild, ['CookieProduction10', 'stats'], '📊')),
     ),
   ];
 
@@ -107,7 +121,8 @@ function buildBakeReply(guild, userId) {
         new ButtonBuilder()
           .setCustomId(`bake_golden_claim:${userId}:${golden.token}`)
           .setLabel('Claim Golden Cookie')
-          .setStyle(ButtonStyle.Primary),
+          .setStyle(ButtonStyle.Primary)
+          .setEmoji(economy.getButtonEmoji(guild, ['GoldCookie', 'gold_cookie', 'golden_cookie'], '🌟')),
       ),
     );
   }

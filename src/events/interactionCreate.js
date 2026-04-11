@@ -133,10 +133,12 @@ module.exports = {
       }
 
       if (interaction.customId.startsWith('bakery_nav:')) {
-        const view = interaction.customId.split(':')[1];
+        const requestedView = interaction.customId.split(':')[1];
+        const view = requestedView === 'codex' ? 'guide' : requestedView;
+        const viewOptions = view === 'guide' ? { section: 'cookies', page: 0 } : {};
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
-        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, view);
-        const components = economy.buildDashboardComponents(snapshot.user, view, { guild: interaction.guild });
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, view, viewOptions);
+        const components = economy.buildDashboardComponents(snapshot.user, view, { guild: interaction.guild, ...viewOptions });
         return interaction.update({ embeds: [embed], components });
       }
 
@@ -144,12 +146,22 @@ module.exports = {
         return interaction.update(bakeCommand.buildBakeReply(interaction.guild, interaction.user.id));
       }
 
+      if (interaction.customId.startsWith('bakery_guide_prev:') || interaction.customId.startsWith('bakery_guide_next:')) {
+        const [, section, currentPageRaw] = interaction.customId.split(':');
+        const currentPage = Number.parseInt(currentPageRaw, 10) || 0;
+        const targetPage = interaction.customId.startsWith('bakery_guide_prev:') ? currentPage - 1 : currentPage + 1;
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'guide', { section, page: targetPage });
+        const components = economy.buildDashboardComponents(snapshot.user, 'guide', { section, page: targetPage, guild: interaction.guild });
+        return interaction.update({ embeds: [embed], components });
+      }
+
       if (interaction.customId.startsWith('bakery_codex_prev:') || interaction.customId.startsWith('bakery_codex_next:')) {
         const currentPage = Number.parseInt(interaction.customId.split(':')[1], 10) || 0;
         const targetPage = interaction.customId.startsWith('bakery_codex_prev:') ? currentPage - 1 : currentPage + 1;
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
-        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'codex', { page: targetPage });
-        const components = economy.buildDashboardComponents(snapshot.user, 'codex', { page: targetPage, guild: interaction.guild });
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'guide', { section: 'cookies', page: targetPage });
+        const components = economy.buildDashboardComponents(snapshot.user, 'guide', { section: 'cookies', page: targetPage, guild: interaction.guild });
         return interaction.update({ embeds: [embed], components });
       }
 
@@ -481,10 +493,10 @@ module.exports = {
         }
         const inspect = economy.inspectItem(interaction.guild.id, interaction.user.id, itemId);
         const actionRow = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`bakery_item_action:sell:${itemId}`).setLabel('Sell').setStyle(ButtonStyle.Success),
-          new ButtonBuilder().setCustomId(`bakery_item_action:sellall:${itemId}`).setLabel('Sell All').setStyle(ButtonStyle.Success),
-          new ButtonBuilder().setCustomId(`bakery_item_action:consume:${itemId}`).setLabel('Consume').setStyle(ButtonStyle.Primary),
-          new ButtonBuilder().setCustomId(`bakery_item_action:inspect:${itemId}`).setLabel('Inspect').setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId(`bakery_item_action:sell:${itemId}`).setLabel('Sell').setStyle(ButtonStyle.Success).setEmoji(economy.getButtonEmoji(interaction.guild, ['Paid_in_full', 'sell'], '💰')),
+          new ButtonBuilder().setCustomId(`bakery_item_action:sellall:${itemId}`).setLabel('Sell All').setStyle(ButtonStyle.Success).setEmoji(economy.getButtonEmoji(interaction.guild, ['International_exchange', 'sell_all'], '💸')),
+          new ButtonBuilder().setCustomId(`bakery_item_action:consume:${itemId}`).setLabel('Consume').setStyle(ButtonStyle.Primary).setEmoji(economy.getButtonEmoji(interaction.guild, ['Cookie_dough', 'consume'], '🍽️')),
+          new ButtonBuilder().setCustomId(`bakery_item_action:inspect:${itemId}`).setLabel('Inspect').setStyle(ButtonStyle.Secondary).setEmoji(economy.getButtonEmoji(interaction.guild, ['Polymath', 'inspect'], '🔍')),
         );
         return interaction.reply({
           embeds: [economy.buildItemInspectEmbed(interaction.guild, inspect)],
@@ -506,6 +518,15 @@ module.exports = {
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'upgrades', { upgradeId });
         const components = economy.buildDashboardComponents(snapshot.user, 'upgrades', { upgradeId, guild: interaction.guild });
+        return interaction.update({ embeds: [embed], components });
+      }
+
+      if (interaction.customId.startsWith('bakery_guide_section:')) {
+        const page = Number.parseInt(interaction.customId.split(':')[1], 10) || 0;
+        const section = interaction.values[0] ?? 'cookies';
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'guide', { section, page });
+        const components = economy.buildDashboardComponents(snapshot.user, 'guide', { section, page, guild: interaction.guild });
         return interaction.update({ embeds: [embed], components });
       }
 

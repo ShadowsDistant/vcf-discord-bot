@@ -300,6 +300,67 @@ const ACHIEVEMENT_EMOJI_ALIASES = {
   enhancer: ['Enhancer'],
 };
 
+const RANKS = [
+  {
+    id: 'cookie_novice',
+    name: 'Cookie Novice',
+    fallbackEmoji: '🥉',
+    emojiAliases: ['cookie_novice', 'rank_cookie_novice', 'cc_rank_cookie_novice'],
+    requirements: {},
+    rewards: {},
+  },
+  {
+    id: 'dough_scout',
+    name: 'Dough Scout',
+    fallbackEmoji: '🥈',
+    emojiAliases: ['dough_scout', 'rank_dough_scout', 'cc_rank_dough_scout'],
+    requirements: { totalBakes: 100, achievements: 1 },
+    rewards: { cookies: 5000 },
+  },
+  {
+    id: 'oven_knight',
+    name: 'Oven Knight',
+    fallbackEmoji: '🥇',
+    emojiAliases: ['oven_knight', 'rank_oven_knight', 'cc_rank_oven_knight'],
+    requirements: { totalBakes: 500, achievements: 5, totalBuildings: 10 },
+    rewards: { cookies: 50000, forceGoldenCookie: true },
+  },
+  {
+    id: 'crumb_commander',
+    name: 'Crumb Commander',
+    fallbackEmoji: '🏅',
+    emojiAliases: ['crumb_commander', 'rank_crumb_commander', 'cc_rank_crumb_commander'],
+    requirements: { totalBakes: 2500, achievements: 10, totalBuildings: 30 },
+    rewards: { cookies: 250000, clickFrenzyCharges: 3 },
+  },
+  {
+    id: 'sugar_overlord',
+    name: 'Sugar Overlord',
+    fallbackEmoji: '👑',
+    emojiAliases: ['sugar_overlord', 'rank_sugar_overlord', 'cc_rank_sugar_overlord'],
+    requirements: { totalBakes: 10000, achievements: 18, totalBuildings: 100 },
+    rewards: { cookies: 1500000, forceGoldenCookie: true },
+  },
+  {
+    id: 'cosmic_baker',
+    name: 'Cosmic Baker',
+    fallbackEmoji: '🌌',
+    emojiAliases: ['cosmic_baker', 'rank_cosmic_baker', 'cc_rank_cosmic_baker'],
+    requirements: { totalBakes: 50000, achievements: 28, totalBuildings: 250 },
+    rewards: { cookies: 10000000, unlockTier: 'mythic' },
+  },
+];
+
+const RANK_INDEX = new Map(RANKS.map((rank, index) => [rank.id, index]));
+const GUIDE_SECTIONS = [
+  { id: 'cookies', label: 'Cookie Codex' },
+  { id: 'achievements', label: 'Achievements Codex' },
+  { id: 'buildings', label: 'Building Codex' },
+  { id: 'milk', label: 'Milk Codex' },
+  { id: 'upgrades', label: 'Upgrade Codex' },
+  { id: 'ranks', label: 'Rank Codex' },
+];
+
 const TIER_UNLOCKS = {
   rare: (u) => u.totalBakes >= 500 || u.unlockedTiers.includes('rare'),
   epic: (u) => (u.totalBakes >= 2500 && getTotalBuildingsOwned(u) >= 10) || u.unlockedTiers.includes('epic'),
@@ -518,7 +579,7 @@ function getDefaultUserState(userId) {
     bakeryName: 'Unnamed Bakery',
     bakeryTheme: 'classic',
     bakeryEmoji: '🍪',
-    title: 'Cookie Novice',
+    title: RANKS[0].name,
     cookies: 0,
     cookiesBakedAllTime: 0,
     cookiesSpent: 0,
@@ -545,6 +606,8 @@ function getDefaultUserState(userId) {
     clickFrenzyCharges: 0,
     clickFrenzyExpiresAt: 0,
     forceGoldenCookieOnNextBake: false,
+    rankId: RANKS[0].id,
+    rankRewardsClaimed: [RANKS[0].id],
   };
 }
 
@@ -563,7 +626,20 @@ function getGuildState(data, guildId) {
 
 function getUserState(guildState, userId) {
   if (!guildState.users[userId]) guildState.users[userId] = getDefaultUserState(userId);
-  return guildState.users[userId];
+  const user = guildState.users[userId];
+  if (!Array.isArray(user.rankRewardsClaimed)) user.rankRewardsClaimed = [];
+  if (!RANK_INDEX.has(user.rankId)) {
+    const inferredIndex = getHighestUnlockedRankIndex(user);
+    user.rankId = RANKS[inferredIndex].id;
+    user.rankRewardsClaimed = RANKS.slice(0, inferredIndex + 1).map((rank) => rank.id);
+  }
+  if (!user.rankRewardsClaimed.includes(user.rankId)) {
+    const rankIdx = RANK_INDEX.get(user.rankId) ?? 0;
+    user.rankRewardsClaimed.push(...RANKS.slice(0, rankIdx + 1).map((rank) => rank.id));
+    user.rankRewardsClaimed = [...new Set(user.rankRewardsClaimed)];
+  }
+  user.title = RANKS[RANK_INDEX.get(user.rankId) ?? 0].name;
+  return user;
 }
 
 function cleanMarketplace(guildState, now = Date.now()) {
@@ -693,6 +769,135 @@ function getEarnedAchievementIds(user) {
 
 function getEarnedAchievementCount(user) {
   return getEarnedAchievementIds(user).length;
+}
+
+function getMetricValue(user, metric) {
+  if (metric === 'totalBakes') return user.totalBakes ?? 0;
+  if (metric === 'achievements') return getEarnedAchievementCount(user);
+  if (metric === 'totalBuildings') return getTotalBuildingsOwned(user);
+  if (metric === 'cookiesBakedAllTime') return user.cookiesBakedAllTime ?? 0;
+  return 0;
+}
+
+function getMetricLabel(metric) {
+  if (metric === 'totalBakes') return 'Total bakes';
+  if (metric === 'achievements') return 'Achievements';
+  if (metric === 'totalBuildings') return 'Buildings owned';
+  if (metric === 'cookiesBakedAllTime') return 'Lifetime cookies baked';
+  return metric;
+}
+
+function rankRequirementsMet(user, rank) {
+  return Object.entries(rank.requirements ?? {}).every(([metric, target]) => getMetricValue(user, metric) >= target);
+}
+
+function getHighestUnlockedRankIndex(user) {
+  let highest = 0;
+  for (let index = 0; index < RANKS.length; index += 1) {
+    if (!rankRequirementsMet(user, RANKS[index])) break;
+    highest = index;
+  }
+  return highest;
+}
+
+function formatRankRequirements(rank) {
+  const entries = Object.entries(rank?.requirements ?? {});
+  if (!entries.length) return 'No requirements.';
+  return entries
+    .map(([metric, target]) => `${getMetricLabel(metric)}: ${toCookieNumber(target)}`)
+    .join('\n');
+}
+
+function formatRankReward(rank) {
+  const rewards = rank?.rewards ?? {};
+  const lines = [];
+  if (rewards.cookies) lines.push(`+${toCookieNumber(rewards.cookies)} cookies`);
+  if (rewards.forceGoldenCookie) lines.push('Guaranteed Golden Cookie on next bake');
+  if (rewards.clickFrenzyCharges) lines.push(`+${rewards.clickFrenzyCharges} Click Frenzy charge(s)`);
+  if (rewards.unlockTier && RARITY[rewards.unlockTier]) lines.push(`Unlocks ${RARITY[rewards.unlockTier].name} tier`);
+  return lines.length ? lines.join('\n') : 'No one-time reward.';
+}
+
+function getRankProgressToNext(user) {
+  const currentIndex = RANK_INDEX.get(user.rankId) ?? 0;
+  const nextRank = RANKS[currentIndex + 1] ?? null;
+  if (!nextRank) return { currentRank: RANKS[currentIndex], nextRank: null, current: 1, total: 1 };
+  const requirementEntries = Object.entries(nextRank.requirements ?? {});
+  if (!requirementEntries.length) return { currentRank: RANKS[currentIndex], nextRank, current: 1, total: 1 };
+  const ratios = requirementEntries.map(([metric, target]) => {
+    if (target <= 0) return 1;
+    return Math.max(0, Math.min(1, getMetricValue(user, metric) / target));
+  });
+  const ratio = ratios.reduce((sum, value) => sum + value, 0) / requirementEntries.length;
+  return { currentRank: RANKS[currentIndex], nextRank, current: Math.round(ratio * 100), total: 100 };
+}
+
+function applyRankRewards(user, rank) {
+  const rewards = rank.rewards ?? {};
+  if (rewards.cookies) {
+    user.cookies += rewards.cookies;
+    user.cookiesBakedAllTime += rewards.cookies;
+  }
+  if (rewards.forceGoldenCookie) user.forceGoldenCookieOnNextBake = true;
+  if (rewards.clickFrenzyCharges) {
+    user.clickFrenzyCharges = (user.clickFrenzyCharges ?? 0) + rewards.clickFrenzyCharges;
+    user.clickFrenzyExpiresAt = Math.max(user.clickFrenzyExpiresAt ?? 0, Date.now() + 5 * 60 * 1000);
+  }
+  if (rewards.unlockTier && !user.unlockedTiers.includes(rewards.unlockTier)) user.unlockedTiers.push(rewards.unlockTier);
+}
+
+function syncUserRank(user) {
+  if (!RANK_INDEX.has(user.rankId)) user.rankId = RANKS[0].id;
+  if (!Array.isArray(user.rankRewardsClaimed)) user.rankRewardsClaimed = [];
+  const previousIndex = RANK_INDEX.get(user.rankId) ?? 0;
+  const targetIndex = getHighestUnlockedRankIndex(user);
+  const unlockedRanks = [];
+  if (targetIndex > previousIndex) {
+    for (let index = previousIndex + 1; index <= targetIndex; index += 1) {
+      const rank = RANKS[index];
+      if (!user.rankRewardsClaimed.includes(rank.id)) {
+        applyRankRewards(user, rank);
+        user.rankRewardsClaimed.push(rank.id);
+      }
+      unlockedRanks.push(rank);
+    }
+  }
+  user.rankId = RANKS[targetIndex].id;
+  user.title = RANKS[targetIndex].name;
+  return {
+    currentRank: RANKS[targetIndex],
+    unlockedRanks,
+    nextRank: RANKS[targetIndex + 1] ?? null,
+  };
+}
+
+function getRankEmoji(rankOrId, guild) {
+  const rank = typeof rankOrId === 'string'
+    ? RANKS.find((entry) => entry.id === rankOrId)
+    : rankOrId;
+  if (!rank) return '🏅';
+  const custom = getCustomGuildEmoji(guild, [rank.id, rank.name, ...(rank.emojiAliases ?? [])]);
+  return custom ?? rank.fallbackEmoji;
+}
+
+function getButtonEmoji(guild, candidates = [], fallback = '🍪') {
+  const resolved = getCustomGuildEmoji(guild, candidates);
+  if (resolved) {
+    const match = /^<(a?):([^:>]+):(\d+)>$/.exec(resolved);
+    if (match) return { animated: Boolean(match[1]), name: match[2], id: match[3] };
+  }
+  return { name: fallback };
+}
+
+function getGuidePageCount(sectionId) {
+  const pageSize = 4;
+  if (sectionId === 'cookies') return Math.max(1, Math.ceil(ITEMS.length / pageSize));
+  if (sectionId === 'achievements') return Math.max(1, Math.ceil(ACHIEVEMENTS.length / pageSize));
+  if (sectionId === 'buildings') return Math.max(1, Math.ceil(BUILDINGS.length / pageSize));
+  if (sectionId === 'milk') return Math.max(1, Math.ceil(MILK_TYPES.length / pageSize));
+  if (sectionId === 'upgrades') return Math.max(1, Math.ceil(UPGRADES.length / pageSize));
+  if (sectionId === 'ranks') return Math.max(1, Math.ceil(RANKS.length / pageSize));
+  return 1;
 }
 
 function computeCps(user, nowTs = Date.now()) {
@@ -890,8 +1095,11 @@ function bake(guildId, userId) {
   }
 
   const newlyEarned = evaluateAchievements(user);
+  const rankUpdate = syncUserRank(user);
   writeState(data);
-  return { user, item, passive, manualYield: yieldAmount, golden, newlyEarned, burnt };
+  return {
+    user, item, passive, manualYield: yieldAmount, golden, newlyEarned, burnt, rankUpdate,
+  };
 }
 
 function getUserSnapshot(guildId, userId) {
@@ -901,6 +1109,7 @@ function getUserSnapshot(guildId, userId) {
   const user = getUserState(guildState, userId);
   const passive = applyPassiveIncome(user, Date.now());
   evaluateAchievements(user);
+  syncUserRank(user);
   writeState(data);
   return { data, guildState, user, passive };
 }
@@ -912,6 +1121,12 @@ function saveUserSnapshot(data) {
 function toCookieNumber(num) {
   if (!Number.isFinite(num)) return '0';
   return Intl.NumberFormat('en-US', { maximumFractionDigits: 2 }).format(num);
+}
+
+function getItemSellValue(itemOrId) {
+  const item = typeof itemOrId === 'string' ? ITEM_MAP.get(itemOrId) : itemOrId;
+  if (!item) return 0;
+  return item.baseValue * RARITY[item.rarity].valueMultiplier;
 }
 
 function progressBar(current, total, size = 12) {
@@ -972,6 +1187,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
   }
 
   if (view === 'stats') {
+    const rankProgress = getRankProgressToNext(user);
     embed.setDescription('Numbers. So many numbers. Delicious numbers.');
     embed.addFields(
       { name: 'Total bakes', value: toCookieNumber(user.totalBakes), inline: true },
@@ -983,6 +1199,21 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     );
     const rarest = user.rarestItemId ? ITEM_MAP.get(user.rarestItemId)?.name ?? 'Unknown' : 'None';
     embed.addFields({ name: 'Rarest baked item', value: rarest });
+    if (rankProgress.nextRank) {
+      const requirementLines = Object.entries(rankProgress.nextRank.requirements)
+        .map(([metric, target]) => `• ${getMetricLabel(metric)}: ${toCookieNumber(getMetricValue(user, metric))}/${toCookieNumber(target)}`)
+        .join('\n');
+      embed.addFields(
+        {
+          name: `${getRankEmoji(user.rankId, guild)} Rank progress to ${getRankEmoji(rankProgress.nextRank, guild)} ${rankProgress.nextRank.name}`,
+          value: progressBar(rankProgress.current, rankProgress.total),
+        },
+        { name: 'Next rank requirements', value: requirementLines || 'Already complete.' },
+        { name: 'Next rank reward', value: formatRankReward(rankProgress.nextRank) },
+      );
+    } else {
+      embed.addFields({ name: 'Rank progress', value: 'Max rank reached. 👑' });
+    }
     if ((user.transactionHistory ?? []).length) {
       const history = user.transactionHistory.slice(-5).reverse().map((tx) =>
         `• ${tx.type.toUpperCase()} ${tx.quantity}x ${ITEM_MAP.get(tx.itemId)?.name ?? tx.itemId} for ${toCookieNumber(tx.price)} (${userMention(tx.counterparty)})`);
@@ -1045,28 +1276,72 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     embed.setDescription('Milestones that feed your glorious milk pipeline.');
     const lines = pageEntries.map((a) => `${earned.has(a.id) ? '🔓' : '🔒'} ${getAchievementEmoji(a, guild)} **${a.name}** — ${a.desc}`);
     embed.addFields({ name: 'Achievement board', value: lines.join('\n').slice(0, 1024) });
+    const progressPercent = Math.round((earned.size / Math.max(1, ACHIEVEMENTS.length)) * 100);
     embed.addFields(
-      { name: 'Progress', value: `${earned.size}/${ACHIEVEMENTS.length}`, inline: true },
+      { name: 'Progress', value: `${earned.size}/${ACHIEVEMENTS.length} (${progressPercent}%)\n${progressBar(earned.size, ACHIEVEMENTS.length)}`, inline: true },
       { name: 'Page', value: `${page + 1}/${pageCount}`, inline: true },
     );
   }
 
-  if (view === 'codex') {
+  if (view === 'guide') {
+    const section = GUIDE_SECTIONS.some((entry) => entry.id === options.section) ? options.section : 'cookies';
     const pageSize = 4;
-    const pageCount = Math.max(1, Math.ceil(ITEMS.length / pageSize));
+    const pageCount = getGuidePageCount(section);
     const page = Math.max(0, Math.min(Number.isFinite(options.page) ? options.page : 0, pageCount - 1));
-    const pageEntries = ITEMS.slice(page * pageSize, page * pageSize + pageSize);
-    const chanceDate = new Date(nowTs);
-    embed.setDescription(pageEntries
-      .map((item) => {
-        const rarity = RARITY[item.rarity];
-        const price = item.baseValue * rarity.valueMultiplier;
-        const dropChancePct = getItemDropChance(user, item, chanceDate) * 100;
-        return `${getItemEmoji(item, guild)} **${item.name}**\n\`${item.id}\`\n${item.flavorText}\nRarity: ${getRarityEmoji(item.rarity, guild)} **${rarity.name}**\nDrop chance: **${dropChancePct.toFixed(3)}%**\nPrice: **${toCookieNumber(price)}**`;
-      })
-      .join('\n\n')
-      .slice(0, 4096));
-    embed.addFields({ name: 'Catalog progress', value: `Showing ${page * pageSize + 1}-${Math.min((page + 1) * pageSize, ITEMS.length)} of ${ITEMS.length}` });
+    if (section === 'cookies') {
+      const pageEntries = ITEMS.slice(page * pageSize, page * pageSize + pageSize);
+      const chanceDate = new Date(nowTs);
+      embed.setDescription(pageEntries
+        .map((item) => {
+          const rarity = RARITY[item.rarity];
+          const price = getItemSellValue(item);
+          const dropChancePct = getItemDropChance(user, item, chanceDate) * 100;
+          return `${getItemEmoji(item, guild)} **${item.name}**\n\`${item.id}\`\n${item.flavorText}\nRarity: ${getRarityEmoji(item.rarity, guild)} **${rarity.name}**\nDrop chance: **${dropChancePct.toFixed(3)}%**\nSell value: **${toCookieNumber(price)}**`;
+        })
+        .join('\n\n')
+        .slice(0, 4096));
+      embed.addFields({ name: 'Catalog progress', value: `Showing ${page * pageSize + 1}-${Math.min((page + 1) * pageSize, ITEMS.length)} of ${ITEMS.length}` });
+    } else if (section === 'achievements') {
+      const pageEntries = ACHIEVEMENTS.slice(page * pageSize, page * pageSize + pageSize);
+      embed.setDescription(pageEntries
+        .map((achievement) => `${getAchievementEmoji(achievement, guild)} **${achievement.name}**\n${achievement.desc}`)
+        .join('\n\n')
+        .slice(0, 4096));
+      embed.addFields({ name: 'Catalog progress', value: `Showing ${page * pageSize + 1}-${Math.min((page + 1) * pageSize, ACHIEVEMENTS.length)} of ${ACHIEVEMENTS.length}` });
+    } else if (section === 'buildings') {
+      const pageEntries = BUILDINGS.slice(page * pageSize, page * pageSize + pageSize);
+      embed.setDescription(pageEntries
+        .map((building) => `${getCustomGuildEmoji(guild, [building.id, building.name, `building_${building.id}`, `cc_${building.id}`, ...(BUILDING_EMOJI_ALIASES[building.id] ?? [])]) ?? getCookieFallbackEmoji(guild)} **${building.name}**\nBase cost: **${toCookieNumber(building.baseCost)}**\nBase CPS: **${toCookieNumber(building.baseCps)}**\n${building.description}`)
+        .join('\n\n')
+        .slice(0, 4096));
+      embed.addFields({ name: 'Catalog progress', value: `Showing ${page * pageSize + 1}-${Math.min((page + 1) * pageSize, BUILDINGS.length)} of ${BUILDINGS.length}` });
+    } else if (section === 'milk') {
+      const pageEntries = MILK_TYPES.slice(page * pageSize, page * pageSize + pageSize);
+      embed.setDescription(pageEntries
+        .map((milkType) => {
+          const milkKey = milkType.type.toLowerCase().replace(/\s*milk$/, '');
+          const milkEmoji = getCustomGuildEmoji(guild, MILK_EMOJI_ALIASES[milkKey] ?? []) ?? '🥛';
+          return `${milkEmoji} **${milkType.type}**\nUnlock: **${milkType.pct}% milk**`;
+        })
+        .join('\n\n')
+        .slice(0, 4096));
+      embed.addFields({ name: 'Catalog progress', value: `Showing ${page * pageSize + 1}-${Math.min((page + 1) * pageSize, MILK_TYPES.length)} of ${MILK_TYPES.length}` });
+    } else if (section === 'upgrades') {
+      const pageEntries = UPGRADES.slice(page * pageSize, page * pageSize + pageSize);
+      embed.setDescription(pageEntries
+        .map((upgrade) => `${getCustomGuildEmoji(guild, [upgrade.id, `upgrade_${upgrade.id}`, `cc_${upgrade.id}`]) ?? getCookieFallbackEmoji(guild)} **${upgrade.name}**\nCategory: **${upgrade.category}**\nCost: **${toCookieNumber(upgrade.cost)}**\nEffect: ${upgrade.effect}`)
+        .join('\n\n')
+        .slice(0, 4096));
+      embed.addFields({ name: 'Catalog progress', value: `Showing ${page * pageSize + 1}-${Math.min((page + 1) * pageSize, UPGRADES.length)} of ${UPGRADES.length}` });
+    } else if (section === 'ranks') {
+      const pageEntries = RANKS.slice(page * pageSize, page * pageSize + pageSize);
+      embed.setDescription(pageEntries
+        .map((rank) => `${getRankEmoji(rank, guild)} **${rank.name}**\nRequirements:\n${formatRankRequirements(rank)}\nReward:\n${formatRankReward(rank)}`)
+        .join('\n\n')
+        .slice(0, 4096));
+      embed.addFields({ name: 'Catalog progress', value: `Showing ${page * pageSize + 1}-${Math.min((page + 1) * pageSize, RANKS.length)} of ${RANKS.length}` });
+    }
+    embed.addFields({ name: 'Section', value: GUIDE_SECTIONS.find((entry) => entry.id === section)?.label ?? section, inline: true });
     embed.addFields({ name: 'Page', value: `${page + 1}/${pageCount}`, inline: true });
   }
 
@@ -1111,25 +1386,25 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
   const rows = [];
   rows.push(
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`bakery_nav:home`).setLabel('Home').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(`bakery_nav:inventory`).setLabel('Inventory').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(`bakery_nav:buildings`).setLabel('Buildings').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(`bakery_nav:upgrades`).setLabel('Upgrades').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(`bakery_nav:stats`).setLabel('Stats').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`bakery_nav:home`).setLabel('Home').setStyle(ButtonStyle.Primary).setEmoji(getButtonEmoji(options.guild, ['cookie', 'plain_cookie', 'plain_cookies'], '🏠')),
+      new ButtonBuilder().setCustomId(`bakery_nav:inventory`).setLabel('Inventory').setStyle(ButtonStyle.Secondary).setEmoji(getButtonEmoji(options.guild, ['Cookie_dough', 'cookie_dough', 'inventory'], '🎒')),
+      new ButtonBuilder().setCustomId(`bakery_nav:buildings`).setLabel('Buildings').setStyle(ButtonStyle.Secondary).setEmoji(getButtonEmoji(options.guild, ['Builder', 'Factory_new', 'building'], '🏗️')),
+      new ButtonBuilder().setCustomId(`bakery_nav:upgrades`).setLabel('Upgrades').setStyle(ButtonStyle.Secondary).setEmoji(getButtonEmoji(options.guild, ['Augmenter', 'Enhancer', 'upgrade'], '🧩')),
+      new ButtonBuilder().setCustomId(`bakery_nav:stats`).setLabel('Stats').setStyle(ButtonStyle.Secondary).setEmoji(getButtonEmoji(options.guild, ['CookieProduction10', 'stats'], '📊')),
     ),
   );
   rows.push(
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`bakery_nav:milk`).setLabel('Milk').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(`bakery_nav:achievements`).setLabel('Achievements').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId('bakery_open_marketplace').setLabel('Marketplace').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setCustomId('bakery_set_name').setLabel('Set Bakery Name').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId('bakery_set_listing').setLabel('List Item').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`bakery_nav:milk`).setLabel('Milk').setStyle(ButtonStyle.Secondary).setEmoji(getButtonEmoji(options.guild, ['Plain_milk', 'milk'], '🥛')),
+      new ButtonBuilder().setCustomId(`bakery_nav:achievements`).setLabel('Achievements').setStyle(ButtonStyle.Secondary).setEmoji(getButtonEmoji(options.guild, ['Cookie_Clicker', 'achievement'], '🏆')),
+      new ButtonBuilder().setCustomId('bakery_open_marketplace').setLabel('Marketplace').setStyle(ButtonStyle.Success).setEmoji(getButtonEmoji(options.guild, ['International_exchange', 'marketplace'], '🛒')),
+      new ButtonBuilder().setCustomId('bakery_set_name').setLabel('Set Bakery Name').setStyle(ButtonStyle.Secondary).setEmoji(getButtonEmoji(options.guild, ['Labor_of_love', 'bakery'], '✏️')),
+      new ButtonBuilder().setCustomId('bakery_set_listing').setLabel('List Item').setStyle(ButtonStyle.Secondary).setEmoji(getButtonEmoji(options.guild, ['Paid_in_full', 'listing'], '📦')),
     ),
   );
   rows.push(
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('bakery_nav:codex').setLabel('Cookie Codex').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId('bakery_nav:guide').setLabel('Guide').setStyle(ButtonStyle.Secondary).setEmoji(getButtonEmoji(options.guild, ['Polymath', 'guide'], '📘')),
     ),
   );
 
@@ -1176,12 +1451,12 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
     rows.push(new ActionRowBuilder().addComponents(buildingMenu));
     const selectedBuilding = options.buildingId ?? 'cursor';
     rows.push(
-      new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`bakery_build_buy:${selectedBuilding}:1`).setLabel('Buy x1').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`bakery_build_buy:${selectedBuilding}:10`).setLabel('Buy x10').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`bakery_build_buy:${selectedBuilding}:100`).setLabel('Buy x100').setStyle(ButtonStyle.Success),
-      ),
-    );
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`bakery_build_buy:${selectedBuilding}:1`).setLabel('Buy x1').setStyle(ButtonStyle.Success).setEmoji(getButtonEmoji(options.guild, ['cookie', 'plain_cookie'], '🛍️')),
+          new ButtonBuilder().setCustomId(`bakery_build_buy:${selectedBuilding}:10`).setLabel('Buy x10').setStyle(ButtonStyle.Success).setEmoji(getButtonEmoji(options.guild, ['cookie', 'plain_cookie'], '🛍️')),
+          new ButtonBuilder().setCustomId(`bakery_build_buy:${selectedBuilding}:100`).setLabel('Buy x100').setStyle(ButtonStyle.Success).setEmoji(getButtonEmoji(options.guild, ['cookie', 'plain_cookie'], '🛍️')),
+        ),
+      );
   }
 
   if (view === 'upgrades') {
@@ -1200,26 +1475,36 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
     const selectedUpgrade = options.upgradeId ?? UPGRADES[0].id;
     rows.push(
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`bakery_upgrade_buy:${selectedUpgrade}`).setLabel('Buy Upgrade').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`bakery_upgrade_buy:${selectedUpgrade}`).setLabel('Buy Upgrade').setStyle(ButtonStyle.Success).setEmoji(getButtonEmoji(options.guild, ['Augmenter', 'upgrade'], '🛍️')),
       ),
     );
   }
 
-  if (view === 'codex') {
-    const pageSize = 4;
-    const pageCount = Math.max(1, Math.ceil(ITEMS.length / pageSize));
+  if (view === 'guide') {
+    const section = GUIDE_SECTIONS.some((entry) => entry.id === options.section) ? options.section : 'cookies';
+    const pageCount = getGuidePageCount(section);
     const page = Math.max(0, Math.min(Number.isFinite(options.page) ? options.page : 0, pageCount - 1));
     rows.push(
       new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(`bakery_guide_section:${page}`)
+          .setPlaceholder('Select a guide section')
+          .addOptions(GUIDE_SECTIONS.map((entry) => ({ label: entry.label, value: entry.id, default: entry.id === section }))),
+      ),
+    );
+    rows.push(
+      new ActionRowBuilder().addComponents(
         new ButtonBuilder()
-          .setCustomId(`bakery_codex_prev:${page}`)
+          .setCustomId(`bakery_guide_prev:${section}:${page}`)
           .setLabel('Previous')
           .setStyle(ButtonStyle.Secondary)
+          .setEmoji(getButtonEmoji(options.guild, ['left_arrow', 'arrow_left'], '⬅️'))
           .setDisabled(page <= 0),
         new ButtonBuilder()
-          .setCustomId(`bakery_codex_next:${page}`)
+          .setCustomId(`bakery_guide_next:${section}:${page}`)
           .setLabel('Next')
           .setStyle(ButtonStyle.Secondary)
+          .setEmoji(getButtonEmoji(options.guild, ['right_arrow', 'arrow_right'], '➡️'))
           .setDisabled(page >= pageCount - 1),
       ),
     );
@@ -1831,6 +2116,7 @@ module.exports = {
   UPGRADES,
   UPGRADE_MAP,
   ACHIEVEMENTS,
+  RANKS,
   ITEMS,
   ITEM_MAP,
   THEMES,
@@ -1876,5 +2162,10 @@ module.exports = {
   getBuildingPrice,
   getRarityEmoji,
   getItemEmoji,
+  getRankEmoji,
+  getButtonEmoji,
+  getItemSellValue,
+  formatRankRequirements,
+  formatRankReward,
   getItemDropChance,
 };
