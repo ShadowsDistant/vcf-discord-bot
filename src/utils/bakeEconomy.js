@@ -283,13 +283,13 @@ const ACHIEVEMENT_EMOJI_ALIASES = {
   cps_10k: ['CookieProduction16'],
   cps_1m: ['CookieProduction30'],
   cps_1b: ['CookieProduction48'],
-  cps_1t: ['CookieProduction48'],
+  cps_1t: ['CookieProduction20'],
   market_10: ['Paid_in_full'],
   market_50: ['New_world_order'],
-  market_200: ['New_world_order'],
+  market_200: ['Palace_of_Greed'],
   golden_10: ['Praise_the_sun'],
   golden_50: ['All_the_stars_in_heaven'],
-  golden_100: ['All_the_stars_in_heaven'],
+  golden_100: ['Fortune_you'],
   bakery_named: ['Labor_of_love'],
   milk_1000: ['And_beyond'],
   one_of_each: ['Ecumenopolis'],
@@ -1056,11 +1056,12 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     const pageCount = Math.max(1, Math.ceil(ITEMS.length / pageSize));
     const page = Math.max(0, Math.min(Number.isFinite(options.page) ? options.page : 0, pageCount - 1));
     const pageEntries = ITEMS.slice(page * pageSize, page * pageSize + pageSize);
+    const chanceDate = new Date(nowTs);
     embed.setDescription(pageEntries
       .map((item) => {
         const rarity = RARITY[item.rarity];
         const price = item.baseValue * rarity.valueMultiplier;
-        const dropChancePct = getItemDropChance(user, item, new Date(nowTs)) * 100;
+        const dropChancePct = getItemDropChance(user, item, chanceDate) * 100;
         return `${getItemEmoji(item, guild)} **${item.name}**\n\`${item.id}\`\n${item.flavorText}\nRarity: ${getRarityEmoji(item.rarity, guild)} **${rarity.name}**\nDrop chance: **${dropChancePct.toFixed(3)}%**\nPrice: **${toCookieNumber(price)}**`;
       })
       .join('\n\n')
@@ -1766,7 +1767,11 @@ function resolveBakeryEmojiInput(guild, input) {
   if (/^<a?:\w{2,32}:\d{17,20}>$/.test(raw)) return raw;
   const normalized = normalizeEmojiName(raw);
   if (!normalized) return raw;
-  const item = ITEMS.find((entry) => normalizeEmojiName(entry.id) === normalized || normalizeEmojiName(entry.name) === normalized);
+  const item = ITEMS.find((entry) => {
+    const normalizedId = normalizeEmojiName(entry.id);
+    const normalizedName = normalizeEmojiName(entry.name);
+    return normalizedId === normalized || normalizedName === normalized;
+  });
   if (item) return getItemEmoji(item, guild);
   return raw;
 }
