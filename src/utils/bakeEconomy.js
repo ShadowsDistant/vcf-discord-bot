@@ -20,6 +20,7 @@ const MARKET_LISTING_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const MARKET_FEE_RATE = 0.05;
 const BASE_GOLDEN_CHANCE = 0.03;
 const BURNT_BAKE_CHANCE = 0.08;
+const MAX_DISPLAYED_GIFT_BOXES = 6;
 const BAKE_ADMIN_ROLE_ID = '1492510387579654205';
 const DEFAULT_COOKIE_IMAGE = null;
 
@@ -227,7 +228,32 @@ const STATIC_CUSTOM_EMOJIS_BY_CATEGORY = {
   ].map(([name, id]) => [normalizeEmojiName(name), { name, id }])),
 };
 
-const STATIC_EMOJI_CATEGORY_PRIORITY = ['upgrades', 'cookies', 'goldenCookies', 'milk', 'achievements', 'buildings'];
+STATIC_CUSTOM_EMOJIS_BY_CATEGORY.ranks = new Map([
+  ['cookie_novice', '1492474231311695962'],
+  ['dough_scout', '1492474234922864820'],
+  ['oven_knight', '1492474243458269404'],
+  ['crumb_commander', '1492474261221146755'],
+  ['sugar_overlord', '1492474267881705594'],
+  ['cosmic_baker', '1492474280162627664'],
+  ['stellar_confectioner', '1492474298240077835'],
+  ['galactic_patissier', '1492474309674008707'],
+  ['void_oven_archon', '1492474505312997418'],
+].map(([name, id]) => [normalizeEmojiName(name), { name, id }]));
+
+STATIC_CUSTOM_EMOJIS_BY_CATEGORY.rewardBoxes = new Map([
+  ['starter_crate', '1492472832557322281'],
+  ['crumb_bundle', '1492472540348809388'],
+  ['bakery_supply_box', '1492472541602775040'],
+  ['artisan_cache', '1492472716102598756'],
+  ['golden_hamper', '1492472595516358726'],
+  ['mythic_parcel', '1492472539950088262'],
+  ['celestial_stash', '1492472118451900477'],
+  ['grand_vault', '1492473120877973554'],
+  ['lucky_crate', '1492473111914873014'],
+  ['royal_hoard', '1492473129191342111'],
+].map(([name, id]) => [normalizeEmojiName(name), { name, id }]));
+
+const STATIC_EMOJI_CATEGORY_PRIORITY = ['ranks', 'rewardBoxes', 'upgrades', 'cookies', 'goldenCookies', 'milk', 'achievements', 'buildings'];
 
 const BUILDING_EMOJI_ALIASES = {
   cursor: ['Cursor_64px'],
@@ -298,6 +324,11 @@ const ACHIEVEMENT_EMOJI_ALIASES = {
   single_200: ['Cortex_Baker'],
   augmenter: ['Augmenter'],
   enhancer: ['Enhancer'],
+  baked_10m: ['CookieProduction48'],
+  spend_10m: ['New_world_order'],
+  builder: ['Builder'],
+  architect: ['Architect'],
+  engineer: ['Engineer'],
 };
 
 const RANKS = [
@@ -305,7 +336,7 @@ const RANKS = [
     id: 'cookie_novice',
     name: 'Cookie Novice',
     fallbackEmoji: '🥉',
-    emojiAliases: ['cookie_novice', 'rank_cookie_novice', 'cc_rank_cookie_novice'],
+    emojiAliases: ['cookie_novice', 'rank_cookie_novice', 'cc_rank_cookie_novice', 'CookieProduction2'],
     requirements: {},
     rewards: {},
   },
@@ -313,7 +344,7 @@ const RANKS = [
     id: 'dough_scout',
     name: 'Dough Scout',
     fallbackEmoji: '🥈',
-    emojiAliases: ['dough_scout', 'rank_dough_scout', 'cc_rank_dough_scout'],
+    emojiAliases: ['dough_scout', 'rank_dough_scout', 'cc_rank_dough_scout', 'CookieProduction5'],
     requirements: { totalBakes: 100, achievements: 1 },
     rewards: { cookies: 5000 },
   },
@@ -321,7 +352,7 @@ const RANKS = [
     id: 'oven_knight',
     name: 'Oven Knight',
     fallbackEmoji: '🥇',
-    emojiAliases: ['oven_knight', 'rank_oven_knight', 'cc_rank_oven_knight'],
+    emojiAliases: ['oven_knight', 'rank_oven_knight', 'cc_rank_oven_knight', 'CookieProduction10'],
     requirements: { totalBakes: 500, achievements: 5, totalBuildings: 10 },
     rewards: { cookies: 50000, forceGoldenCookie: true },
   },
@@ -329,7 +360,7 @@ const RANKS = [
     id: 'crumb_commander',
     name: 'Crumb Commander',
     fallbackEmoji: '🏅',
-    emojiAliases: ['crumb_commander', 'rank_crumb_commander', 'cc_rank_crumb_commander'],
+    emojiAliases: ['crumb_commander', 'rank_crumb_commander', 'cc_rank_crumb_commander', 'CookieProduction16'],
     requirements: { totalBakes: 2500, achievements: 10, totalBuildings: 30 },
     rewards: { cookies: 250000, clickFrenzyCharges: 3 },
   },
@@ -337,7 +368,7 @@ const RANKS = [
     id: 'sugar_overlord',
     name: 'Sugar Overlord',
     fallbackEmoji: '👑',
-    emojiAliases: ['sugar_overlord', 'rank_sugar_overlord', 'cc_rank_sugar_overlord'],
+    emojiAliases: ['sugar_overlord', 'rank_sugar_overlord', 'cc_rank_sugar_overlord', 'CookieProduction20'],
     requirements: { totalBakes: 10000, achievements: 18, totalBuildings: 100 },
     rewards: { cookies: 1500000, forceGoldenCookie: true },
   },
@@ -345,14 +376,39 @@ const RANKS = [
     id: 'cosmic_baker',
     name: 'Cosmic Baker',
     fallbackEmoji: '🌌',
-    emojiAliases: ['cosmic_baker', 'rank_cosmic_baker', 'cc_rank_cosmic_baker'],
+    emojiAliases: ['cosmic_baker', 'rank_cosmic_baker', 'cc_rank_cosmic_baker', 'CookieProduction30'],
     requirements: { totalBakes: 50000, achievements: 28, totalBuildings: 250 },
     rewards: { cookies: 10000000, unlockTier: 'mythic' },
+  },
+  {
+    id: 'stellar_confectioner',
+    name: 'Stellar Confectioner',
+    fallbackEmoji: '🌠',
+    emojiAliases: ['stellar_confectioner', 'rank_stellar_confectioner', 'cc_rank_stellar_confectioner', 'CookieProduction40'],
+    requirements: { totalBakes: 125000, achievements: 34, totalBuildings: 400, cookiesBakedAllTime: 100000000 },
+    rewards: { cookies: 50000000, forceGoldenCookie: true },
+  },
+  {
+    id: 'galactic_patissier',
+    name: 'Galactic Patissier',
+    fallbackEmoji: '🪐',
+    emojiAliases: ['galactic_patissier', 'rank_galactic_patissier', 'cc_rank_galactic_patissier', 'CookieProduction48'],
+    requirements: { totalBakes: 300000, achievements: 40, totalBuildings: 700, cookiesBakedAllTime: 1000000000 },
+    rewards: { cookies: 250000000, clickFrenzyCharges: 6, unlockTier: 'celestial' },
+  },
+  {
+    id: 'void_oven_archon',
+    name: 'Void Oven Archon',
+    fallbackEmoji: '🕳️',
+    emojiAliases: ['void_oven_archon', 'rank_void_oven_archon', 'cc_rank_void_oven_archon', 'Magnum_Opus'],
+    requirements: { totalBakes: 750000, achievements: 45, totalBuildings: 1200, cookiesBakedAllTime: 10000000000 },
+    rewards: { cookies: 1000000000, forceGoldenCookie: true, clickFrenzyCharges: 10 },
   },
 ];
 
 const RANK_INDEX = new Map(RANKS.map((rank, index) => [rank.id, index]));
 const GUIDE_SECTIONS = [
+  { id: 'info', label: 'Game Info' },
   { id: 'cookies', label: 'Cookie Codex' },
   { id: 'achievements', label: 'Achievements Codex' },
   { id: 'buildings', label: 'Building Codex' },
@@ -408,6 +464,12 @@ const UPGRADES = [
   { id: 'kitten_helpers', name: 'Kitten Helpers', category: 'kitten', cost: 9000, effect: 'Milk gives +10% more CPS scaling', kittenScale: 0.1, unlockedWhen: (u) => u.milkLevel >= 100 },
   { id: 'kitten_workers', name: 'Kitten Workers', category: 'kitten', cost: 90000, effect: 'Milk gives +12% more CPS scaling', kittenScale: 0.12, unlockedWhen: (u) => u.milkLevel >= 200 },
   { id: 'kitten_engineers', name: 'Kitten Engineers', category: 'kitten', cost: 900000, effect: 'Milk gives +15% more CPS scaling', kittenScale: 0.15, unlockedWhen: (u) => u.milkLevel >= 300 },
+  { id: 'kitten_supervisors', name: 'Kitten Supervisors', category: 'kitten', cost: 6500000, effect: 'Milk gives +18% more CPS scaling', kittenScale: 0.18, unlockedWhen: (u) => u.milkLevel >= 500 },
+  { id: 'sugar_flux_capacitor', name: 'Sugar Flux Capacitor', category: 'global', cost: 1500000, effect: '+15% CPS', globalMultiplier: 1.15, unlockedWhen: (u) => u.totalBakes >= 5000 },
+  { id: 'oven_overclock', name: 'Oven Overclock', category: 'global', cost: 25000000, effect: '+25% CPS', globalMultiplier: 1.25, unlockedWhen: (u) => getTotalBuildingsOwned(u) >= 150 },
+  { id: 'quantum_farms', name: 'Quantum Farms', category: 'building', cost: 1750000, effect: '2x Farm CPS', buildingId: 'farm', multiplier: 2, unlockedWhen: (u) => (u.buildings.farm ?? 0) >= 25 },
+  { id: 'prismatic_glazing', name: 'Prismatic Glazing', category: 'building', cost: 1750000000000000, effect: '2x Prism CPS', buildingId: 'prism', multiplier: 2, unlockedWhen: (u) => (u.buildings.prism ?? 0) >= 1 },
+  { id: 'starforged_wrappers', name: 'Starforged Wrappers', category: 'golden', cost: 3500000, effect: '+2% Golden Cookie chance', goldenChanceBonus: 0.02, unlockedWhen: (u) => u.goldenCookiesClaimed >= 25 },
 ];
 
 const UPGRADE_MAP = new Map(UPGRADES.map((u) => [u.id, u]));
@@ -424,6 +486,70 @@ const MILK_TYPES = [
   { pct: 800, type: 'Blueberry Milk' },
   { pct: 900, type: 'Zebra Milk' },
 ];
+
+const REWARD_BOXES = [
+  {
+    id: 'starter_crate',
+    name: 'Starter Crate',
+    emojiAliases: ['starter_crate'],
+    rewards: [{ itemId: 'plain_cookies', min: 8, max: 16 }, { itemId: 'chocolate_chip_cookie', min: 4, max: 8 }, { itemId: 'sugar_cookies', min: 2, max: 6 }],
+  },
+  {
+    id: 'crumb_bundle',
+    name: 'Crumb Bundle',
+    emojiAliases: ['crumb_bundle'],
+    rewards: [{ itemId: 'cookie_crumbs', min: 2, max: 5 }, { itemId: 'cookie_bars', min: 1, max: 3 }, { itemId: 'butter_cookies', min: 4, max: 7 }],
+  },
+  {
+    id: 'bakery_supply_box',
+    name: 'Bakery Supply Box',
+    emojiAliases: ['bakery_supply_box'],
+    rewards: [{ itemId: 'cookie_dough', min: 1, max: 2 }, { itemId: 'doublechip_cookies', min: 3, max: 6 }, { itemId: 'earl_grey_cookies', min: 2, max: 5 }],
+  },
+  {
+    id: 'artisan_cache',
+    name: 'Artisan Cache',
+    emojiAliases: ['artisan_cache'],
+    rewards: [{ itemId: 'hazelnut_cookies', min: 3, max: 6 }, { itemId: 'spritz_cookies', min: 3, max: 6 }, { itemId: 'caramel_cookies', min: 2, max: 4 }],
+  },
+  {
+    id: 'golden_hamper',
+    name: 'Golden Hamper',
+    emojiAliases: ['golden_hamper'],
+    rewards: [{ itemId: 'golden_heart_biscuits', min: 1, max: 3 }, { itemId: 'birthday_cookie', min: 1, max: 2 }, { itemId: 'goldcookie', min: 1, max: 2 }],
+  },
+  {
+    id: 'mythic_parcel',
+    name: 'Mythic Parcel',
+    emojiAliases: ['mythic_parcel'],
+    rewards: [{ itemId: 'cookie_bars', min: 2, max: 5 }, { itemId: 'cookie_dough', min: 2, max: 4 }, { itemId: 'deepfried_cookie_dough', min: 1, max: 3 }],
+  },
+  {
+    id: 'celestial_stash',
+    name: 'Celestial Stash',
+    emojiAliases: ['celestial_stash'],
+    rewards: [{ itemId: 'century_egg', min: 1, max: 2 }, { itemId: 'golden_goose_egg', min: 1, max: 2 }, { itemId: 'dragon_egg', min: 1, max: 1 }],
+  },
+  {
+    id: 'grand_vault',
+    name: 'Grand Vault',
+    emojiAliases: ['grand_vault'],
+    rewards: [{ itemId: 'perfectcookie', min: 1, max: 2 }, { itemId: 'spoopiercookie', min: 1, max: 2 }, { itemId: 'highdefinition_cookie', min: 1, max: 2 }],
+  },
+  {
+    id: 'lucky_crate',
+    name: 'Lucky Crate',
+    emojiAliases: ['lucky_crate'],
+    rewards: [{ itemId: 'goldcookie', min: 1, max: 2 }, { itemId: 'golden_heart_biscuits', min: 1, max: 3 }, { itemId: 'cookie_egg', min: 1, max: 2 }],
+  },
+  {
+    id: 'royal_hoard',
+    name: 'Royal Hoard',
+    emojiAliases: ['royal_hoard'],
+    rewards: [{ itemId: 'perfectcookie', min: 1, max: 3 }, { itemId: 'goldcookie', min: 1, max: 3 }, { itemId: 'dragon_egg', min: 1, max: 2 }],
+  },
+];
+const REWARD_BOX_MAP = new Map(REWARD_BOXES.map((box) => [box.id, box]));
 
 const ACHIEVEMENTS = [
   { id: 'baked_100', name: 'Warm-up Batch', desc: 'Bake 100 cookies.', check: (u) => u.cookiesBakedAllTime >= 100 },
@@ -603,9 +729,11 @@ function getDefaultUserState(userId) {
     marketplaceSells: 0,
     transactionHistory: [],
     consumedBoosts: [],
+    rewardGifts: {},
     clickFrenzyCharges: 0,
     clickFrenzyExpiresAt: 0,
     forceGoldenCookieOnNextBake: false,
+    bakeBanned: false,
     rankId: RANKS[0].id,
     rankRewardsClaimed: [RANKS[0].id],
   };
@@ -628,6 +756,8 @@ function getUserState(guildState, userId) {
   if (!guildState.users[userId]) guildState.users[userId] = getDefaultUserState(userId);
   const user = guildState.users[userId];
   if (!Array.isArray(user.rankRewardsClaimed)) user.rankRewardsClaimed = [];
+  if (typeof user.bakeBanned !== 'boolean') user.bakeBanned = false;
+  if (!user.rewardGifts || typeof user.rewardGifts !== 'object') user.rewardGifts = {};
   if (!RANK_INDEX.has(user.rankId)) {
     const inferredIndex = getHighestUnlockedRankIndex(user);
     user.rankId = RANKS[inferredIndex].id;
@@ -711,12 +841,13 @@ function getStaticCustomEmoji(candidates = []) {
 
 function getCustomGuildEmoji(guild, candidates = []) {
   const cache = guild?.emojis?.cache;
-  if (!cache || cache.size === 0) return null;
-  const normalizedByName = new Map(cache.map((emoji) => [normalizeEmojiName(emoji.name), emoji]));
   const normalizedCandidates = candidates.map(normalizeEmojiName).filter(Boolean);
   if (normalizedCandidates.length === 0) return null;
-  const matched = normalizedCandidates.map((name) => normalizedByName.get(name)).find(Boolean);
-  if (matched) return `<${matched.animated ? 'a' : ''}:${matched.name}:${matched.id}>`;
+  if (cache && cache.size > 0) {
+    const normalizedByName = new Map(cache.map((emoji) => [normalizeEmojiName(emoji.name), emoji]));
+    const matched = normalizedCandidates.map((name) => normalizedByName.get(name)).find(Boolean);
+    if (matched) return `<${matched.animated ? 'a' : ''}:${matched.name}:${matched.id}>`;
+  }
   const staticMatch = getStaticCustomEmoji(normalizedCandidates);
   if (!staticMatch) return null;
   return `<:${staticMatch.name}:${staticMatch.id}>`;
@@ -879,6 +1010,14 @@ function getRankEmoji(rankOrId, guild) {
   return custom ?? rank.fallbackEmoji;
 }
 
+function getRewardBoxEmoji(rewardBoxOrId, guild) {
+  const rewardBox = typeof rewardBoxOrId === 'string'
+    ? REWARD_BOX_MAP.get(rewardBoxOrId)
+    : rewardBoxOrId;
+  if (!rewardBox) return '🎁';
+  return getCustomGuildEmoji(guild, [rewardBox.id, rewardBox.name, ...(rewardBox.emojiAliases ?? [])]) ?? '🎁';
+}
+
 function getButtonEmoji(guild, candidates = [], fallback = '🍪') {
   const resolved = getCustomGuildEmoji(guild, candidates);
   if (resolved) {
@@ -890,6 +1029,7 @@ function getButtonEmoji(guild, candidates = [], fallback = '🍪') {
 
 function getGuidePageCount(sectionId) {
   const pageSize = 4;
+  if (sectionId === 'info') return 1;
   if (sectionId === 'cookies') return Math.max(1, Math.ceil(ITEMS.length / pageSize));
   if (sectionId === 'achievements') return Math.max(1, Math.ceil(ACHIEVEMENTS.length / pageSize));
   if (sectionId === 'buildings') return Math.max(1, Math.ceil(BUILDINGS.length / pageSize));
@@ -897,6 +1037,13 @@ function getGuidePageCount(sectionId) {
   if (sectionId === 'upgrades') return Math.max(1, Math.ceil(UPGRADES.length / pageSize));
   if (sectionId === 'ranks') return Math.max(1, Math.ceil(RANKS.length / pageSize));
   return 1;
+}
+
+function formatMilkCodexBonus(milkPct) {
+  return UPGRADES
+    .filter((upgrade) => upgrade.category === 'kitten' && typeof upgrade.kittenScale === 'number')
+    .map((upgrade) => `${upgrade.name}: +${(milkPct * upgrade.kittenScale).toFixed(1)}% CPS`)
+    .join('\n');
 }
 
 function computeCps(user, nowTs = Date.now()) {
@@ -1084,7 +1231,8 @@ function bake(guildId, userId) {
 
   const burntItem = ITEM_MAP.get('burnt_cookie') ?? ITEMS[0];
   const item = burnt ? burntItem : weightedPickItem(user, new Date(nowTs));
-  registerItemBake(guildState, user, item, userId);
+  // Burnt bakes keep a display item for UX feedback, but intentionally grant no inventory or item-stat progression as the penalty.
+  if (!burnt) registerItemBake(guildState, user, item, userId);
 
   let golden = null;
   const forceGolden = user.forceGoldenCookieOnNextBake;
@@ -1222,6 +1370,10 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
 
   if (view === 'inventory') {
     const rarityFilter = options.rarityFilter ?? 'all';
+    const rewardGiftEntries = Object.entries(user.rewardGifts ?? {})
+      .filter(([, qty]) => qty > 0)
+      .map(([rewardBoxId, qty]) => ({ rewardBox: REWARD_BOX_MAP.get(rewardBoxId), qty }))
+      .filter((entry) => entry.rewardBox);
     const entries = Object.entries(user.inventory)
       .filter(([, qty]) => qty > 0)
       .map(([itemId, qty]) => ({ item: ITEM_MAP.get(itemId), qty }))
@@ -1229,14 +1381,21 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
       .filter((entry) => rarityFilter === 'all' || entry.item.rarity === rarityFilter)
       .sort((a, b) => compareRarity(b.item.id, a.item.id) || (b.qty - a.qty));
 
-    if (entries.length === 0) {
+    if (entries.length === 0 && rewardGiftEntries.length === 0) {
       embed.setDescription('Inventory currently empty. Keep baking, crumb warrior.');
     } else {
       const page = Math.max(0, Math.min(options.page ?? 0, Math.floor((entries.length - 1) / 8)));
       const pageEntries = entries.slice(page * 8, page * 8 + 8);
-      embed.setDescription(pageEntries
+      const itemLines = pageEntries
         .map((entry) => `${getItemEmoji(entry.item, guild)} **${entry.item.name}** x${entry.qty} • value ${toCookieNumber(entry.item.baseValue * RARITY[entry.item.rarity].valueMultiplier)}`)
-        .join('\n'));
+        .join('\n');
+      const giftLines = rewardGiftEntries
+        .slice(0, MAX_DISPLAYED_GIFT_BOXES)
+        .map((entry) => `${getRewardBoxEmoji(entry.rewardBox, guild)} **${entry.rewardBox.name}** x${entry.qty}`)
+        .join('\n');
+      const extraGiftCount = Math.max(0, rewardGiftEntries.length - MAX_DISPLAYED_GIFT_BOXES);
+      const giftOverflow = extraGiftCount > 0 ? `\n...and **${extraGiftCount}** more gift box type(s).` : '';
+      embed.setDescription([itemLines || 'No regular inventory items.', giftLines ? `\n🎁 **Reward Gifts**\n${giftLines}${giftOverflow}` : ''].join('\n').trim());
       embed.addFields({
         name: 'Collection',
         value: `Discovered: **${user.uniqueItemsDiscovered.length}/${ITEMS.length}**`,
@@ -1283,11 +1442,24 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
   }
 
   if (view === 'guide') {
-    const section = GUIDE_SECTIONS.some((entry) => entry.id === options.section) ? options.section : 'cookies';
+    const section = GUIDE_SECTIONS.some((entry) => entry.id === options.section) ? options.section : 'info';
     const pageSize = 4;
     const pageCount = getGuidePageCount(section);
     const page = Math.max(0, Math.min(Number.isFinite(options.page) ? options.page : 0, pageCount - 1));
-    if (section === 'cookies') {
+    if (section === 'info') {
+      embed.setDescription([
+        'Welcome to the baking economy.',
+        '',
+        '• Use `/bake` to gain cookies and discover items.',
+        '• Spend cookies on buildings for passive CPS.',
+        '• Buy upgrades to multiply CPS, baking power, and golden-cookie odds.',
+        '• Unlock achievements to raise milk level.',
+        '• Milk powers kitten upgrades for extra CPS scaling.',
+        '• Use inventory and marketplace to trade, consume, and profit.',
+        '• Ranks unlock as your totals grow and grant one-time rewards.',
+      ].join('\n').slice(0, 4096));
+      embed.addFields({ name: 'Overview', value: 'Core mechanics overview' });
+    } else if (section === 'cookies') {
       const pageEntries = ITEMS.slice(page * pageSize, page * pageSize + pageSize);
       const chanceDate = new Date(nowTs);
       embed.setDescription(pageEntries
@@ -1295,7 +1467,14 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
           const rarity = RARITY[item.rarity];
           const price = getItemSellValue(item);
           const dropChancePct = getItemDropChance(user, item, chanceDate) * 100;
-          return `${getItemEmoji(item, guild)} **${item.name}**\n\`${item.id}\`\n${item.flavorText}\nRarity: ${getRarityEmoji(item.rarity, guild)} **${rarity.name}**\nDrop chance: **${dropChancePct.toFixed(3)}%**\nSell value: **${toCookieNumber(price)}**`;
+          return [
+            `${getItemEmoji(item, guild)} **${item.name}**`,
+            `\`${item.id}\``,
+            item.flavorText,
+            `Rarity: **${rarity.name}**`,
+            `Drop chance: **${dropChancePct.toFixed(3)}%**`,
+            `Sell value: **${toCookieNumber(price)}**`,
+          ].join('\n');
         })
         .join('\n\n')
         .slice(0, 4096));
@@ -1320,7 +1499,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
         .map((milkType) => {
           const milkKey = milkType.type.toLowerCase().replace(/\s*milk$/, '');
           const milkEmoji = getCustomGuildEmoji(guild, MILK_EMOJI_ALIASES[milkKey] ?? []) ?? '🥛';
-          return `${milkEmoji} **${milkType.type}**\nUnlock: **${milkType.pct}% milk**`;
+          return `${milkEmoji} **${milkType.type}**\nUnlock: **${milkType.pct}% milk**\nBonus at this milk level:\n${formatMilkCodexBonus(milkType.pct)}`;
         })
         .join('\n\n')
         .slice(0, 4096));
@@ -1413,7 +1592,7 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
       .setPlaceholder('Filter by rarity')
       .addOptions(
         { label: 'All rarities', value: 'all' },
-        ...RARITY_ORDER.map((id) => ({ label: RARITY[id].name, value: id, emoji: getRarityEmoji(id, options.guild) })),
+        ...RARITY_ORDER.map((id) => ({ label: RARITY[id].name, value: id })),
       );
     rows.push(new ActionRowBuilder().addComponents(raritySelect));
 
@@ -1433,6 +1612,30 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
             .setCustomId('bakery_inventory_item')
             .setPlaceholder('Pick an item to act on')
             .addOptions(itemOptions),
+        ),
+      );
+    }
+    const rewardGiftOptions = Object.entries(user.rewardGifts ?? {})
+      .filter(([, qty]) => qty > 0)
+      .slice(0, 25)
+      .map(([rewardBoxId, qty]) => {
+        const rewardBox = REWARD_BOX_MAP.get(rewardBoxId);
+        if (!rewardBox) return null;
+        return {
+          label: rewardBox.name.slice(0, 100),
+          description: `Owned: ${qty}`.slice(0, 100),
+          value: rewardBox.id,
+          emoji: getRewardBoxEmoji(rewardBox, options.guild),
+        };
+      })
+      .filter(Boolean);
+    if (rewardGiftOptions.length) {
+      rows.push(
+        new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId('bakery_reward_gift_select')
+            .setPlaceholder('Open a reward gift box')
+            .addOptions(rewardGiftOptions),
         ),
       );
     }
@@ -1480,7 +1683,7 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
   }
 
   if (view === 'guide') {
-    const section = GUIDE_SECTIONS.some((entry) => entry.id === options.section) ? options.section : 'cookies';
+    const section = GUIDE_SECTIONS.some((entry) => entry.id === options.section) ? options.section : 'info';
     const pageCount = getGuidePageCount(section);
     const page = Math.max(0, Math.min(Number.isFinite(options.page) ? options.page : 0, pageCount - 1));
     rows.push(
@@ -1751,6 +1954,36 @@ function consumeInventoryItem(guildId, userId, itemId) {
   return { ok: true, item, cpsBonus };
 }
 
+function getRandomIntInclusive(min, max) {
+  const lower = Math.max(0, Math.floor(min));
+  const upper = Math.max(lower, Math.floor(max));
+  return lower + Math.floor(Math.random() * ((upper - lower) + 1));
+}
+
+function openRewardGift(guildId, userId, rewardBoxId) {
+  const box = REWARD_BOX_MAP.get(rewardBoxId);
+  if (!box) return { ok: false, reason: 'Unknown reward box.' };
+  const data = readState();
+  const guildState = getGuildState(data, guildId);
+  const user = getUserState(guildState, userId);
+  const owned = user.rewardGifts[rewardBoxId] ?? 0;
+  if (owned <= 0) return { ok: false, reason: 'You do not own that reward box.' };
+  user.rewardGifts[rewardBoxId] = owned - 1;
+  if (user.rewardGifts[rewardBoxId] <= 0) delete user.rewardGifts[rewardBoxId];
+  const grants = [];
+  for (const reward of box.rewards) {
+    const item = ITEM_MAP.get(reward.itemId);
+    if (!item) continue;
+    const quantity = getRandomIntInclusive(reward.min, reward.max);
+    if (quantity <= 0) continue;
+    for (let i = 0; i < quantity; i += 1) registerItemBake(guildState, user, item, userId);
+    grants.push({ itemId: item.id, quantity, item });
+  }
+  evaluateAchievements(user);
+  writeState(data);
+  return { ok: true, rewardBox: box, grants };
+}
+
 function listItemForSale(guildId, userId, sellerTag, itemId, quantity, pricePerUnit) {
   const data = readState();
   const guildState = getGuildState(data, guildId);
@@ -1911,6 +2144,32 @@ function adminForceGolden(guildId, targetUserId) {
   writeState(data);
 }
 
+function adminSetBakeBan(guildId, targetUserId, banned) {
+  const { data, target } = adminEnsureTarget(guildId, targetUserId);
+  target.bakeBanned = Boolean(banned);
+  writeState(data);
+}
+
+function adminSetRank(guildId, targetUserId, rankId) {
+  const { data, target } = adminEnsureTarget(guildId, targetUserId);
+  const rankIndex = RANK_INDEX.get(rankId);
+  if (!Number.isInteger(rankIndex)) return false;
+  target.rankId = rankId;
+  target.title = RANKS[rankIndex].name;
+  target.rankRewardsClaimed = RANKS.slice(0, rankIndex + 1).map((rank) => rank.id);
+  writeState(data);
+  return true;
+}
+
+function adminGrantRewardBox(guildId, targetUserId, rewardBoxId, quantity) {
+  const { data, target } = adminEnsureTarget(guildId, targetUserId);
+  if (!REWARD_BOX_MAP.has(rewardBoxId)) return false;
+  if (!Number.isInteger(quantity) || quantity <= 0) return false;
+  target.rewardGifts[rewardBoxId] = (target.rewardGifts[rewardBoxId] ?? 0) + quantity;
+  writeState(data);
+  return true;
+}
+
 function adminResetUser(guildId, targetUserId) {
   const data = readState();
   const guildState = getGuildState(data, guildId);
@@ -1931,7 +2190,10 @@ function buildBakeAdminEmbed(guild, actorId, targetId) {
         '• Unlock Upgrade',
         '• Set Building Count',
         '• Grant Achievement',
+        '• Set Rank',
+        '• Grant Reward Gift Box',
         '• Trigger Golden Cookie',
+        '• Ban/Unban Bake Commands',
         '• Reset User',
         '• View User Data',
       ].join('\n'),
@@ -1954,7 +2216,11 @@ function buildBakeAdminComponents(actorId, targetId) {
       { label: 'Unlock Upgrade', value: 'unlock_upgrade' },
       { label: 'Set Building Count', value: 'set_building' },
       { label: 'Grant Achievement', value: 'grant_achievement' },
+      { label: 'Set Rank', value: 'set_rank' },
+      { label: 'Grant Reward Gift Box', value: 'grant_reward_box' },
       { label: 'Trigger Golden Cookie', value: 'trigger_golden' },
+      { label: 'Ban Bake Commands', value: 'ban_bake' },
+      { label: 'Unban Bake Commands', value: 'unban_bake' },
       { label: 'Reset User', value: 'reset_user' },
       { label: 'View User Data', value: 'view_user' },
       { label: 'Set Admin Log Channel', value: 'set_log_channel' },
@@ -2012,12 +2278,11 @@ function modalForAdminAction(actorId, targetId, action) {
   return null;
 }
 
-function modalForListItem() {
+function modalForListItem(itemId) {
   return new ModalBuilder()
-    .setCustomId('market_modal_list')
+    .setCustomId(`market_modal_list:${itemId}`)
     .setTitle('List Item on Marketplace')
     .addComponents(
-      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('itemId').setLabel('Item ID').setStyle(TextInputStyle.Short).setRequired(true)),
       new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('quantity').setLabel('Quantity').setStyle(TextInputStyle.Short).setRequired(true)),
       new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('price').setLabel('Price per unit').setStyle(TextInputStyle.Short).setRequired(true)),
     );
@@ -2030,9 +2295,6 @@ function modalForBakeryName() {
     .addComponents(
       new ActionRowBuilder().addComponents(
         new TextInputBuilder().setCustomId('name').setLabel('Bakery name').setStyle(TextInputStyle.Short).setRequired(true).setMaxLength(60),
-      ),
-      new ActionRowBuilder().addComponents(
-        new TextInputBuilder().setCustomId('emoji').setLabel('Banner emoji').setStyle(TextInputStyle.Short).setRequired(false).setMaxLength(8),
       ),
     );
 }
@@ -2099,6 +2361,13 @@ function isBakeAdminAuthorized(member, guildId) {
   return member.roles.cache.has(BAKE_ADMIN_ROLE_ID);
 }
 
+function isUserBakeBanned(guildId, userId) {
+  const data = readState();
+  const guildState = getGuildState(data, guildId);
+  const user = getUserState(guildState, userId);
+  return Boolean(user.bakeBanned);
+}
+
 module.exports = {
   MessageFlags,
   RARITY,
@@ -2108,6 +2377,7 @@ module.exports = {
   UPGRADE_MAP,
   ACHIEVEMENTS,
   RANKS,
+  REWARD_BOXES,
   ITEMS,
   ITEM_MAP,
   THEMES,
@@ -2129,6 +2399,7 @@ module.exports = {
   buyUpgrade,
   sellInventoryItem,
   consumeInventoryItem,
+  openRewardGift,
   inspectItem,
   buildItemInspectEmbed,
   modalForBakeryName,
@@ -2145,14 +2416,19 @@ module.exports = {
   adminSetBuilding,
   adminGrantAchievement,
   adminForceGolden,
+  adminSetBakeBan,
+  adminSetRank,
+  adminGrantRewardBox,
   adminResetUser,
   getUserDataEmbed,
   isBakeAdminAuthorized,
+  isUserBakeBanned,
   computeCps,
   getBuildingPrice,
   getRarityEmoji,
   getItemEmoji,
   getRankEmoji,
+  getRewardBoxEmoji,
   getButtonEmoji,
   getItemSellValue,
   formatRankRequirements,
