@@ -31,9 +31,10 @@ const BURNT_BAKE_LINES = [
   'Your timer called. It said “too late.”',
   'Fresh from the oven: one premium burnt disaster.',
 ];
+const BURNT_BAKE_LINE_COUNT = BURNT_BAKE_LINES.length;
 
 function randomBurntLine() {
-  return BURNT_BAKE_LINES[Math.floor(Math.random() * BURNT_BAKE_LINES.length)];
+  return BURNT_BAKE_LINES[Math.floor(Math.random() * BURNT_BAKE_LINE_COUNT)];
 }
 
 function buildBakeReply(guild, userId) {
@@ -51,13 +52,15 @@ function buildBakeReply(guild, userId) {
   const dropChance = economy.getItemDropChance(user, item) * 100;
   const cps = economy.computeCps(user, Date.now());
   const itemEmoji = economy.getItemEmoji(item, guild);
+  const titlePrefix = burnt ? '' : `${itemEmoji} `;
+  const batchLabel = burnt ? 'Burnt Batch' : 'Fresh Batch';
   const description = burnt
     ? `${itemEmoji} **Burnt batch!** ${randomBurntLine()}\nNo cookies gained from this bake.`
     : `You baked **${item.name}** and pocketed **${economy.toCookieNumber(manualYield)}** manual cookies.`;
 
   const embed = new EmbedBuilder()
     .setColor(rarity.color)
-    .setTitle(burnt ? `Fresh Batch: ${item.name}` : `${itemEmoji} Fresh Batch: ${item.name}`)
+    .setTitle(`${titlePrefix}${batchLabel}: ${item.name}`)
     .setDescription(description)
     .setTimestamp()
     .addFields(
