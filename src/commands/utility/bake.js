@@ -10,7 +10,7 @@ const {
 const economy = require('../../utils/bakeEconomy');
 const BAKE_COOLDOWN_MS = 30_000;
 const bakeCooldowns = new Map();
-const COOLDOWN_PRUNE_INTERVAL_MS = 5 * 60 * 1000;
+const COOLDOWN_PRUNE_INTERVAL_MS = BAKE_COOLDOWN_MS;
 let lastCooldownPruneAt = 0;
 
 const BURNT_BAKE_LINES = [
@@ -43,9 +43,10 @@ function randomBurntLine() {
 
 function pruneCooldowns(now = Date.now()) {
   if ((now - lastCooldownPruneAt) < COOLDOWN_PRUNE_INTERVAL_MS) return;
-  for (const [key, lastUsedAt] of bakeCooldowns.entries()) {
-    if ((now - lastUsedAt) > BAKE_COOLDOWN_MS) bakeCooldowns.delete(key);
-  }
+  const expiredKeys = [...bakeCooldowns.entries()]
+    .filter(([, lastUsedAt]) => (now - lastUsedAt) > BAKE_COOLDOWN_MS)
+    .map(([key]) => key);
+  for (const key of expiredKeys) bakeCooldowns.delete(key);
   lastCooldownPruneAt = now;
 }
 

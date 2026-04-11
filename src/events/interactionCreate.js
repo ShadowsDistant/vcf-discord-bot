@@ -26,13 +26,16 @@ const { version: botVersion } = require('../../package.json');
 const REASON_AUTOCOMPLETE_COMMANDS = new Set(['ban', 'kick', 'warn']);
 const ERROR_DETAIL_LIMIT = 500;
 const MAX_SELECT_MENU_OPTIONS = 25;
+const DEFAULT_GUIDE_SECTION = 'info';
 const BAKERY_RENAME_TTL_MS = 10 * 60 * 1000;
 const pendingBakeryRenameSelections = new Map();
+const guideViewSelections = new Map();
 
 function prunePendingBakeryRenameSelections(now = Date.now()) {
-  for (const [key, entry] of pendingBakeryRenameSelections.entries()) {
-    if ((entry?.expiresAt ?? 0) <= now) pendingBakeryRenameSelections.delete(key);
-  }
+  const expiredKeys = [...pendingBakeryRenameSelections.entries()]
+    .filter(([, entry]) => (entry?.expiresAt ?? 0) <= now)
+    .map(([key]) => key);
+  for (const key of expiredKeys) pendingBakeryRenameSelections.delete(key);
 }
 
 function setPendingBakeryRenameSelection(guildId, userId, bakeryName) {
@@ -54,9 +57,21 @@ function clearPendingBakeryRenameSelection(guildId, userId) {
   pendingBakeryRenameSelections.delete(`${guildId}:${userId}`);
 }
 
+function getGuideState(guildId, userId) {
+  return guideViewSelections.get(`${guildId}:${userId}`) ?? { section: DEFAULT_GUIDE_SECTION, page: 0 };
+}
+
+function setGuideState(guildId, userId, section, page) {
+  guideViewSelections.set(`${guildId}:${userId}`, {
+    section: section ?? DEFAULT_GUIDE_SECTION,
+    page: Number.isFinite(page) ? Math.max(0, page) : 0,
+  });
+}
+
 function buildInventoryItemSelectOptions(user, guild) {
   return Object.entries(user.inventory ?? {})
     .filter(([, qty]) => qty > 0)
+    .sort(([, qtyA], [, qtyB]) => qtyB - qtyA)
     .slice(0, MAX_SELECT_MENU_OPTIONS)
     .map(([itemId, qty]) => ({
       label: `${economy.ITEM_MAP.get(itemId)?.name ?? itemId}`.slice(0, 100),
@@ -175,7 +190,7 @@ module.exports = {
       if (interaction.customId.startsWith('bakery_nav:')) {
         const requestedView = interaction.customId.split(':')[1];
         const view = requestedView === 'codex' ? 'guide' : requestedView;
-        const viewOptions = view === 'guide' ? { section: 'info', page: 0 } : {};
+        const viewOptions = view === 'guide' ? getGuideState(interaction.guild.id, interaction.user.id) : {};
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, view, viewOptions);
         const components = economy.buildDashboardComponents(snapshot.user, view, { guild: interaction.guild, ...viewOptions });
@@ -196,6 +211,7 @@ module.exports = {
         const [, section, currentPageRaw] = interaction.customId.split(':');
         const currentPage = Number.parseInt(currentPageRaw, 10) || 0;
         const targetPage = interaction.customId.startsWith('bakery_guide_prev:') ? currentPage - 1 : currentPage + 1;
+        setGuideState(interaction.guild.id, interaction.user.id, section, targetPage);
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'guide', { section, page: targetPage });
         const components = economy.buildDashboardComponents(snapshot.user, 'guide', { section, page: targetPage, guild: interaction.guild });
@@ -205,6 +221,7 @@ module.exports = {
       if (interaction.customId.startsWith('bakery_codex_prev:') || interaction.customId.startsWith('bakery_codex_next:')) {
         const currentPage = Number.parseInt(interaction.customId.split(':')[1], 10) || 0;
         const targetPage = interaction.customId.startsWith('bakery_codex_prev:') ? currentPage - 1 : currentPage + 1;
+        setGuideState(interaction.guild.id, interaction.user.id, 'cookies', targetPage);
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'guide', { section: 'cookies', page: targetPage });
         const components = economy.buildDashboardComponents(snapshot.user, 'guide', { section: 'cookies', page: targetPage, guild: interaction.guild });
@@ -570,6 +587,28 @@ module.exports = {
         });
       }
 
+      if (interaction.customId === 'bakery_reward_gift_select') {
+        const rewardBoxId = interaction.values[0];
+        const result = economy.openRewardGift(interaction.guild.id, interaction.user.id, rewardBoxId);
+        if (!result.ok) {
+          return interaction.reply({
+            embeds: [embeds.warning(result.reason, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const grantsText = result.grants.length
+          ? result.grants.map((grant) => `• ${economy.getItemEmoji(grant.item, interaction.guild)} **${grant.item.name}** x${grant.quantity}`).join('\n')
+          : 'No drops this time.';
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const dashboard = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'inventory');
+        dashboard.addFields({
+          name: `${economy.getRewardBoxEmoji(result.rewardBox, interaction.guild)} Opened ${result.rewardBox.name}`,
+          value: grantsText.slice(0, 1024),
+        });
+        const components = economy.buildDashboardComponents(snapshot.user, 'inventory', { guild: interaction.guild });
+        return interaction.update({ embeds: [dashboard], components });
+      }
+
       if (interaction.customId === 'bakery_building_select') {
         const buildingId = interaction.values[0];
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
@@ -588,7 +627,8 @@ module.exports = {
 
       if (interaction.customId.startsWith('bakery_guide_section:')) {
         const page = Number.parseInt(interaction.customId.split(':')[1], 10) || 0;
-        const section = interaction.values[0] ?? 'info';
+        const section = interaction.values[0] ?? DEFAULT_GUIDE_SECTION;
+        setGuideState(interaction.guild.id, interaction.user.id, section, page);
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'guide', { section, page });
         const components = economy.buildDashboardComponents(snapshot.user, 'guide', { section, page, guild: interaction.guild });
@@ -701,6 +741,42 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+        if (action === 'set_rank') {
+          return interaction.reply({
+            embeds: [embeds.info('Set Rank', 'Select the rank to set for this user.', interaction.guild)],
+            components: [
+              new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder()
+                  .setCustomId(`bakeadmin_rank_select:${actorId}:${targetId}`)
+                  .setPlaceholder('Select rank')
+                  .addOptions(economy.RANKS.slice(0, 25).map((rank) => ({
+                    label: rank.name.slice(0, 100),
+                    value: rank.id,
+                    emoji: economy.getRankEmoji(rank, interaction.guild),
+                  }))),
+              ),
+            ],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'grant_reward_box') {
+          return interaction.reply({
+            embeds: [embeds.info('Grant Reward Gift Box', 'Select which reward gift box to grant.', interaction.guild)],
+            components: [
+              new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder()
+                  .setCustomId(`bakeadmin_reward_box_select:${actorId}:${targetId}`)
+                  .setPlaceholder('Select reward gift box')
+                  .addOptions(economy.REWARD_BOXES.slice(0, 25).map((rewardBox) => ({
+                    label: rewardBox.name.slice(0, 100),
+                    value: rewardBox.id,
+                    emoji: economy.getRewardBoxEmoji(rewardBox, interaction.guild),
+                  }))),
+              ),
+            ],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
         if (action === 'trigger_golden') {
           economy.adminForceGolden(interaction.guild.id, targetId);
           await sendBakeAdminLog(interaction, targetId, 'Trigger Golden Cookie', 'Forced Golden Cookie on next /bake');
@@ -792,6 +868,61 @@ module.exports = {
         });
       }
 
+      if (interaction.customId.startsWith('bakeadmin_rank_select:')) {
+        const [, actorId, targetId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const rankId = interaction.values[0];
+        const ok = economy.adminSetRank(interaction.guild.id, targetId, rankId);
+        if (!ok) {
+          return interaction.reply({
+            embeds: [embeds.error('Could not set that rank.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const rank = economy.RANKS.find((entry) => entry.id === rankId);
+        await sendBakeAdminLog(interaction, targetId, 'Set Rank', `Rank: ${rankId}`);
+        return interaction.reply({
+          embeds: [embeds.success(`Set rank for <@${targetId}> to ${economy.getRankEmoji(rank, interaction.guild)} **${rank?.name ?? rankId}**.`, interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_reward_box_select:')) {
+        const [, actorId, targetId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const rewardBoxId = interaction.values[0];
+        const rewardBox = economy.REWARD_BOXES.find((entry) => entry.id === rewardBoxId);
+        if (!rewardBox) {
+          return interaction.reply({
+            embeds: [embeds.error('Unknown reward gift box.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const modal = new ModalBuilder()
+          .setCustomId(`bakeadmin_reward_box_modal:${actorId}:${targetId}:${rewardBoxId}`)
+          .setTitle(`Grant ${rewardBox.name}`)
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('quantity')
+                .setLabel('Quantity')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true),
+            ),
+          );
+        return interaction.showModal(modal);
+      }
+
       if (interaction.customId === 'updates_log_select') {
         const selectedIndex = Number.parseInt(interaction.values[0], 10);
         if (!Number.isInteger(selectedIndex) || selectedIndex < 1 || selectedIndex >= UPDATE_LOGS.length) {
@@ -865,6 +996,36 @@ module.exports = {
         }
         return interaction.reply({
           embeds: [embeds.success(`Listed **${quantity}x ${economy.ITEM_MAP.get(itemId).name}** for **${economy.toCookieNumber(price)}** each.`, interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_reward_box_modal:')) {
+        const [, actorId, targetId, rewardBoxId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin modal is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const quantity = Number.parseInt(interaction.fields.getTextInputValue('quantity').trim(), 10);
+        if (!Number.isInteger(quantity) || quantity <= 0) {
+          return interaction.reply({
+            embeds: [embeds.error('Quantity must be a positive integer.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const rewardBox = economy.REWARD_BOXES.find((entry) => entry.id === rewardBoxId);
+        const ok = economy.adminGrantRewardBox(interaction.guild.id, targetId, rewardBoxId, quantity);
+        if (!ok) {
+          return interaction.reply({
+            embeds: [embeds.error('Could not grant that reward gift box.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        await sendBakeAdminLog(interaction, targetId, 'Grant Reward Gift Box', `${rewardBoxId} x${quantity}`);
+        return interaction.reply({
+          embeds: [embeds.success(`Granted ${economy.getRewardBoxEmoji(rewardBox, interaction.guild)} **${quantity}x ${rewardBox?.name ?? rewardBoxId}** to <@${targetId}>.`, interaction.guild)],
           flags: MessageFlags.Ephemeral,
         });
       }
