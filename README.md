@@ -273,6 +273,37 @@ Shows: current bot version, latest log version/date, and recent public changes.
 
 ---
 
+#### `/announce`
+Send a custom rich embed announcement to a selected text channel.
+
+| Option | Type | Required | Description |
+|---|---|---|---|
+| `channel` | Text/Announcement Channel | ✅ | Channel to post the announcement in |
+| `title` | String | ✅ | Title of the announcement embed |
+| `message` | String | ✅ | Body text of the announcement |
+| `color` | Choice | ❌ | Embed accent colour: `Blue` (default), `Green`, `Red`, `Yellow`, `Purple` |
+
+> Restricted to **Management**.
+
+---
+
+#### `/say`
+Send a plain-text bot message (no embed) to the current channel or a selected channel.
+
+| Option | Type | Required | Description |
+|---|---|---|---|
+| `text` | String | ✅ | The text to send |
+| `channel` | Text/Announcement Channel | ❌ | Optional target channel (defaults to current channel) |
+
+> Restricted to **Management**.
+
+---
+
+#### `/cookieleaderboard`
+View the top bakers ranked by special cookie totals (Perfect Cookie, Gold Cookie, Spoopier Cookie), including per-cookie breakdowns.
+
+---
+
 ### 🕐 Shifts
 
 The shift system allows staff members to clock in and out, tracking their on-duty time persistently per server. Staff-role restrictions, shift DMs, wave periods, and quota requirements are all configurable via `/setup`.
@@ -500,18 +531,6 @@ Shows: server name, ID, member count, total guild count, and total combined memb
 
 ---
 
-#### `/announce`
-Send a custom rich embed announcement to any text channel in the current server.
-
-| Option | Type | Required | Description |
-|---|---|---|---|
-| `channel` | Text Channel | ✅ | Channel to post the announcement in |
-| `title` | String | ✅ | Title of the announcement embed |
-| `message` | String | ✅ | Body text of the announcement |
-| `color` | Choice | ❌ | Embed accent colour: `Blue` (default), `Green`, `Red`, `Yellow`, `Purple` |
-
----
-
 ## Getting Started
 
 ### Prerequisites
@@ -552,7 +571,7 @@ DEV_USER_ID=your_discord_user_id
 |---|---|---|
 | `DISCORD_TOKEN` | ✅ | Your bot's secret token from the Developer Portal |
 | `CLIENT_ID` | ✅ | Your application's client/application ID |
-| `DEV_USER_ID` | ❌ | Discord user ID permitted to use `/setstatus`, `/servers`, `/announce` |
+| `DEV_USER_ID` | ❌ | Discord user ID permitted to use `/setstatus`, `/servers` |
 
 > ⚠️ **Never commit your `.env` file.** It is listed in `.gitignore` by default.
 
@@ -565,6 +584,7 @@ npm run deploy
 ```
 
 - Commands are registered globally and may take up to **1 hour** to propagate to all servers.
+- Deployment also clears legacy guild-scoped command registrations to prevent old slash commands from lingering.
 
 > Re-run `npm run deploy` whenever you add, remove, or modify commands.
 
@@ -665,6 +685,8 @@ vcf-discord-bot/
 │   │   │   ├── serverinfo.js     # /serverinfo
 │   │   │   ├── avatar.js         # /avatar
 │   │   │   ├── botinfo.js        # /botinfo
+│   │   │   ├── announce.js       # /announce (management only)
+│   │   │   ├── say.js            # /say (management only, plain text)
 │   │   │   └── help.js           # /help
 │   │   ├── shifts/
 │   │   │   ├── startshift.js     # /startshift (staff-role gate, DM on start)
@@ -680,8 +702,7 @@ vcf-discord-bot/
 │   │   │   └── reasons.js        # /reasons add|remove|list
 │   │   └── dev/
 │   │       ├── setstatus.js      # /setstatus  (dev only)
-│   │       ├── servers.js        # /servers    (dev only)
-│   │       └── announce.js       # /announce   (dev only)
+│   │       └── servers.js        # /servers    (dev only)
 │   ├── events/
 │   │   ├── ready.js              # Sets initial presence on login
 │   │   ├── interactionCreate.js  # Routes slash commands + autocomplete handler

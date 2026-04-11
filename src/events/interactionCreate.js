@@ -28,6 +28,8 @@ const ERROR_DETAIL_LIMIT = 500;
 const MAX_SELECT_MENU_OPTIONS = 25;
 const DEFAULT_GUIDE_SECTION = 'info';
 const BAKERY_RENAME_TTL_MS = 10 * 60 * 1000;
+const SPECIAL_COOKIE_EVENT_CHANNEL_ID = '1492310367869862089';
+const COMPONENT_EXPIRY_MS = 10 * 60 * 1000;
 const pendingBakeryRenameSelections = new Map();
 const guideViewSelections = new Map();
 
@@ -99,6 +101,27 @@ async function sendBakeAdminLog(interaction, targetUserId, action, details) {
   await channel.send({ embeds: [embed] }).catch(() => null);
 }
 
+async function sendSpecialCookieHuntStartLog(interaction, durationMinutes, endsAt) {
+  const channel = await interaction.guild.channels.fetch(SPECIAL_COOKIE_EVENT_CHANNEL_ID).catch(() => null);
+  if (!channel || !channel.isTextBased()) return;
+  const endsAtTs = Math.floor(endsAt / 1000);
+  const embed = new EmbedBuilder()
+    .setColor(0xfee75c)
+    .setTitle('🎉 Special Cookie Hunt Started')
+    .setDescription([
+      `Started by <@${interaction.user.id}>.`,
+      'Special cookie drops are now boosted for all bakers.',
+      `Duration: **${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}**`,
+      `Ends: <t:${endsAtTs}:R>`,
+    ].join('\n'))
+    .setTimestamp()
+    .setFooter({
+      text: interaction.guild.name,
+      iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined,
+    });
+  await channel.send({ embeds: [embed] }).catch(() => null);
+}
+
 function getErrorDetails(err) {
   if (!err) return 'Unknown error.';
   const errorName = typeof err.name === 'string' && err.name.trim().length > 0 ? err.name.trim() : 'Error';
@@ -110,11 +133,17 @@ function getErrorDetails(err) {
   return `${combined.slice(0, ERROR_DETAIL_LIMIT - 3)}...`;
 }
 
-function getButtonOwnerId(interaction) {
+function getComponentOwnerId(interaction) {
   const commandOwnerId = interaction.message?.interactionMetadata?.user?.id
     ?? interaction.message?.interaction?.user?.id
     ?? null;
   return commandOwnerId;
+}
+
+function isComponentExpired(interaction, nowTs = Date.now()) {
+  const createdTs = interaction.message?.createdTimestamp;
+  if (!Number.isFinite(createdTs)) return false;
+  return (nowTs - createdTs) > COMPONENT_EXPIRY_MS;
 }
 
 function normalizeLookupValue(value) {
@@ -158,6 +187,12 @@ module.exports = {
   name: Events.InteractionCreate,
   async execute(interaction) {
     if (interaction.isButton()) {
+      if (isComponentExpired(interaction)) {
+        return interaction.reply({
+          embeds: [embeds.warning('These buttons have expired. Run the command again to refresh.', interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
       if (interaction.customId.startsWith('bake_golden_claim:')) {
         const [, ownerId, token] = interaction.customId.split(':');
         if (ownerId !== interaction.user.id) {
@@ -179,7 +214,7 @@ module.exports = {
         });
       }
 
-      const ownerId = getButtonOwnerId(interaction);
+      const ownerId = getComponentOwnerId(interaction);
       if (ownerId && ownerId !== interaction.user.id) {
         return interaction.reply({
           embeds: [embeds.error('These buttons belong to someone else\'s command.', interaction.guild)],
@@ -204,7 +239,12 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
-        return interaction.update(bakeCommand.buildBakeReply(interaction.guild, interaction.user.id));
+        const outcome = bakeCommand.buildBakeOutcome(interaction.guild, interaction.user.id);
+        await interaction.update(outcome.reply);
+        if (outcome.specialCookieEvent) {
+          await bakeCommand.postSpecialCookieEvent(interaction.guild, interaction.user, outcome.specialCookieEvent);
+        }
+        return;
       }
 
       if (interaction.customId.startsWith('bakery_guide_prev:') || interaction.customId.startsWith('bakery_guide_next:')) {
@@ -555,6 +595,19 @@ module.exports = {
     }
 
     if (interaction.isStringSelectMenu()) {
+      if (isComponentExpired(interaction)) {
+        return interaction.reply({
+          embeds: [embeds.warning('These select menus have expired. Run the command again to refresh.', interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      const ownerId = getComponentOwnerId(interaction);
+      if (ownerId && ownerId !== interaction.user.id) {
+        return interaction.reply({
+          embeds: [embeds.error('These select menus belong to someone else\'s command.', interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
       if (interaction.customId === 'bakery_nav_select') {
         const requestedView = interaction.values[0] ?? 'home';
         const view = requestedView === 'codex' ? 'guide' : requestedView;
@@ -742,7 +795,7 @@ module.exports = {
           });
         }
         const action = interaction.values[0];
-        if (['give_cookies', 'remove_cookies', 'give_item', 'set_building', 'set_log_channel'].includes(action)) {
+        if (['give_cookies', 'remove_cookies', 'give_item', 'set_building', 'set_log_channel', 'start_event'].includes(action)) {
           const modal = economy.modalForAdminAction(actorId, targetId, action);
           return interaction.showModal(modal);
         }
@@ -1162,6 +1215,23 @@ module.exports = {
           await sendBakeAdminLog(interaction, targetId, 'Reset User', 'Full economy reset');
           return interaction.reply({
             embeds: [embeds.success(`Reset all baking data for <@${targetId}>.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'start_event') {
+          const durationRaw = interaction.fields.getTextInputValue('durationMinutes').trim();
+          const durationMinutes = Number.parseInt(durationRaw, 10);
+          if (!Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 1440) {
+            return interaction.reply({
+              embeds: [embeds.error('Duration must be a whole number between 1 and 1440 minutes.', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          const event = economy.adminStartEvent(interaction.guild.id, durationMinutes);
+          await sendBakeAdminLog(interaction, targetId, 'Start Event', `Special Cookie Hunt for ${durationMinutes} minute(s)`);
+          await sendSpecialCookieHuntStartLog(interaction, durationMinutes, event.endsAt);
+          return interaction.reply({
+            embeds: [embeds.success(`Started **Special Cookie Hunt** for **${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}**.`, interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }

@@ -1,27 +1,25 @@
 'use strict';
 
-const { SlashCommandBuilder, ChannelType, PermissionFlagsBits, MessageFlags } = require('discord.js');
+const {
+  SlashCommandBuilder, ChannelType, MessageFlags,
+} = require('discord.js');
 const embeds = require('../../utils/embeds');
-
-const DEV_USER_ID = process.env.DEV_USER_ID ?? '757698506411475005';
+const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('announce')
-    .setDescription('[Dev] Send a rich announcement embed to a specified channel.')
+    .setDescription('Send a rich announcement embed to a specified channel.')
     .addChannelOption((o) =>
       o
         .setName('channel')
         .setDescription('The channel to send the announcement in.')
-        .addChannelTypes(ChannelType.GuildText)
-        .setRequired(true),
-    )
+        .addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)
+        .setRequired(true))
     .addStringOption((o) =>
-      o.setName('title').setDescription('Title of the announcement.').setRequired(true),
-    )
+      o.setName('title').setDescription('Title of the announcement.').setRequired(true))
     .addStringOption((o) =>
-      o.setName('message').setDescription('Body text of the announcement.').setRequired(true),
-    )
+      o.setName('message').setDescription('Body text of the announcement.').setRequired(true))
     .addStringOption((o) =>
       o
         .setName('color')
@@ -32,13 +30,12 @@ module.exports = {
           { name: 'Red', value: 'red' },
           { name: 'Yellow', value: 'yellow' },
           { name: 'Purple', value: 'purple' },
-        ),
-    ),
+        )),
 
   async execute(interaction) {
-    if (interaction.user.id !== DEV_USER_ID) {
+    if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.management)) {
       return interaction.reply({
-        embeds: [embeds.error('This command is restricted to the bot developer.', interaction.guild ?? null)],
+        embeds: [embeds.error('Only management can use this command.', interaction.guild ?? null)],
         flags: MessageFlags.Ephemeral,
       });
     }
@@ -59,7 +56,7 @@ module.exports = {
     const embed = embeds
       .base(interaction.guild ?? null)
       .setColor(colorMap[colorChoice])
-      .setTitle(`  ${title}`)
+      .setTitle(`📢 ${title}`)
       .setDescription(message)
       .setAuthor({
         name: interaction.guild?.name ?? 'Announcement',
@@ -68,24 +65,13 @@ module.exports = {
 
     try {
       await channel.send({ embeds: [embed] });
-
       return interaction.reply({
-        embeds: [
-          embeds.success(
-            `Announcement sent to ${channel} successfully.`,
-            interaction.guild ?? null,
-          ),
-        ],
+        embeds: [embeds.success(`Announcement sent to ${channel}.`, interaction.guild ?? null)],
         flags: MessageFlags.Ephemeral,
       });
     } catch (err) {
       return interaction.reply({
-        embeds: [
-          embeds.error(
-            `Failed to send announcement: \`${err.message}\``,
-            interaction.guild ?? null,
-          ),
-        ],
+        embeds: [embeds.error(`Failed to send announcement: \`${err.message}\``, interaction.guild ?? null)],
         flags: MessageFlags.Ephemeral,
       });
     }
