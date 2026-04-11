@@ -1633,7 +1633,12 @@ function modalForAdminAction(actorId, targetId, action) {
   if (action === 'give_item') {
     modal.setTitle('Give Item');
     modal.addComponents(
-      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('itemId').setLabel('Item ID').setStyle(TextInputStyle.Short).setRequired(true)),
+      new ActionRowBuilder().addComponents(new TextInputBuilder()
+        .setCustomId('itemId')
+        .setLabel('Item ID or item name')
+        .setPlaceholder('e.g. chocolate_chip_cookie or Chocolate Chip Cookie')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)),
       new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('quantity').setLabel('Quantity').setStyle(TextInputStyle.Short).setRequired(true)),
     );
     return modal;
@@ -1641,7 +1646,12 @@ function modalForAdminAction(actorId, targetId, action) {
   if (action === 'set_building') {
     modal.setTitle('Set Building Count');
     modal.addComponents(
-      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('buildingId').setLabel('Building ID').setStyle(TextInputStyle.Short).setRequired(true)),
+      new ActionRowBuilder().addComponents(new TextInputBuilder()
+        .setCustomId('buildingId')
+        .setLabel('Building ID or building name')
+        .setPlaceholder('e.g. wizardTower or Wizard Tower')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)),
       new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('count').setLabel('Count').setStyle(TextInputStyle.Short).setRequired(true)),
     );
     return modal;
@@ -1651,7 +1661,8 @@ function modalForAdminAction(actorId, targetId, action) {
     modal.addComponents(
       new ActionRowBuilder().addComponents(new TextInputBuilder()
         .setCustomId('value')
-        .setLabel(action === 'set_log_channel' ? 'Channel ID' : 'Role ID')
+        .setLabel(action === 'set_log_channel' ? 'Channel mention or ID' : 'Role mention or ID')
+        .setPlaceholder(action === 'set_log_channel' ? '#logs or 123456789012345678' : '@Moderator or 123456789012345678')
         .setStyle(TextInputStyle.Short)
         .setRequired(true)),
     );

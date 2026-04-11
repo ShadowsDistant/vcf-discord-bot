@@ -61,6 +61,43 @@ function getButtonOwnerId(interaction) {
   return commandOwnerId;
 }
 
+function normalizeLookupValue(value) {
+  return String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function resolveItemId(input) {
+  const raw = String(input ?? '').trim();
+  const byId = raw.toLowerCase();
+  if (economy.ITEM_MAP.has(byId)) return byId;
+  const normalized = normalizeLookupValue(raw);
+  if (!normalized) return null;
+  const found = economy.ITEMS.find((item) =>
+    normalizeLookupValue(item.id) === normalized || normalizeLookupValue(item.name) === normalized);
+  return found?.id ?? null;
+}
+
+function resolveBuildingId(input) {
+  const raw = String(input ?? '').trim();
+  const exact = economy.BUILDINGS.find((building) => building.id === raw || building.name === raw);
+  if (exact) return exact.id;
+  const normalized = normalizeLookupValue(raw);
+  if (!normalized) return null;
+  const found = economy.BUILDINGS.find((building) =>
+    normalizeLookupValue(building.id) === normalized || normalizeLookupValue(building.name) === normalized);
+  return found?.id ?? null;
+}
+
+function parseMentionOrId(input, type) {
+  const raw = String(input ?? '').trim();
+  if (!raw) return null;
+  const mentionPattern = type === 'channel' ? /^<#(\d+)>$/ : /^<@&(\d+)>$/;
+  const mentionMatch = raw.match(mentionPattern);
+  if (mentionMatch) return mentionMatch[1];
+  const idMatch = raw.match(/^(\d+)$/);
+  if (idMatch) return idMatch[1];
+  return null;
+}
+
 module.exports = {
   name: Events.InteractionCreate,
   async execute(interaction) {
@@ -692,7 +729,7 @@ module.exports = {
           });
         }
         if (action === 'give_item') {
-          const itemId = interaction.fields.getTextInputValue('itemId').trim().toLowerCase();
+          const itemId = resolveItemId(interaction.fields.getTextInputValue('itemId'));
           const quantity = Number.parseInt(interaction.fields.getTextInputValue('quantity').trim(), 10);
           if (!Number.isInteger(quantity) || quantity <= 0) {
             return interaction.reply({
@@ -703,7 +740,7 @@ module.exports = {
           const ok = economy.adminGiveItem(interaction.guild.id, targetId, itemId, quantity);
           if (!ok) {
             return interaction.reply({
-              embeds: [embeds.error('Invalid item ID.', interaction.guild)],
+              embeds: [embeds.error('Invalid item. Use item ID or full item name.', interaction.guild)],
               flags: MessageFlags.Ephemeral,
             });
           }
@@ -714,7 +751,7 @@ module.exports = {
           });
         }
         if (action === 'set_building') {
-          const buildingId = interaction.fields.getTextInputValue('buildingId').trim();
+          const buildingId = resolveBuildingId(interaction.fields.getTextInputValue('buildingId'));
           const count = Number.parseInt(interaction.fields.getTextInputValue('count').trim(), 10);
           if (!Number.isInteger(count) || count < 0) {
             return interaction.reply({
@@ -725,7 +762,7 @@ module.exports = {
           const ok = economy.adminSetBuilding(interaction.guild.id, targetId, buildingId, count);
           if (!ok) {
             return interaction.reply({
-              embeds: [embeds.error('Invalid building ID.', interaction.guild)],
+              embeds: [embeds.error('Invalid building. Use building ID or full building name.', interaction.guild)],
               flags: MessageFlags.Ephemeral,
             });
           }
@@ -736,7 +773,13 @@ module.exports = {
           });
         }
         if (action === 'set_log_channel') {
-          const channelId = interaction.fields.getTextInputValue('value').trim();
+          const channelId = parseMentionOrId(interaction.fields.getTextInputValue('value'), 'channel');
+          if (!channelId || !interaction.guild.channels.cache.has(channelId)) {
+            return interaction.reply({
+              embeds: [embeds.error('Invalid channel. Use a channel mention like `#logs` or a channel ID.', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
           economy.setAdminLogChannel(interaction.guild.id, channelId);
           return interaction.reply({
             embeds: [embeds.success(`Set bake admin log channel to <#${channelId}>.`, interaction.guild)],
@@ -744,7 +787,13 @@ module.exports = {
           });
         }
         if (action === 'set_mod_role') {
-          const roleId = interaction.fields.getTextInputValue('value').trim();
+          const roleId = parseMentionOrId(interaction.fields.getTextInputValue('value'), 'role');
+          if (!roleId || !interaction.guild.roles.cache.has(roleId)) {
+            return interaction.reply({
+              embeds: [embeds.error('Invalid role. Use a role mention like `@Moderator` or a role ID.', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
           economy.setAdminModRoleId(interaction.guild.id, roleId);
           return interaction.reply({
             embeds: [embeds.success(`Set bake admin mod role to <@&${roleId}>.`, interaction.guild)],
