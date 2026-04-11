@@ -289,6 +289,7 @@ const ACHIEVEMENT_EMOJI_ALIASES = {
   bakery_named: ['Labor_of_love'],
   milk_1000: ['And_beyond'],
   one_of_each: ['Ecumenopolis'],
+  // Intentional shared visuals: these legacy IDs and new building-tier IDs represent adjacent milestones.
   single_50: ['Builder'],
   single_100: ['Engineer'],
   single_200: ['Architect'],
@@ -685,7 +686,7 @@ function getEarnedAchievementIds(user) {
 }
 
 function getEarnedAchievementCount(user) {
-  return new Set(getEarnedAchievementIds(user)).size;
+  return getEarnedAchievementIds(user).length;
 }
 
 function computeCps(user, nowTs = Date.now()) {
