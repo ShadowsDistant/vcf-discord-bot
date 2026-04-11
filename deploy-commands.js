@@ -137,7 +137,7 @@ async function clearLegacyGuildCommands() {
 
   for (const guild of guilds) {
     const guildId = guild?.id;
-    if (!SNOWFLAKE_REGEX.test(guildId)) continue;
+    if (!guildId || !SNOWFLAKE_REGEX.test(guildId)) continue;
 
     try {
       const guildCommands = await rest.get(Routes.applicationGuildCommands(CLIENT_ID, guildId));
