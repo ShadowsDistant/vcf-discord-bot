@@ -141,7 +141,39 @@ const STATIC_CUSTOM_EMOJIS_BY_CATEGORY = {
     ['Vanilla_milk', '1492473730373517484'],
     ['Zebra_milk', '1492473732114026607'],
   ].map(([name, id]) => [normalizeEmojiName(name), { name, id }])),
-  achievements: new Map(),
+  achievements: new Map([
+    ['Plain_cookies', '1492472701909205063'],
+    ['Chocolate_chip_cookie', '1492471981273124915'],
+    ['Oatmeal_raisin_cookies', '1492472677468737636'],
+    ['Sugar_cookies', '1492472768304906291'],
+    ['Butter_cookies', '1492472856389484636'],
+    ['Cookie_bars', '1492472539950088262'],
+    ['Cookie_crumbs', '1492472540348809388'],
+    ['Cookie_dough', '1492472541602775040'],
+    ['Matcha_cookies', '1492472640718504026'],
+    ['Golden_heart_biscuits', '1492472595516358726'],
+    ['GoldCookie', '1492473111914873014'],
+    ['Dragon_cookie', '1492472562314379484'],
+    ['Golden_goose_egg', '1492472118451900477'],
+    ['Spritz_cookies', '1492472763040927795'],
+    ['Hazelnut_cookies', '1492472606245257297'],
+    ['Kolachy_cookies', '1492472618417258637'],
+    ['PerfectCookie', '1492473120877973554'],
+    ['Cursor_64px', '1492475174136840223'],
+    ['Factory_new', '1492475175906840757'],
+    ['Fractal_engine', '1492475181128487035'],
+    ['Idleverse', '1492475186610438176'],
+    ['Fortune_cookie', '1492472027695808572'],
+    ['Lucky_golden_clover', '1492472263583469628'],
+    ['Golden_cookie_sound', '1492472117873348648'],
+    ['Golden_switch', '1492472120846848021'],
+    ['Fortune_you', '1492472057341149275'],
+    ['Zebra_milk', '1492473732114026607'],
+    ['You', '1492475208261439549'],
+    ['Grandmas', '1492475182613528606'],
+    ['Chancemaker', '1492475170336805016'],
+    ['Cortex_Baker', '1492475171720790096'],
+  ].map(([name, id]) => [normalizeEmojiName(name), { name, id }])),
   buildings: new Map([
     ['Alchemylab', '1492475165076881539'],
     ['Antim', '1492475165941039155'],
@@ -203,6 +235,40 @@ const MILK_EMOJI_ALIASES = {
   lime: ['Lime_milk'],
   blueberry: ['Blueberry_milk'],
   zebra: ['Zebra_milk'],
+};
+
+const ACHIEVEMENT_EMOJI_ALIASES = {
+  baked_100: ['Plain_cookies'],
+  baked_1k: ['Chocolate_chip_cookie'],
+  baked_10k: ['Oatmeal_raisin_cookies'],
+  baked_100k: ['Sugar_cookies'],
+  baked_1m: ['Butter_cookies'],
+  spend_10k: ['Cookie_bars'],
+  spend_100k: ['Cookie_crumbs'],
+  spend_1m: ['Cookie_dough'],
+  rare_first: ['Matcha_cookies'],
+  epic_first: ['Golden_heart_biscuits'],
+  legendary_first: ['GoldCookie'],
+  mythic_first: ['Dragon_cookie'],
+  celestial_first: ['Golden_goose_egg'],
+  discover_10: ['Spritz_cookies'],
+  discover_25: ['Hazelnut_cookies'],
+  discover_50: ['Kolachy_cookies'],
+  discover_all: ['PerfectCookie'],
+  cps_100: ['Cursor_64px'],
+  cps_10k: ['Factory_new'],
+  cps_1m: ['Fractal_engine'],
+  cps_1b: ['Idleverse'],
+  market_10: ['Fortune_cookie'],
+  market_50: ['Lucky_golden_clover'],
+  golden_10: ['Golden_cookie_sound'],
+  golden_50: ['Golden_switch'],
+  bakery_named: ['Fortune_you'],
+  milk_1000: ['Zebra_milk'],
+  one_of_each: ['You'],
+  single_50: ['Grandmas'],
+  single_100: ['Chancemaker'],
+  single_200: ['Cortex_Baker'],
 };
 
 const TIER_UNLOCKS = {
@@ -569,6 +635,21 @@ function getItemEmoji(itemOrId, guild) {
   return customEmoji ?? getRarityEmoji(item.rarity, guild);
 }
 
+function getAchievementEmoji(achievementOrId, guild) {
+  const achievement = typeof achievementOrId === 'string'
+    ? ACHIEVEMENTS.find((entry) => entry.id === achievementOrId)
+    : achievementOrId;
+  if (!achievement) return getCookieFallbackEmoji(guild);
+  const customEmoji = getCustomGuildEmoji(guild, [
+    achievement.id,
+    achievement.name,
+    `achievement_${achievement.id}`,
+    `cc_${achievement.id}`,
+    ...(ACHIEVEMENT_EMOJI_ALIASES[achievement.id] ?? []),
+  ]);
+  return customEmoji ?? getCookieFallbackEmoji(guild);
+}
+
 function computeCps(user, nowTs = Date.now()) {
   let buildingCps = 0;
   for (const building of BUILDINGS) {
@@ -869,7 +950,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
       : null;
     const spotlight = lastEarned ?? ACHIEVEMENTS.find((a) => !earned.has(a.id)) ?? ACHIEVEMENTS[0];
     embed.setDescription('Milestones that feed your glorious milk pipeline.');
-    const lines = ACHIEVEMENTS.slice(0, 20).map((a) => `${earned.has(a.id) ? '✅' : getCookieFallbackEmoji(guild)} **${a.name}** — ${a.desc}`);
+    const lines = ACHIEVEMENTS.slice(0, 20).map((a) => `${earned.has(a.id) ? '✅' : '⬜'} ${getAchievementEmoji(a, guild)} **${a.name}** — ${a.desc}`);
     embed.addFields({ name: 'Achievement board', value: lines.join('\n').slice(0, 1024) });
     embed.addFields({ name: 'Progress', value: `${earned.size}/${ACHIEVEMENTS.length}` });
   }
