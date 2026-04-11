@@ -461,15 +461,16 @@ function getMilkType(milkPct) {
 }
 
 function normalizeEmojiName(value) {
-  return String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return String(value ?? '').toLowerCase().replace(/[^a-z0-9_]/g, '');
 }
 
 function getCustomGuildEmoji(guild, candidates = []) {
   const cache = guild?.emojis?.cache;
   if (!cache || cache.size === 0) return null;
+  const normalizedByName = new Map(cache.map((emoji) => [normalizeEmojiName(emoji.name), emoji]));
   const normalizedCandidates = candidates.map(normalizeEmojiName).filter(Boolean);
   if (normalizedCandidates.length === 0) return null;
-  const matched = cache.find((emoji) => normalizedCandidates.includes(normalizeEmojiName(emoji.name)));
+  const matched = normalizedCandidates.map((name) => normalizedByName.get(name)).find(Boolean);
   if (!matched) return null;
   return `<${matched.animated ? 'a' : ''}:${matched.name}:${matched.id}>`;
 }
