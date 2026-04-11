@@ -173,6 +173,34 @@ const STATIC_CUSTOM_EMOJIS_BY_CATEGORY = {
     ['Grandmas', '1492475182613528606'],
     ['Chancemaker', '1492475170336805016'],
     ['Cortex_Baker', '1492475171720790096'],
+    ['CookieProduction2', '1492474231311695962'],
+    ['CookieProduction5', '1492474234922864820'],
+    ['CookieProduction6', '1492474236395327580'],
+    ['CookieProduction10', '1492474243458269404'],
+    ['CookieProduction16', '1492474261221146755'],
+    ['CookieProduction20', '1492474267881705594'],
+    ['CookieProduction30', '1492474280162627664'],
+    ['CookieProduction40', '1492474298240077835'],
+    ['CookieProduction48', '1492474309674008707'],
+    ['Finance_headquarters', '1492474332356804779'],
+    ['International_exchange', '1492474432763985940'],
+    ['Palace_of_Greed', '1492474539102306324'],
+    ['Botany_enthusiast', '1492474117868224612'],
+    ['Keeper_of_the_conservatory', '1492474488489513000'],
+    ['Polymath', '1492474575043170426'],
+    ['Magnum_Opus', '1492474505312997418'],
+    ['Paid_in_full', '1492474537739030659'],
+    ['New_world_order', '1492474528209571990'],
+    ['Praise_the_sun', '1492474578461659226'],
+    ['All_the_stars_in_heaven', '1492474028026368123'],
+    ['Labor_of_love', '1492474492952510604'],
+    ['And_beyond', '1492474029246779554'],
+    ['Ecumenopolis', '1492474325217972287'],
+    ['Builder', '1492474119080378448'],
+    ['Engineer', '1492474328204185762'],
+    ['Architect', '1492474032048701600'],
+    ['Augmenter', '1492474059496230923'],
+    ['Enhancer', '1492474329429053470'],
   ].map(([name, id]) => [normalizeEmojiName(name), { name, id }])),
   buildings: new Map([
     ['Alchemylab', '1492475165076881539'],
@@ -238,37 +266,37 @@ const MILK_EMOJI_ALIASES = {
 };
 
 const ACHIEVEMENT_EMOJI_ALIASES = {
-  baked_100: ['Plain_cookies'],
-  baked_1k: ['Chocolate_chip_cookie'],
-  baked_10k: ['Oatmeal_raisin_cookies'],
-  baked_100k: ['Sugar_cookies'],
-  baked_1m: ['Butter_cookies'],
-  spend_10k: ['Cookie_bars'],
-  spend_100k: ['Cookie_crumbs'],
-  spend_1m: ['Cookie_dough'],
-  rare_first: ['Matcha_cookies'],
-  epic_first: ['Golden_heart_biscuits'],
-  legendary_first: ['GoldCookie'],
-  mythic_first: ['Dragon_cookie'],
-  celestial_first: ['Golden_goose_egg'],
-  discover_10: ['Spritz_cookies'],
-  discover_25: ['Hazelnut_cookies'],
-  discover_50: ['Kolachy_cookies'],
-  discover_all: ['PerfectCookie'],
-  cps_100: ['Cursor_64px'],
-  cps_10k: ['Factory_new'],
-  cps_1m: ['Fractal_engine'],
-  cps_1b: ['Idleverse'],
-  market_10: ['Fortune_cookie'],
-  market_50: ['Lucky_golden_clover'],
-  golden_10: ['Golden_cookie_sound'],
-  golden_50: ['Golden_switch'],
-  bakery_named: ['Fortune_you'],
-  milk_1000: ['Zebra_milk'],
-  one_of_each: ['You'],
-  single_50: ['Grandmas'],
-  single_100: ['Chancemaker'],
-  single_200: ['Cortex_Baker'],
+  baked_100: ['CookieProduction2'],
+  baked_1k: ['CookieProduction5'],
+  baked_10k: ['CookieProduction10'],
+  baked_100k: ['CookieProduction20'],
+  baked_1m: ['CookieProduction40'],
+  spend_10k: ['Finance_headquarters'],
+  spend_100k: ['International_exchange'],
+  spend_1m: ['Palace_of_Greed'],
+  discover_10: ['Botany_enthusiast'],
+  discover_25: ['Keeper_of_the_conservatory'],
+  discover_50: ['Polymath'],
+  discover_all: ['Magnum_Opus'],
+  cps_100: ['CookieProduction6'],
+  cps_10k: ['CookieProduction16'],
+  cps_1m: ['CookieProduction30'],
+  cps_1b: ['CookieProduction48'],
+  market_10: ['Paid_in_full'],
+  market_50: ['New_world_order'],
+  golden_10: ['Praise_the_sun'],
+  golden_50: ['All_the_stars_in_heaven'],
+  bakery_named: ['Labor_of_love'],
+  milk_1000: ['And_beyond'],
+  one_of_each: ['Ecumenopolis'],
+  single_50: ['Builder'],
+  single_100: ['Engineer'],
+  single_200: ['Architect'],
+  architect: ['Architect'],
+  builder: ['Builder'],
+  engineer: ['Engineer'],
+  augmenter: ['Augmenter'],
+  enhancer: ['Enhancer'],
 };
 
 const TIER_UNLOCKS = {
@@ -344,11 +372,11 @@ const ACHIEVEMENTS = [
   { id: 'spend_10k', name: 'Retail Therapy', desc: 'Spend 10,000 cookies.', check: (u) => u.cookiesSpent >= 10000 },
   { id: 'spend_100k', name: 'Cookie Investor', desc: 'Spend 100,000 cookies.', check: (u) => u.cookiesSpent >= 100000 },
   { id: 'spend_1m', name: 'Big Dough Energy', desc: 'Spend 1,000,000 cookies.', check: (u) => u.cookiesSpent >= 1000000 },
-  { id: 'rare_first', name: 'Blue Crumb', desc: 'Bake your first Rare item.', check: (u) => !!u.firstTierBakes.rare },
-  { id: 'epic_first', name: 'Purple Bite', desc: 'Bake your first Epic item.', check: (u) => !!u.firstTierBakes.epic },
-  { id: 'legendary_first', name: 'Golden Crunch', desc: 'Bake your first Legendary item.', check: (u) => !!u.firstTierBakes.legendary },
-  { id: 'mythic_first', name: 'Red Revelation', desc: 'Bake your first Mythic item.', check: (u) => !!u.firstTierBakes.mythic },
-  { id: 'celestial_first', name: 'Star Oven', desc: 'Bake your first Celestial item.', check: (u) => !!u.firstTierBakes.celestial },
+  { id: 'architect', name: 'Architect', desc: 'Own at least 20 total buildings.', check: (u) => getTotalBuildingsOwned(u) >= 20 },
+  { id: 'builder', name: 'Builder', desc: 'Own at least 50 total buildings.', check: (u) => getTotalBuildingsOwned(u) >= 50 },
+  { id: 'engineer', name: 'Engineer', desc: 'Own at least 100 total buildings.', check: (u) => getTotalBuildingsOwned(u) >= 100 },
+  { id: 'augmenter', name: 'Augmenter', desc: 'Purchase 5 upgrades.', check: (u) => (u.upgrades ?? []).length >= 5 },
+  { id: 'enhancer', name: 'Enhancer', desc: 'Purchase 10 upgrades.', check: (u) => (u.upgrades ?? []).length >= 10 },
   { id: 'discover_10', name: 'Sampler Plate', desc: 'Discover 10 unique items.', check: (u) => u.uniqueItemsDiscovered.length >= 10 },
   { id: 'discover_25', name: 'Collector-ish', desc: 'Discover 25 unique items.', check: (u) => u.uniqueItemsDiscovered.length >= 25 },
   { id: 'discover_50', name: 'Museum Curator', desc: 'Discover 50 unique items.', check: (u) => u.uniqueItemsDiscovered.length >= 50 },
@@ -368,6 +396,8 @@ const ACHIEVEMENTS = [
   { id: 'single_100', name: 'Monolith Bakery', desc: 'Own 100 of one building type.', check: (u) => BUILDINGS.some((b) => (u.buildings[b.id] ?? 0) >= 100) },
   { id: 'single_200', name: 'One Trick Tyrant', desc: 'Own 200 of one building type.', check: (u) => BUILDINGS.some((b) => (u.buildings[b.id] ?? 0) >= 200) },
 ];
+
+const ACHIEVEMENT_IDS = new Set(ACHIEVEMENTS.map((achievement) => achievement.id));
 
 function buildItem(name, rarity, baseValue, flavorText, image = null) {
   const id = name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
@@ -650,6 +680,14 @@ function getAchievementEmoji(achievementOrId, guild) {
   return customEmoji ?? getCookieFallbackEmoji(guild);
 }
 
+function getEarnedAchievementIds(user) {
+  return (user.milestones ?? []).filter((id) => ACHIEVEMENT_IDS.has(id));
+}
+
+function getEarnedAchievementCount(user) {
+  return new Set(getEarnedAchievementIds(user)).size;
+}
+
 function computeCps(user, nowTs = Date.now()) {
   let buildingCps = 0;
   for (const building of BUILDINGS) {
@@ -675,7 +713,7 @@ function computeCps(user, nowTs = Date.now()) {
     if (upgrade?.globalMultiplier) globalMultiplier *= upgrade.globalMultiplier;
   }
 
-  const milkLevel = user.milestones.length * 4;
+  const milkLevel = getEarnedAchievementCount(user) * 4;
   user.milkLevel = milkLevel;
   let kittenBonus = 0;
   for (const upgradeId of user.upgrades) {
@@ -858,6 +896,14 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
   const totalItems = ITEMS.length;
   const discovered = user.uniqueItemsDiscovered.length;
   const titlePrefix = `${user.bakeryEmoji ?? '🍪'} ${user.bakeryName ?? 'Unnamed Bakery'}`;
+  const cookieEmoji = getCookieFallbackEmoji(guild);
+  const cpsEmoji = getCustomGuildEmoji(guild, ['CookieProduction10', 'CookieProduction5']) ?? '⚙️';
+  const collectionEmoji = getCustomGuildEmoji(guild, ['Polymath', 'Cookie_Clicker']) ?? '📚';
+  const buildingEmoji = getCustomGuildEmoji(guild, ['Builder', 'Factory_new']) ?? '🏗️';
+  const achievementEmoji = getCustomGuildEmoji(guild, ['Cookie_Clicker', 'Builder']) ?? '🏆';
+  const homeMilkType = getMilkType(user.milkLevel);
+  const homeMilkKey = homeMilkType.toLowerCase().replace(/\s*milk$/, '');
+  const homeMilkEmoji = getCustomGuildEmoji(guild, MILK_EMOJI_ALIASES[homeMilkKey] ?? []) ?? '🥛';
 
   const embed = new EmbedBuilder()
     .setColor(getThemeColor(user.bakeryTheme))
@@ -874,12 +920,12 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
   if (view === 'home') {
     embed.setDescription('The ovens roar. The crumbs whisper. The economy expands.');
     embed.addFields(
-      { name: '🍪 Cookies', value: `**${toCookieNumber(user.cookies)}**`, inline: true },
-      { name: '⚙️ CPS', value: `**${toCookieNumber(cps)}**`, inline: true },
-      { name: '🥛 Milk', value: `**${toCookieNumber(user.milkLevel)}%** (${getMilkType(user.milkLevel)})`, inline: true },
-      { name: '📚 Collection', value: `Discovered: **${discovered}/${totalItems}**`, inline: true },
-      { name: '🏗️ Buildings', value: `Owned: **${toCookieNumber(getTotalBuildingsOwned(user))}**`, inline: true },
-      { name: '🏆 Achievements', value: `**${user.milestones.length}/${ACHIEVEMENTS.length}**`, inline: true },
+      { name: `${cookieEmoji} Cookies`, value: `**${toCookieNumber(user.cookies)}**`, inline: true },
+      { name: `${cpsEmoji} CPS`, value: `**${toCookieNumber(cps)}**`, inline: true },
+      { name: `${homeMilkEmoji} Milk`, value: `**${toCookieNumber(user.milkLevel)}%** (${homeMilkType})`, inline: true },
+      { name: `${collectionEmoji} Collection`, value: `Discovered: **${discovered}/${totalItems}**`, inline: true },
+      { name: `${buildingEmoji} Buildings`, value: `Owned: **${toCookieNumber(getTotalBuildingsOwned(user))}**`, inline: true },
+      { name: `${achievementEmoji} Achievements`, value: `**${getEarnedAchievementCount(user)}/${ACHIEVEMENTS.length}**`, inline: true },
     );
   }
 
@@ -937,22 +983,39 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     embed.setDescription(`Current milk: ${milkEmoji} **${currentType}**`);
     embed.addFields(
       { name: 'Milk level', value: `${toCookieNumber(user.milkLevel)}%`, inline: true },
-      { name: 'Achievements', value: `${user.milestones.length}/${ACHIEVEMENTS.length}`, inline: true },
+      { name: 'Achievements', value: `${getEarnedAchievementCount(user)}/${ACHIEVEMENTS.length}`, inline: true },
       { name: 'Progress', value: progressBar(user.milkLevel - start, Math.max(1, target - start)) },
     );
     if (nextType) embed.addFields({ name: 'Next milk type', value: `${nextType.type} at ${nextType.pct}%` });
   }
 
   if (view === 'achievements') {
-    const earned = new Set(user.milestones);
-    const lastEarned = user.milestones.length
-      ? ACHIEVEMENTS.find((a) => a.id === user.milestones[user.milestones.length - 1])
+    const earnedIds = getEarnedAchievementIds(user);
+    const earned = new Set(earnedIds);
+    const lastEarned = earnedIds.length
+      ? ACHIEVEMENTS.find((a) => a.id === earnedIds[earnedIds.length - 1])
       : null;
     const spotlight = lastEarned ?? ACHIEVEMENTS.find((a) => !earned.has(a.id)) ?? ACHIEVEMENTS[0];
     embed.setDescription('Milestones that feed your glorious milk pipeline.');
-    const lines = ACHIEVEMENTS.slice(0, 20).map((a) => `${earned.has(a.id) ? '✅' : '⬜'} ${getAchievementEmoji(a, guild)} **${a.name}** — ${a.desc}`);
+    const lines = ACHIEVEMENTS.slice(0, 20).map((a) => `${earned.has(a.id) ? '🔓' : '🔒'} ${getAchievementEmoji(a, guild)} **${a.name}** — ${a.desc}`);
     embed.addFields({ name: 'Achievement board', value: lines.join('\n').slice(0, 1024) });
     embed.addFields({ name: 'Progress', value: `${earned.size}/${ACHIEVEMENTS.length}` });
+  }
+
+  if (view === 'codex') {
+    const pageSize = 4;
+    const pageCount = Math.max(1, Math.ceil(ITEMS.length / pageSize));
+    const page = Math.max(0, Math.min(Number.isFinite(options.page) ? options.page : 0, pageCount - 1));
+    const pageEntries = ITEMS.slice(page * pageSize, page * pageSize + pageSize);
+    embed.setDescription(pageEntries
+      .map((item) => {
+        const price = item.baseValue * RARITY[item.rarity].valueMultiplier;
+        return `${getItemEmoji(item, guild)} **${item.name}**\n\`${item.id}\`\n${item.flavorText}\nPrice: **${toCookieNumber(price)}**`;
+      })
+      .join('\n\n')
+      .slice(0, 4096));
+    embed.addFields({ name: 'Catalog progress', value: `Showing ${page * pageSize + 1}-${Math.min((page + 1) * pageSize, ITEMS.length)} of ${ITEMS.length}` });
+    embed.addFields({ name: 'Page', value: `${page + 1}/${pageCount}`, inline: true });
   }
 
   if (view === 'buildings') {
@@ -1010,6 +1073,11 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
       new ButtonBuilder().setCustomId('bakery_open_marketplace').setLabel('Marketplace').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId('bakery_set_name').setLabel('Set Bakery Name').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId('bakery_set_listing').setLabel('List Item').setStyle(ButtonStyle.Secondary),
+    ),
+  );
+  rows.push(
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('bakery_nav:codex').setLabel('Cookie Codex').setStyle(ButtonStyle.Secondary),
     ),
   );
 
@@ -1081,6 +1149,26 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
     rows.push(
       new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`bakery_upgrade_buy:${selectedUpgrade}`).setLabel('Buy Upgrade').setStyle(ButtonStyle.Success),
+      ),
+    );
+  }
+
+  if (view === 'codex') {
+    const pageSize = 4;
+    const pageCount = Math.max(1, Math.ceil(ITEMS.length / pageSize));
+    const page = Math.max(0, Math.min(Number.isFinite(options.page) ? options.page : 0, pageCount - 1));
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`bakery_codex_prev:${page}`)
+          .setLabel('Previous')
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(page <= 0),
+        new ButtonBuilder()
+          .setCustomId(`bakery_codex_next:${page}`)
+          .setLabel('Next')
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(page >= pageCount - 1),
       ),
     );
   }

@@ -102,6 +102,15 @@ module.exports = {
         return interaction.update({ embeds: [embed], components });
       }
 
+      if (interaction.customId.startsWith('bakery_codex_prev:') || interaction.customId.startsWith('bakery_codex_next:')) {
+        const currentPage = Number.parseInt(interaction.customId.split(':')[1], 10) || 0;
+        const targetPage = interaction.customId.startsWith('bakery_codex_prev:') ? currentPage - 1 : currentPage + 1;
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'codex', { page: targetPage });
+        const components = economy.buildDashboardComponents(snapshot.user, 'codex', { page: targetPage, guild: interaction.guild });
+        return interaction.update({ embeds: [embed], components });
+      }
+
       if (interaction.customId === 'bakery_open_marketplace') {
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const market = economy.getMarketplaceEmbed(interaction.guild, snapshot.guildState, snapshot.user, 0, 'all');
