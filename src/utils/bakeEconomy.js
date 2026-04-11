@@ -483,7 +483,7 @@ function getRarityEmoji(rarityId, guild) {
   const rarity = RARITY[rarityId];
   if (!rarity) return getCookieFallbackEmoji(guild);
   const customEmoji = getCustomGuildEmoji(guild, RARITY_EMOJI_CANDIDATES[rarityId] ?? [rarityId]);
-  return customEmoji ?? rarity.emoji ?? getCookieFallbackEmoji(guild);
+  return customEmoji ?? rarity.emoji;
 }
 
 function getItemEmoji(itemOrId, guild) {
