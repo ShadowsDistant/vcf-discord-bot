@@ -20,109 +20,7 @@ const PASSIVE_CAP_MS = 24 * 60 * 60 * 1000;
 const MARKET_LISTING_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const MARKET_FEE_RATE = 0.05;
 const BASE_GOLDEN_CHANCE = 0.03;
-const FANDOM_FILE_BASE = 'https://cookieclicker.fandom.com/wiki/Special:FilePath/';
-
-function cookieClickerImage(fileName) {
-  if (
-    fileName.includes('..')
-    || fileName.startsWith('/')
-    || fileName.startsWith('\\')
-    || fileName.includes('://')
-    || !/^[A-Za-z0-9 _.-]+\.(png|gif|jpe?g|webp)$/i.test(fileName)
-  ) {
-    return `${FANDOM_FILE_BASE}Plain_cookies.png`;
-  }
-  return `${FANDOM_FILE_BASE}${encodeURIComponent(fileName)}`;
-}
-
-const DEFAULT_COOKIE_IMAGE = cookieClickerImage('Plain_cookies.png');
-const DEFAULT_UPGRADE_IMAGE = cookieClickerImage('Plain_cursor.png');
-
-const BUILDING_IMAGES = {
-  cursor: cookieClickerImage('Cursor_64px.png'),
-  grandma: cookieClickerImage('Grandmas.gif'),
-  farm: cookieClickerImage('Farm.png'),
-  mine: cookieClickerImage('Mine_new.png'),
-  factory: cookieClickerImage('Factory_new.png'),
-  bank: cookieClickerImage('Bank.png'),
-  temple: cookieClickerImage('Temple.png'),
-  wizardTower: cookieClickerImage('Wizardtower.png'),
-  shipment: cookieClickerImage('Shipment_new.png'),
-  alchemyLab: cookieClickerImage('Alchemylab.png'),
-  portal: cookieClickerImage('Portal_new.png'),
-  timeMachine: cookieClickerImage('Timemachine_new.png'),
-  antimatterCondenser: cookieClickerImage('Antim.png'),
-  prism: cookieClickerImage('Prism.png'),
-  chancemaker: cookieClickerImage('Chancemaker.png'),
-  fractalEngine: cookieClickerImage('Fractal_engine.png'),
-  javascriptConsole: cookieClickerImage('Javascript_console.png'),
-  idleverse: cookieClickerImage('Idleverse.gif'),
-  cortexBaker: cookieClickerImage('Cortex_Baker.gif'),
-};
-
-const COOKIE_IMAGE_BY_NAME = {
-  'Plain Cookie': cookieClickerImage('Plain_cookies.png'),
-  'Chocolate Chip Cookie': cookieClickerImage('Chocolate_chip_cookie.png'),
-  'Oatmeal Cookie': cookieClickerImage('Oatmeal_raisin_cookies.png'),
-  'Sugar Cookie': cookieClickerImage('Sugar_cookies.png'),
-  'Butter Cookie': cookieClickerImage('Butter_cookies.png'),
-  Shortbread: cookieClickerImage('Shortbread_biscuits.png'),
-  Gingersnap: cookieClickerImage('Gingersnaps.png'),
-  Snickerdoodle: cookieClickerImage('Snickerdoodles.png'),
-  'Peanut Butter Cookie': cookieClickerImage('Peanut_butter_cookies.png'),
-  'White Chocolate Macadamia': cookieClickerImage('White_chocolate_macadamia_nut_cookies.png'),
-  Macaron: cookieClickerImage('Macaroons.png'),
-  Stroopwafel: cookieClickerImage('Stroopwafels.png'),
-  Biscotti: cookieClickerImage('Biscotti.png'),
-  Madeleine: cookieClickerImage('Madeleines.png'),
-};
-
-const MILK_IMAGES = {
-  plain: cookieClickerImage('MilkPlain.png'),
-  chocolate: cookieClickerImage('MilkChocolate.png'),
-  strawberry: cookieClickerImage('MilkStrawberry.png'),
-  vanilla: cookieClickerImage('MilkVanilla.png'),
-  honey: cookieClickerImage('MilkHoney.png'),
-  caramel: cookieClickerImage('MilkCaramel.png'),
-  banana: cookieClickerImage('MilkBanana.png'),
-  lime: cookieClickerImage('MilkLime.png'),
-  blueberry: cookieClickerImage('MilkBlueberry.png'),
-  zebra: cookieClickerImage('MilkZebra.png'),
-};
-
-const ACHIEVEMENT_IMAGES = {
-  baked_100: cookieClickerImage('Plain_cookies.png'),
-  baked_1k: cookieClickerImage('Chocolate_chip_cookie.png'),
-  baked_10k: cookieClickerImage('Oatmeal_raisin_cookies.png'),
-  baked_100k: cookieClickerImage('Butter_cookies.png'),
-  baked_1m: cookieClickerImage('Shortbread_biscuits.png'),
-  spend_10k: cookieClickerImage('Bank.png'),
-  spend_100k: cookieClickerImage('Bank.png'),
-  spend_1m: cookieClickerImage('Bank.png'),
-  rare_first: cookieClickerImage('Prism.png'),
-  epic_first: cookieClickerImage('Portal_new.png'),
-  legendary_first: cookieClickerImage('Timemachine_new.png'),
-  mythic_first: cookieClickerImage('Idleverse.gif'),
-  celestial_first: cookieClickerImage('Cortex_Baker.gif'),
-  discover_10: cookieClickerImage('Javascript_console.png'),
-  discover_25: cookieClickerImage('Fractal_engine.png'),
-  discover_50: cookieClickerImage('Idleverse.gif'),
-  discover_all: cookieClickerImage('Cortex_Baker.gif'),
-  cps_100: cookieClickerImage('Factory_new.png'),
-  cps_10k: cookieClickerImage('Wizardtower.png'),
-  cps_1m: cookieClickerImage('Portal_new.png'),
-  cps_1b: cookieClickerImage('Antim.png'),
-  market_10: cookieClickerImage('Bank.png'),
-  market_50: cookieClickerImage('Bank.png'),
-  golden_10: cookieClickerImage('Prism.png'),
-  golden_50: cookieClickerImage('Chancemaker.png'),
-  bakery_named: cookieClickerImage('Factory_new.png'),
-  milk_1000: cookieClickerImage('MilkZebra.png'),
-  one_of_each: cookieClickerImage('Farm.png'),
-  single_50: cookieClickerImage('Factory_new.png'),
-  single_100: cookieClickerImage('Shipment_new.png'),
-  single_200: cookieClickerImage('Cortex_Baker.gif'),
-};
+const DEFAULT_COOKIE_IMAGE = null;
 
 const RARITY = {
   common: { id: 'common', name: 'Common', weight: 50, valueMultiplier: 1, color: 0xa3a3a3, emoji: '🍪' },
@@ -145,6 +43,122 @@ const RARITY_EMOJI_CANDIDATES = {
   mythic: ['mythic', 'cookie_mythic', 'bake_mythic', 'cc_mythic'],
   celestial: ['celestial', 'cookie_celestial', 'bake_celestial', 'cc_celestial'],
   secret: ['secret', 'cookie_secret', 'bake_secret', 'cc_secret'],
+};
+
+function normalizeEmojiName(value) {
+  return String(value ?? '').toLowerCase().replace(/[^a-z0-9_]/g, '');
+}
+
+const STATIC_CUSTOM_EMOJIS_BY_CATEGORY = {
+  upgrades: new Map(),
+  cookies: new Map([
+    ['Plain_cookies', '1492472701909205063'],
+    ['Chocolate_chip_cookie', '1492471981273124915'],
+    ['Oatmeal_raisin_cookies', '1492472677468737636'],
+    ['Sugar_cookies', '1492472768304906291'],
+    ['Butter_cookies', '1492472856389484636'],
+    ['Shortbread_biscuits', '1492472742740623540'],
+    ['Gingersnaps', '1492472592014246030'],
+    ['Snickerdoodles', '1492472751913570394'],
+    ['Peanut_butter_cookies', '1492472690412490773'],
+    ['White_chocolate_macadamia_nut_cookies', '1492472801116815500'],
+    ['Macaroons', '1492472633869209600'],
+    ['Stroopwafels', '1492472766643961966'],
+    ['Biscotti', '1492472834679767130'],
+    ['Madeleines', '1492472634921975970'],
+    ['Graham_crackers', '1492472598486061086'],
+  ].map(([name, id]) => [normalizeEmojiName(name), { name, id }])),
+  goldenCookies: new Map(),
+  milk: new Map([
+    ['Plain_milk', '1492472318126067722'],
+    ['Banana_milk', '1492473599095865374'],
+    ['Blueberry_milk', '1492473601427902557'],
+    ['Caramel_milk', '1492473602669281381'],
+    ['Chocolate_milk', '1492473605882122411'],
+    ['Honey_milk', '1492473628690874408'],
+    ['Lime_milk', '1492473652610859140'],
+    ['Strawberry_milk', '1492473728066650272'],
+    ['Vanilla_milk', '1492473730373517484'],
+    ['Zebra_milk', '1492473732114026607'],
+  ].map(([name, id]) => [normalizeEmojiName(name), { name, id }])),
+  achievements: new Map(),
+  buildings: new Map([
+    ['Alchemylab', '1492475165076881539'],
+    ['Antim', '1492475165941039155'],
+    ['Bank', '1492475168793038999'],
+    ['Chancemaker', '1492475170336805016'],
+    ['Cortex_Baker', '1492475171720790096'],
+    ['Cursor_64px', '1492475174136840223'],
+    ['Factory_new', '1492475175906840757'],
+    ['Farm', '1492475177215201320'],
+    ['Fractal_engine', '1492475181128487035'],
+    ['Grandmas', '1492475182613528606'],
+    ['Idleverse', '1492475186610438176'],
+    ['Javascript_console', '1492475187894161449'],
+    ['Mine_new', '1492475192365289513'],
+    ['Portal_new', '1492475193619386400'],
+    ['Prism', '1492475194718159000'],
+    ['Shipment_new', '1492475197544988722'],
+    ['Temple', '1492475198430253146'],
+    ['Timemachine_new', '1492475203987574965'],
+    ['Wizardtower', '1492475206785044480'],
+    ['You', '1492475208261439549'],
+  ].map(([name, id]) => [normalizeEmojiName(name), { name, id }])),
+};
+
+const STATIC_EMOJI_CATEGORY_PRIORITY = ['upgrades', 'cookies', 'goldenCookies', 'milk', 'achievements', 'buildings'];
+
+const BUILDING_EMOJI_ALIASES = {
+  cursor: ['Cursor_64px'],
+  grandma: ['Grandmas'],
+  farm: ['Farm'],
+  mine: ['Mine_new'],
+  factory: ['Factory_new'],
+  bank: ['Bank'],
+  temple: ['Temple'],
+  wizardTower: ['Wizardtower'],
+  shipment: ['Shipment_new'],
+  alchemyLab: ['Alchemylab'],
+  portal: ['Portal_new'],
+  timeMachine: ['Timemachine_new'],
+  antimatterCondenser: ['Antim'],
+  prism: ['Prism'],
+  chancemaker: ['Chancemaker'],
+  fractalEngine: ['Fractal_engine'],
+  javascriptConsole: ['Javascript_console'],
+  idleverse: ['Idleverse'],
+  cortexBaker: ['Cortex_Baker'],
+};
+
+const ITEM_EMOJI_ALIASES = {
+  plain_cookie: ['Plain_cookies'],
+  chocolate_chip_cookie: ['Chocolate_chip_cookie'],
+  oatmeal_cookie: ['Oatmeal_raisin_cookies'],
+  sugar_cookie: ['Sugar_cookies'],
+  butter_cookie: ['Butter_cookies'],
+  shortbread: ['Shortbread_biscuits'],
+  gingersnap: ['Gingersnaps'],
+  snickerdoodle: ['Snickerdoodles'],
+  peanut_butter_cookie: ['Peanut_butter_cookies'],
+  white_chocolate_macadamia: ['White_chocolate_macadamia_nut_cookies'],
+  macaron: ['Macaroons'],
+  stroopwafel: ['Stroopwafels'],
+  biscotti: ['Biscotti'],
+  madeleine: ['Madeleines'],
+  graham_cracker: ['Graham_crackers'],
+};
+
+const MILK_EMOJI_ALIASES = {
+  plain: ['Plain_milk'],
+  chocolate: ['Chocolate_milk'],
+  strawberry: ['Strawberry_milk'],
+  vanilla: ['Vanilla_milk'],
+  honey: ['Honey_milk'],
+  caramel: ['Caramel_milk'],
+  banana: ['Banana_milk'],
+  lime: ['Lime_milk'],
+  blueberry: ['Blueberry_milk'],
+  zebra: ['Zebra_milk'],
 };
 
 const TIER_UNLOCKS = {
@@ -254,7 +268,7 @@ function buildItem(name, rarity, baseValue, flavorText, image = null) {
     rarity,
     baseValue,
     flavorText,
-    image: image ?? COOKIE_IMAGE_BY_NAME[name] ?? DEFAULT_COOKIE_IMAGE,
+    image: image ?? DEFAULT_COOKIE_IMAGE,
   };
 }
 
@@ -460,8 +474,18 @@ function getMilkType(milkPct) {
   return current;
 }
 
-function normalizeEmojiName(value) {
-  return String(value ?? '').toLowerCase().replace(/[^a-z0-9_]/g, '');
+function getStaticCustomEmoji(candidates = []) {
+  const normalizedCandidates = candidates.map(normalizeEmojiName).filter(Boolean);
+  if (normalizedCandidates.length === 0) return null;
+  for (const category of STATIC_EMOJI_CATEGORY_PRIORITY) {
+    const categoryMap = STATIC_CUSTOM_EMOJIS_BY_CATEGORY[category];
+    if (!categoryMap) continue;
+    for (const candidate of normalizedCandidates) {
+      const match = categoryMap.get(candidate);
+      if (match) return match;
+    }
+  }
+  return null;
 }
 
 function getCustomGuildEmoji(guild, candidates = []) {
@@ -471,12 +495,14 @@ function getCustomGuildEmoji(guild, candidates = []) {
   const normalizedCandidates = candidates.map(normalizeEmojiName).filter(Boolean);
   if (normalizedCandidates.length === 0) return null;
   const matched = normalizedCandidates.map((name) => normalizedByName.get(name)).find(Boolean);
-  if (!matched) return null;
-  return `<${matched.animated ? 'a' : ''}:${matched.name}:${matched.id}>`;
+  if (matched) return `<${matched.animated ? 'a' : ''}:${matched.name}:${matched.id}>`;
+  const staticMatch = getStaticCustomEmoji(normalizedCandidates);
+  if (!staticMatch) return null;
+  return `<:${staticMatch.name}:${staticMatch.id}>`;
 }
 
 function getCookieFallbackEmoji(guild) {
-  return getCustomGuildEmoji(guild, ['plain_cookie', 'cookie', 'cookies', 'cc_cookie']) ?? '🍪';
+  return getCustomGuildEmoji(guild, ['plain_cookie', 'plain_cookies', 'cookie', 'cookies', 'cc_cookie']) ?? '🍪';
 }
 
 function getRarityEmoji(rarityId, guild) {
@@ -495,37 +521,9 @@ function getItemEmoji(itemOrId, guild) {
     `cookie_${item.id}`,
     `${item.id}_cookie`,
     `cc_${item.id}`,
+    ...(ITEM_EMOJI_ALIASES[item.id] ?? []),
   ]);
   return customEmoji ?? getRarityEmoji(item.rarity, guild);
-}
-
-function getMilkImage(milkType) {
-  const key = milkType.toLowerCase().replace(/\s*milk$/, '');
-  return MILK_IMAGES[key] ?? MILK_IMAGES.plain;
-}
-
-function getCookieImage(itemOrId) {
-  if (!itemOrId) return DEFAULT_COOKIE_IMAGE;
-  if (typeof itemOrId === 'object' && itemOrId.image) return itemOrId.image;
-  if (typeof itemOrId === 'string') {
-    const item = ITEM_MAP.get(itemOrId);
-    if (item?.image) return item.image;
-    return COOKIE_IMAGE_BY_NAME[itemOrId] ?? DEFAULT_COOKIE_IMAGE;
-  }
-  return DEFAULT_COOKIE_IMAGE;
-}
-
-function getBuildingImage(buildingId) {
-  return BUILDING_IMAGES[buildingId] ?? DEFAULT_UPGRADE_IMAGE;
-}
-
-function getUpgradeImage(upgradeId) {
-  const upgrade = UPGRADE_MAP.get(upgradeId);
-  return getBuildingImage(upgrade?.buildingId);
-}
-
-function getAchievementImage(achievementId) {
-  return ACHIEVEMENT_IMAGES[achievementId] ?? DEFAULT_COOKIE_IMAGE;
 }
 
 function computeCps(user, nowTs = Date.now()) {
@@ -751,7 +749,6 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
 
   if (view === 'home') {
     embed.setDescription('The ovens roar. The crumbs whisper. The economy expands.');
-    embed.setThumbnail(getCookieImage(user.rarestItemId));
     embed.addFields(
       { name: '🍪 Cookies', value: `**${toCookieNumber(user.cookies)}**`, inline: true },
       { name: '⚙️ CPS', value: `**${toCookieNumber(cps)}**`, inline: true },
@@ -773,7 +770,6 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
       { name: 'Marketplace tx', value: `${user.marketplaceBuys} buys • ${user.marketplaceSells} sells`, inline: true },
     );
     const rarest = user.rarestItemId ? ITEM_MAP.get(user.rarestItemId)?.name ?? 'Unknown' : 'None';
-    embed.setThumbnail(getCookieImage(user.rarestItemId));
     embed.addFields({ name: 'Rarest baked item', value: rarest });
     if ((user.transactionHistory ?? []).length) {
       const history = user.transactionHistory.slice(-5).reverse().map((tx) =>
@@ -796,7 +792,6 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     } else {
       const page = Math.max(0, Math.min(options.page ?? 0, Math.floor((entries.length - 1) / 8)));
       const pageEntries = entries.slice(page * 8, page * 8 + 8);
-      embed.setThumbnail(getCookieImage(pageEntries[0]?.item));
       embed.setDescription(pageEntries
         .map((entry) => `${getItemEmoji(entry.item, guild)} **${entry.item.name}** x${entry.qty} • value ${toCookieNumber(entry.item.baseValue * RARITY[entry.item.rarity].valueMultiplier)}`)
         .join('\n'));
@@ -813,8 +808,9 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     const nextType = MILK_TYPES.find((type) => type.pct > user.milkLevel);
     const start = [...MILK_TYPES].reverse().find((type) => type.pct <= user.milkLevel)?.pct ?? 0;
     const target = nextType?.pct ?? (user.milkLevel || 1);
-    embed.setDescription(`Current milk: **${currentType}**`);
-    embed.setThumbnail(getMilkImage(currentType));
+    const milkKey = currentType.toLowerCase().replace(/\s*milk$/, '');
+    const milkEmoji = getCustomGuildEmoji(guild, MILK_EMOJI_ALIASES[milkKey] ?? []) ?? '🥛';
+    embed.setDescription(`Current milk: ${milkEmoji} **${currentType}**`);
     embed.addFields(
       { name: 'Milk level', value: `${toCookieNumber(user.milkLevel)}%`, inline: true },
       { name: 'Achievements', value: `${user.milestones.length}/${ACHIEVEMENTS.length}`, inline: true },
@@ -830,7 +826,6 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
       : null;
     const spotlight = lastEarned ?? ACHIEVEMENTS.find((a) => !earned.has(a.id)) ?? ACHIEVEMENTS[0];
     embed.setDescription('Milestones that feed your glorious milk pipeline.');
-    embed.setThumbnail(getAchievementImage(spotlight.id));
     const lines = ACHIEVEMENTS.slice(0, 20).map((a) => `${earned.has(a.id) ? '✅' : getCookieFallbackEmoji(guild)} **${a.name}** — ${a.desc}`);
     embed.addFields({ name: 'Achievement board', value: lines.join('\n').slice(0, 1024) });
     embed.addFields({ name: 'Progress', value: `${earned.size}/${ACHIEVEMENTS.length}` });
@@ -839,8 +834,14 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
   if (view === 'buildings') {
     const selected = BUILDING_MAP.get(options.buildingId ?? 'cursor') ?? BUILDINGS[0];
     const owned = user.buildings[selected.id] ?? 0;
-    embed.setDescription(selected.description);
-    embed.setThumbnail(getBuildingImage(selected.id));
+    const buildingEmoji = getCustomGuildEmoji(guild, [
+      selected.id,
+      selected.name,
+      `building_${selected.id}`,
+      `cc_${selected.id}`,
+      ...(BUILDING_EMOJI_ALIASES[selected.id] ?? []),
+    ]) ?? getCookieFallbackEmoji(guild);
+    embed.setDescription(`${buildingEmoji} ${selected.description}`);
     embed.addFields(
       { name: 'Owned', value: toCookieNumber(owned), inline: true },
       { name: 'Base CPS', value: toCookieNumber(selected.baseCps), inline: true },
@@ -857,7 +858,6 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     const unlocked = selected.unlockedWhen(user);
     const purchased = user.upgrades.includes(selected.id);
     embed.setDescription(selected.effect);
-    embed.setThumbnail(getUpgradeImage(selected.id));
     embed.addFields(
       { name: 'Category', value: selected.category, inline: true },
       { name: 'Cost', value: toCookieNumber(selected.cost), inline: true },
@@ -924,7 +924,11 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
     const buildingMenu = new StringSelectMenuBuilder()
       .setCustomId('bakery_building_select')
       .setPlaceholder('Choose a building')
-      .addOptions(BUILDINGS.slice(0, 25).map((b) => ({ label: b.name, value: b.id, emoji: getCustomGuildEmoji(options.guild, [b.id, b.name, `building_${b.id}`, `cc_${b.id}`]) ?? getCookieFallbackEmoji(options.guild) })));
+      .addOptions(BUILDINGS.slice(0, 25).map((b) => ({
+        label: b.name,
+        value: b.id,
+        emoji: getCustomGuildEmoji(options.guild, [b.id, b.name, `building_${b.id}`, `cc_${b.id}`, ...(BUILDING_EMOJI_ALIASES[b.id] ?? [])]) ?? getCookieFallbackEmoji(options.guild),
+      })));
     rows.push(new ActionRowBuilder().addComponents(buildingMenu));
     const selectedBuilding = options.buildingId ?? 'cursor';
     rows.push(
@@ -945,7 +949,7 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
           .addOptions(UPGRADES.slice(0, 25).map((u) => ({
             label: u.name.slice(0, 100),
             value: u.id,
-            emoji: getCustomGuildEmoji(options.guild, [u.id, `upgrade_${u.id}`, `cc_${u.id}`, u.buildingId].filter(Boolean)) ?? getCookieFallbackEmoji(options.guild),
+            emoji: getCustomGuildEmoji(options.guild, [u.id, `upgrade_${u.id}`, `cc_${u.id}`, u.buildingId, ...(BUILDING_EMOJI_ALIASES[u.buildingId] ?? [])].filter(Boolean)) ?? getCookieFallbackEmoji(options.guild),
           }))),
       ),
     );
@@ -1486,7 +1490,6 @@ function buildItemInspectEmbed(guild, itemDetails) {
     .setColor(rarity.color)
     .setTitle(`${getItemEmoji(item, guild)} ${item.name}`)
     .setDescription(item.flavorText)
-    .setThumbnail(getCookieImage(item))
     .addFields(
       { name: 'Rarity', value: rarity.name, inline: true },
       { name: 'Base value', value: toCookieNumber(item.baseValue * rarity.valueMultiplier), inline: true },
@@ -1562,9 +1565,4 @@ module.exports = {
   getBuildingPrice,
   getRarityEmoji,
   getItemEmoji,
-  getAchievementImage,
-  getCookieImage,
-  getBuildingImage,
-  getMilkImage,
-  getUpgradeImage,
 };

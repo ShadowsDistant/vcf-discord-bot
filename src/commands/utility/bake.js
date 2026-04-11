@@ -39,11 +39,9 @@ module.exports = {
       });
     }
 
-    embed.setThumbnail(economy.getCookieImage(item.id));
     if (newlyEarned.length > 0) {
       embed.setAuthor({
-        name: 'New achievement unlocked!',
-        iconURL: economy.getAchievementImage(newlyEarned[0].id),
+        name: '🏆 New achievement unlocked!',
       });
       embed.addFields({
         name: '🏆 New achievements',
