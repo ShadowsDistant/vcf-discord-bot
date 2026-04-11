@@ -41,9 +41,13 @@ module.exports = {
 
     if (item.image) embed.setThumbnail(item.image);
     if (newlyEarned.length > 0) {
+      embed.setAuthor({
+        name: 'New achievement unlocked!',
+        iconURL: economy.getAchievementImage(newlyEarned[0].id),
+      });
       embed.addFields({
         name: '🏆 New achievements',
-        value: newlyEarned.slice(0, 4).map((achievement) => `• **${achievement.name}**`).join('\n'),
+        value: newlyEarned.slice(0, 4).map((achievement) => `• [🖼️](${economy.getAchievementImage(achievement.id)}) **${achievement.name}**`).join('\n'),
       });
     }
 
