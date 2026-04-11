@@ -2,7 +2,12 @@
 
 require('dotenv').config();
 
-const { REST, Routes } = require('discord.js');
+const {
+  REST,
+  Routes,
+  Client,
+  GatewayIntentBits,
+} = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 
@@ -94,25 +99,18 @@ if (missingBakeCommands.length > 0) {
 
 const rest = new REST().setToken(DISCORD_TOKEN);
 
-async function fetchAllBotGuilds() {
-  const guilds = [];
-  let before;
-
-  while (true) {
-    const batch = await rest.get(Routes.userGuilds(), {
-      query: {
-        limit: 200,
-        ...(before ? { before } : {}),
-      },
-    });
-
-    if (!Array.isArray(batch) || batch.length === 0) break;
-    guilds.push(...batch);
-    if (batch.length < 200) break;
-    before = batch[batch.length - 1]?.id;
+async function fetchBotGuilds() {
+  const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+  try {
+    await client.login(DISCORD_TOKEN);
+    await client.guilds.fetch();
+    return [...client.guilds.cache.values()].map((guild) => ({
+      id: guild.id,
+      name: guild.name,
+    }));
+  } finally {
+    client.destroy();
   }
-
-  return guilds;
 }
 
 async function clearLegacyGuildCommands() {
@@ -120,7 +118,7 @@ async function clearLegacyGuildCommands() {
 
   let guilds = [];
   try {
-    guilds = await fetchAllBotGuilds();
+    guilds = await fetchBotGuilds();
   } catch (err) {
     console.warn(`⚠️  Failed to fetch bot guild list for cleanup: ${err.message}`);
     return;
@@ -174,7 +172,11 @@ async function clearLegacyGuildCommands() {
 
     console.log(`\n✨  ${data.length} command(s) registered.`);
 
-    await clearLegacyGuildCommands();
+    try {
+      await clearLegacyGuildCommands();
+    } catch (cleanupErr) {
+      console.warn(`⚠️  Legacy guild command cleanup failed: ${cleanupErr.message}`);
+    }
   } catch (err) {
     console.error('❌  Deployment failed:', err);
     process.exit(1);
