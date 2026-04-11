@@ -236,7 +236,7 @@ module.exports = {
     if (outcome.specialCookieEvent) {
       await postSpecialCookieEvent(interaction.guild, interaction.user, outcome.specialCookieEvent);
     }
-    return null;
+    return;
   },
   buildBakeReply,
   buildBakeOutcome,
