@@ -409,6 +409,7 @@ const RANKS = [
 const RANK_INDEX = new Map(RANKS.map((rank, index) => [rank.id, index]));
 const GUIDE_SECTIONS = [
   { id: 'info', label: 'Game Info' },
+  { id: 'gifts', label: 'Gift Codex' },
   { id: 'cookies', label: 'Cookie Codex' },
   { id: 'achievements', label: 'Achievements Codex' },
   { id: 'buildings', label: 'Building Codex' },
@@ -650,7 +651,7 @@ const ITEMS = [
   buildItem('Perforated Millefeuille Cosmos', 'legendary', 130, 'Layered pastry at cosmic scale.'),
   buildItem('Highdefinition Cookie', 'legendary', 140, 'Rendered in impossible detail.'),
   buildItem('Flavor Text Cookie', 'legendary', 145, 'Self-aware and very descriptive.'),
-  buildItem('Burnt Cookie', 'legendary', 150, 'Charred but weirdly powerful.'),
+  buildItem('Burnt Cookie', 'common', 0, 'A charred reminder to watch the oven timer.'),
   buildItem('Birthday Cookie', 'legendary', 155, 'Confetti-grade sugar celebration.'),
   buildItem('Perfect Cookie', 'legendary', 160, 'Mathematically flawless.', null, 'perfectcookie'),
   buildItem('Gold Cookie', 'legendary', 170, 'Pure gilded snack economics.', null, 'goldcookie'),
@@ -1030,6 +1031,7 @@ function getButtonEmoji(guild, candidates = [], fallback = '🍪') {
 function getGuidePageCount(sectionId) {
   const pageSize = 4;
   if (sectionId === 'info') return 1;
+  if (sectionId === 'gifts') return Math.max(1, Math.ceil(REWARD_BOXES.length / pageSize));
   if (sectionId === 'cookies') return Math.max(1, Math.ceil(ITEMS.length / pageSize));
   if (sectionId === 'achievements') return Math.max(1, Math.ceil(ACHIEVEMENTS.length / pageSize));
   if (sectionId === 'buildings') return Math.max(1, Math.ceil(BUILDINGS.length / pageSize));
@@ -1448,17 +1450,49 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     const page = Math.max(0, Math.min(Number.isFinite(options.page) ? options.page : 0, pageCount - 1));
     if (section === 'info') {
       embed.setDescription([
-        'Welcome to the baking economy.',
+        'Welcome to the baking economy command system.',
         '',
-        '• Use `/bake` to gain cookies and discover items.',
-        '• Spend cookies on buildings for passive CPS.',
-        '• Buy upgrades to multiply CPS, baking power, and golden-cookie odds.',
-        '• Unlock achievements to raise milk level.',
-        '• Milk powers kitten upgrades for extra CPS scaling.',
-        '• Use inventory and marketplace to trade, consume, and profit.',
-        '• Ranks unlock as your totals grow and grant one-time rewards.',
+        'This mode is a long-term progression loop centered around active baking, passive growth, and inventory strategy.',
+        '',
+        '**Core command loop**',
+        '• Use `/bake` frequently to gain cookies and roll for item drops.',
+        '• Build income with buildings to increase passive CPS over time.',
+        '• Reinvest into upgrades to scale manual gains, CPS, and Golden Cookie power.',
+        '',
+        '**Progression systems**',
+        '• Unlock achievements to raise milk level and improve kitten-scaling potential.',
+        '• Advance through ranks by hitting milestones in total bakes, buildings, achievements, and lifetime output.',
+        '• Trigger and claim Golden Cookies for burst rewards, buffs, and tier shortcuts.',
+        '',
+        '**Inventory and economy**',
+        '• Inventory holds regular items and gift boxes you can open for bundled rewards.',
+        '• Sell items for liquid cookies, or consume them for temporary CPS boosts.',
+        '• Use marketplace listings to convert collection value into direct cookie profit.',
+        '',
+        '**Optimization tips**',
+        '• Keep your bake cadence steady to stack passive and active gains.',
+        '• Rotate spending between buildings and upgrades instead of overcommitting one side.',
+        '• Use codex sections to target item tiers, reward boxes, and unlock planning.',
       ].join('\n').slice(0, 4096));
       embed.addFields({ name: 'Overview', value: 'Core mechanics overview' });
+    } else if (section === 'gifts') {
+      const pageEntries = REWARD_BOXES.slice(page * pageSize, page * pageSize + pageSize);
+      embed.setDescription(pageEntries
+        .map((rewardBox) => {
+          const rewardLines = rewardBox.rewards
+            .map((reward) => {
+              const item = ITEM_MAP.get(reward.itemId);
+              if (!item) return null;
+              const quantityLabel = reward.min === reward.max ? `${reward.min}` : `${reward.min}-${reward.max}`;
+              return `• ${getItemEmoji(item, guild)} ${item.name} x${quantityLabel}`;
+            })
+            .filter(Boolean)
+            .join('\n');
+          return `${getRewardBoxEmoji(rewardBox, guild)} **${rewardBox.name}**\nPossible drops:\n${rewardLines || '• No configured drops.'}`;
+        })
+        .join('\n\n')
+        .slice(0, 4096));
+      embed.addFields({ name: 'Catalog progress', value: `Showing ${page * pageSize + 1}-${Math.min((page + 1) * pageSize, REWARD_BOXES.length)} of ${REWARD_BOXES.length}` });
     } else if (section === 'cookies') {
       const pageEntries = ITEMS.slice(page * pageSize, page * pageSize + pageSize);
       const chanceDate = new Date(nowTs);
@@ -1564,25 +1598,26 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
   const rows = [];
   rows.push(
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`bakery_nav:home`).setLabel('Home').setStyle(ButtonStyle.Primary).setEmoji(getButtonEmoji(options.guild, ['cookie', 'plain_cookie', 'plain_cookies'], '🏠')),
-      new ButtonBuilder().setCustomId(`bakery_nav:inventory`).setLabel('Inventory').setStyle(ButtonStyle.Secondary).setEmoji(getButtonEmoji(options.guild, ['Cookie_dough', 'cookie_dough', 'inventory'], '🎒')),
-      new ButtonBuilder().setCustomId(`bakery_nav:buildings`).setLabel('Buildings').setStyle(ButtonStyle.Secondary).setEmoji(getButtonEmoji(options.guild, ['Builder', 'Factory_new', 'building'], '🏗️')),
-      new ButtonBuilder().setCustomId(`bakery_nav:upgrades`).setLabel('Upgrades').setStyle(ButtonStyle.Secondary).setEmoji(getButtonEmoji(options.guild, ['Augmenter', 'Enhancer', 'upgrade'], '🧩')),
-      new ButtonBuilder().setCustomId(`bakery_nav:stats`).setLabel('Stats').setStyle(ButtonStyle.Secondary).setEmoji(getButtonEmoji(options.guild, ['CookieProduction10', 'stats'], '📊')),
+      new StringSelectMenuBuilder()
+        .setCustomId('bakery_nav_select')
+        .setPlaceholder('Navigate bakery dashboard')
+        .addOptions([
+          { label: 'Home', value: 'home', default: view === 'home', emoji: getButtonEmoji(options.guild, ['cookie', 'plain_cookie', 'plain_cookies'], '🏠') },
+          { label: 'Inventory', value: 'inventory', default: view === 'inventory', emoji: getButtonEmoji(options.guild, ['Cookie_dough', 'cookie_dough', 'inventory'], '🎒') },
+          { label: 'Buildings', value: 'buildings', default: view === 'buildings', emoji: getButtonEmoji(options.guild, ['Builder', 'Factory_new', 'building'], '🏗️') },
+          { label: 'Upgrades', value: 'upgrades', default: view === 'upgrades', emoji: getButtonEmoji(options.guild, ['Augmenter', 'Enhancer', 'upgrade'], '🧩') },
+          { label: 'Stats', value: 'stats', default: view === 'stats', emoji: getButtonEmoji(options.guild, ['CookieProduction10', 'stats'], '📊') },
+          { label: 'Milk', value: 'milk', default: view === 'milk', emoji: getButtonEmoji(options.guild, ['Plain_milk', 'milk'], '🥛') },
+          { label: 'Achievements', value: 'achievements', default: view === 'achievements', emoji: getButtonEmoji(options.guild, ['Cookie_Clicker', 'achievement'], '🏆') },
+          { label: 'Guide', value: 'guide', default: view === 'guide', emoji: getButtonEmoji(options.guild, ['Polymath', 'guide'], '📘') },
+        ]),
     ),
   );
   rows.push(
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`bakery_nav:milk`).setLabel('Milk').setStyle(ButtonStyle.Secondary).setEmoji(getButtonEmoji(options.guild, ['Plain_milk', 'milk'], '🥛')),
-      new ButtonBuilder().setCustomId(`bakery_nav:achievements`).setLabel('Achievements').setStyle(ButtonStyle.Secondary).setEmoji(getButtonEmoji(options.guild, ['Cookie_Clicker', 'achievement'], '🏆')),
       new ButtonBuilder().setCustomId('bakery_open_marketplace').setLabel('Marketplace').setStyle(ButtonStyle.Success).setEmoji(getButtonEmoji(options.guild, ['International_exchange', 'marketplace'], '🛒')),
       new ButtonBuilder().setCustomId('bakery_set_name').setLabel('Set Bakery Name').setStyle(ButtonStyle.Secondary).setEmoji(getButtonEmoji(options.guild, ['Labor_of_love', 'bakery'], '✏️')),
       new ButtonBuilder().setCustomId('bakery_set_listing').setLabel('List Item').setStyle(ButtonStyle.Secondary).setEmoji(getButtonEmoji(options.guild, ['Paid_in_full', 'listing'], '📦')),
-    ),
-  );
-  rows.push(
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('bakery_nav:guide').setLabel('Guide').setStyle(ButtonStyle.Secondary).setEmoji(getButtonEmoji(options.guild, ['Polymath', 'guide'], '📘')),
     ),
   );
 
@@ -1598,44 +1633,34 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
 
     const itemOptions = Object.entries(user.inventory)
       .filter(([, qty]) => qty > 0)
-      .slice(0, 25)
       .map(([itemId, qty]) => ({
         label: `${ITEM_MAP.get(itemId)?.name ?? itemId}`.slice(0, 100),
         description: `Owned: ${qty}`,
         value: itemId,
         emoji: getItemEmoji(itemId, options.guild),
       }));
-    if (itemOptions.length) {
-      rows.push(
-        new ActionRowBuilder().addComponents(
-          new StringSelectMenuBuilder()
-            .setCustomId('bakery_inventory_item')
-            .setPlaceholder('Pick an item to act on')
-            .addOptions(itemOptions),
-        ),
-      );
-    }
     const rewardGiftOptions = Object.entries(user.rewardGifts ?? {})
       .filter(([, qty]) => qty > 0)
-      .slice(0, 25)
       .map(([rewardBoxId, qty]) => {
         const rewardBox = REWARD_BOX_MAP.get(rewardBoxId);
         if (!rewardBox) return null;
         return {
-          label: rewardBox.name.slice(0, 100),
-          description: `Owned: ${qty}`.slice(0, 100),
-          value: rewardBox.id,
+          label: `🎁 ${rewardBox.name}`.slice(0, 100),
+          description: `Gift Box • Owned: ${qty}`.slice(0, 100),
+          value: `gift:${rewardBox.id}`,
           emoji: getRewardBoxEmoji(rewardBox, options.guild),
         };
       })
       .filter(Boolean);
-    if (rewardGiftOptions.length) {
+
+    const inventoryOptions = [...itemOptions, ...rewardGiftOptions].slice(0, 25);
+    if (inventoryOptions.length) {
       rows.push(
         new ActionRowBuilder().addComponents(
           new StringSelectMenuBuilder()
-            .setCustomId('bakery_reward_gift_select')
-            .setPlaceholder('Open a reward gift box')
-            .addOptions(rewardGiftOptions),
+            .setCustomId('bakery_inventory_item')
+            .setPlaceholder('Pick an inventory item or gift box')
+            .addOptions(inventoryOptions),
         ),
       );
     }
