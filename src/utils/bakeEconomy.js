@@ -24,6 +24,7 @@ const MAX_DISPLAYED_GIFT_BOXES = 6;
 const GIFT_BOX_OPTION_PREFIX = 'gift:';
 const BAKE_ADMIN_ROLE_ID = '1492510387579654205';
 const DEFAULT_COOKIE_IMAGE = null;
+const SPECIAL_COOKIE_IDS = ['perfectcookie', 'goldcookie', 'spoopiercookie'];
 
 const RARITY = {
   common: { id: 'common', name: 'Common', weight: 50, valueMultiplier: 1, color: 0xa3a3a3, emoji: '🍪' },
@@ -2397,6 +2398,39 @@ function isUserBakeBanned(guildId, userId) {
   return Boolean(user.bakeBanned);
 }
 
+function getSpecialCookieLeaderboard(guildId) {
+  const data = readState();
+  const guildState = getGuildState(data, guildId);
+  const users = Object.entries(guildState.users ?? {});
+  const leaderboard = [];
+
+  for (const [userId, userState] of users) {
+    const inventory = userState?.inventory ?? {};
+    const perfect = Number(inventory.perfectcookie ?? 0);
+    const gold = Number(inventory.goldcookie ?? 0);
+    const spoopier = Number(inventory.spoopiercookie ?? 0);
+    const total = perfect + gold + spoopier;
+    if (total <= 0) continue;
+    leaderboard.push({
+      userId,
+      total,
+      counts: {
+        perfect,
+        gold,
+        spoopier,
+      },
+    });
+  }
+
+  leaderboard.sort((a, b) =>
+    b.total - a.total
+    || b.counts.spoopier - a.counts.spoopier
+    || b.counts.gold - a.counts.gold
+    || b.counts.perfect - a.counts.perfect);
+
+  return leaderboard;
+}
+
 module.exports = {
   MessageFlags,
   RARITY,
@@ -2463,5 +2497,7 @@ module.exports = {
   formatRankRequirements,
   formatRankReward,
   getItemDropChance,
+  getSpecialCookieLeaderboard,
+  SPECIAL_COOKIE_IDS,
   GIFT_BOX_OPTION_PREFIX,
 };

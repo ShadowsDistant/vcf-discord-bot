@@ -12,6 +12,24 @@ const BAKE_COOLDOWN_MS = 30_000;
 const bakeCooldowns = new Map();
 const COOLDOWN_PRUNE_INTERVAL_MS = BAKE_COOLDOWN_MS;
 let lastCooldownPruneAt = 0;
+const SPECIAL_EVENT_CHANNEL_ID = '1492310367869862089';
+const SPECIAL_COOKIE_EVENT_DETAILS = {
+  perfectcookie: {
+    title: '✨ Perfect Cookie Event',
+    description: 'A mathematically flawless cookie has emerged.',
+    color: 0xfee75c,
+  },
+  goldcookie: {
+    title: '🌟 Gold Cookie Event',
+    description: 'A gilded cookie has entered the oven economy.',
+    color: 0xf1c40f,
+  },
+  spoopiercookie: {
+    title: '👻 Spoopier Cookie Event',
+    description: 'A spooky rare bake has been discovered.',
+    color: 0x8e44ad,
+  },
+};
 
 const BURNT_BAKE_LINES = [
   'You forgot the timer and summoned a smoke alarm solo.',
@@ -51,6 +69,14 @@ function pruneCooldowns(now = Date.now()) {
 }
 
 function buildBakeReply(guild, userId) {
+  return buildBakeOutcome(guild, userId).reply;
+}
+
+function getTotalSpecialCookies(user) {
+  return economy.SPECIAL_COOKIE_IDS.reduce((sum, itemId) => sum + Number(user.inventory?.[itemId] ?? 0), 0);
+}
+
+function buildBakeOutcome(guild, userId) {
   const result = economy.bake(guild.id, userId);
   const {
     user,
@@ -140,7 +166,40 @@ function buildBakeReply(guild, userId) {
     );
   }
 
-  return { embeds: [embed], components };
+  const eventDetails = SPECIAL_COOKIE_EVENT_DETAILS[item.id] ?? null;
+  const specialCookieEvent = (!burnt && eventDetails)
+    ? {
+      item,
+      userId,
+      totalSpecialCookies: getTotalSpecialCookies(user),
+      details: eventDetails,
+    }
+    : null;
+
+  return {
+    reply: { embeds: [embed], components },
+    specialCookieEvent,
+  };
+}
+
+async function postSpecialCookieEvent(guild, bakerUser, event) {
+  if (!guild || !bakerUser || !event) return;
+  const channel = await guild.channels.fetch(SPECIAL_EVENT_CHANNEL_ID).catch(() => null);
+  if (!channel || !channel.isTextBased()) return;
+  const eventEmbed = new EmbedBuilder()
+    .setColor(event.details.color)
+    .setTitle(`${event.details.title}: ${event.item.name}`)
+    .setDescription([
+      `${economy.getItemEmoji(event.item, guild)} <@${bakerUser.id}> just baked **${event.item.name}**!`,
+      event.details.description,
+      `Total special cookies owned: **${economy.toCookieNumber(event.totalSpecialCookies)}**`,
+    ].join('\n'))
+    .setTimestamp()
+    .setFooter({
+      text: guild.name,
+      iconURL: guild.iconURL({ dynamic: true }) ?? undefined,
+    });
+  await channel.send({ embeds: [eventEmbed] }).catch(() => null);
 }
 
 module.exports = {
@@ -172,7 +231,14 @@ module.exports = {
       });
     }
     bakeCooldowns.set(cooldownKey, now);
-    return interaction.reply(buildBakeReply(interaction.guild, interaction.user.id));
+    const outcome = buildBakeOutcome(interaction.guild, interaction.user.id);
+    await interaction.reply(outcome.reply);
+    if (outcome.specialCookieEvent) {
+      await postSpecialCookieEvent(interaction.guild, interaction.user, outcome.specialCookieEvent);
+    }
+    return null;
   },
   buildBakeReply,
+  buildBakeOutcome,
+  postSpecialCookieEvent,
 };

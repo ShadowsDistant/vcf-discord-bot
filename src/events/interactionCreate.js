@@ -204,7 +204,12 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
-        return interaction.update(bakeCommand.buildBakeReply(interaction.guild, interaction.user.id));
+        const outcome = bakeCommand.buildBakeOutcome(interaction.guild, interaction.user.id);
+        await interaction.update(outcome.reply);
+        if (outcome.specialCookieEvent) {
+          await bakeCommand.postSpecialCookieEvent(interaction.guild, interaction.user, outcome.specialCookieEvent);
+        }
+        return;
       }
 
       if (interaction.customId.startsWith('bakery_guide_prev:') || interaction.customId.startsWith('bakery_guide_next:')) {
