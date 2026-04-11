@@ -555,6 +555,16 @@ module.exports = {
     }
 
     if (interaction.isStringSelectMenu()) {
+      if (interaction.customId === 'bakery_nav_select') {
+        const requestedView = interaction.values[0] ?? 'home';
+        const view = requestedView === 'codex' ? 'guide' : requestedView;
+        const viewOptions = view === 'guide' ? getGuideState(interaction.guild.id, interaction.user.id) : {};
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, view, viewOptions);
+        const components = economy.buildDashboardComponents(snapshot.user, view, { guild: interaction.guild, ...viewOptions });
+        return interaction.update({ embeds: [embed], components });
+      }
+
       if (interaction.customId.startsWith('bakery_inventory_filter:')) {
         const page = Number.parseInt(interaction.customId.split(':')[1], 10) || 0;
         const rarityFilter = interaction.values[0] ?? 'all';
@@ -565,7 +575,34 @@ module.exports = {
       }
 
       if (interaction.customId === 'bakery_inventory_item') {
-        const itemId = interaction.values[0];
+        const itemId = interaction.values[0] ?? '';
+        if (!itemId) {
+          return interaction.reply({
+            embeds: [embeds.error('Unknown inventory item selection.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (itemId.startsWith(economy.GIFT_BOX_OPTION_PREFIX)) {
+          const rewardBoxId = itemId.slice(economy.GIFT_BOX_OPTION_PREFIX.length);
+          const result = economy.openRewardGift(interaction.guild.id, interaction.user.id, rewardBoxId);
+          if (!result.ok) {
+            return interaction.reply({
+              embeds: [embeds.warning(result.reason, interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          const grantsText = result.grants.length
+            ? result.grants.map((grant) => `• ${economy.getItemEmoji(grant.item, interaction.guild)} **${grant.item.name}** x${grant.quantity}`).join('\n')
+            : 'No drops this time.';
+          const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+          const dashboard = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'inventory');
+          dashboard.addFields({
+            name: `${economy.getRewardBoxEmoji(result.rewardBox, interaction.guild)} Opened ${result.rewardBox.name}`,
+            value: grantsText.slice(0, 1024),
+          });
+          const components = economy.buildDashboardComponents(snapshot.user, 'inventory', { guild: interaction.guild });
+          return interaction.update({ embeds: [dashboard], components });
+        }
         const item = economy.ITEM_MAP.get(itemId);
         if (!item) {
           return interaction.reply({
