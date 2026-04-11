@@ -21,6 +21,7 @@ const MARKET_FEE_RATE = 0.05;
 const BASE_GOLDEN_CHANCE = 0.03;
 const BURNT_BAKE_CHANCE = 0.08;
 const MAX_DISPLAYED_GIFT_BOXES = 6;
+const GIFT_BOX_OPTION_PREFIX = 'gift:';
 const BAKE_ADMIN_ROLE_ID = '1492510387579654205';
 const DEFAULT_COOKIE_IMAGE = null;
 
@@ -1647,7 +1648,7 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
         return {
           label: rewardBox.name.slice(0, 100),
           description: `Gift Box • Owned: ${qty}`.slice(0, 100),
-          value: `gift:${rewardBox.id}`,
+          value: `${GIFT_BOX_OPTION_PREFIX}${rewardBox.id}`,
           emoji: getRewardBoxEmoji(rewardBox, options.guild),
         };
       })
@@ -2459,4 +2460,5 @@ module.exports = {
   formatRankRequirements,
   formatRankReward,
   getItemDropChance,
+  GIFT_BOX_OPTION_PREFIX,
 };

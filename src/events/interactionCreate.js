@@ -576,8 +576,8 @@ module.exports = {
 
       if (interaction.customId === 'bakery_inventory_item') {
         const itemId = interaction.values[0] ?? '';
-        if (itemId.startsWith('gift:')) {
-          const rewardBoxId = itemId.slice(5);
+        if (itemId.startsWith(economy.GIFT_BOX_OPTION_PREFIX)) {
+          const rewardBoxId = itemId.slice(economy.GIFT_BOX_OPTION_PREFIX.length);
           const result = economy.openRewardGift(interaction.guild.id, interaction.user.id, rewardBoxId);
           if (!result.ok) {
             return interaction.reply({
