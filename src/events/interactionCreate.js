@@ -19,6 +19,7 @@ const { fetchRobloxProfileByUsername, createRobloxEmbed } = require('../utils/ro
 const { ROLE_IDS } = require('../utils/roles');
 const { UPDATE_LOGS, createUpdateEmbed } = require('../utils/updateLogs');
 const economy = require('../utils/bakeEconomy');
+const bakeCommand = require('../commands/utility/bake');
 const { version: botVersion } = require('../../package.json');
 
 /** Commands whose `reason` option supports preset-reason autocomplete. */
@@ -139,12 +140,25 @@ module.exports = {
         return interaction.update({ embeds: [embed], components });
       }
 
+      if (interaction.customId === 'bake_again') {
+        return interaction.update(bakeCommand.buildBakeReply(interaction.guild, interaction.user.id));
+      }
+
       if (interaction.customId.startsWith('bakery_codex_prev:') || interaction.customId.startsWith('bakery_codex_next:')) {
         const currentPage = Number.parseInt(interaction.customId.split(':')[1], 10) || 0;
         const targetPage = interaction.customId.startsWith('bakery_codex_prev:') ? currentPage - 1 : currentPage + 1;
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'codex', { page: targetPage });
         const components = economy.buildDashboardComponents(snapshot.user, 'codex', { page: targetPage, guild: interaction.guild });
+        return interaction.update({ embeds: [embed], components });
+      }
+
+      if (interaction.customId.startsWith('bakery_achievements_prev:') || interaction.customId.startsWith('bakery_achievements_next:')) {
+        const currentPage = Number.parseInt(interaction.customId.split(':')[1], 10) || 0;
+        const targetPage = interaction.customId.startsWith('bakery_achievements_prev:') ? currentPage - 1 : currentPage + 1;
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'achievements', { page: targetPage });
+        const components = economy.buildDashboardComponents(snapshot.user, 'achievements', { page: targetPage, guild: interaction.guild });
         return interaction.update({ embeds: [embed], components });
       }
 
@@ -661,15 +675,16 @@ module.exports = {
       if (interaction.customId === 'bakery_modal_name') {
         const name = interaction.fields.getTextInputValue('name').trim();
         const emoji = interaction.fields.getTextInputValue('emoji').trim();
+        const resolvedEmoji = economy.resolveBakeryEmojiInput(interaction.guild, emoji);
         if (!name) {
           return interaction.reply({
             embeds: [embeds.error('Bakery name cannot be empty.', interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
-        economy.setBakeryIdentity(interaction.guild.id, interaction.user.id, name, emoji || undefined);
+        economy.setBakeryIdentity(interaction.guild.id, interaction.user.id, name, resolvedEmoji || undefined);
         return interaction.reply({
-          embeds: [embeds.success(`Your bakery is now **${emoji || '🍪'} ${name}**. Branding complete.`, interaction.guild)],
+          embeds: [embeds.success(`Your bakery is now **${resolvedEmoji || '🍪'} ${name}**. Branding complete.`, interaction.guild)],
           flags: MessageFlags.Ephemeral,
         });
       }

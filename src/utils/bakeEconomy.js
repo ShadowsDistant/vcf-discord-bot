@@ -20,6 +20,7 @@ const PASSIVE_CAP_MS = 24 * 60 * 60 * 1000;
 const MARKET_LISTING_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const MARKET_FEE_RATE = 0.05;
 const BASE_GOLDEN_CHANCE = 0.03;
+const BURNT_BAKE_CHANCE = 0.03;
 const DEFAULT_COOKIE_IMAGE = null;
 
 const RARITY = {
@@ -61,7 +62,7 @@ const STATIC_CUSTOM_EMOJIS_BY_CATEGORY = {
     ['Golden_switch_off', '1492472122705055765'],
     ['Lucky_golden_clover', '1492472263583469628'],
     ['Golden_switch', '1492472120846848021'],
-    ['Golden_cookie_sound', '1492472117315115008'],
+    ['Golden_cookie_sound', '1492472117873348648'],
     ['Kitten_helpers', '1492472253097578596'],
     ['Kitten_workers', '1492472260521492670'],
     ['Kitten_engineers', '1492472248140038166'],
@@ -282,10 +283,13 @@ const ACHIEVEMENT_EMOJI_ALIASES = {
   cps_10k: ['CookieProduction16'],
   cps_1m: ['CookieProduction30'],
   cps_1b: ['CookieProduction48'],
+  cps_1t: ['CookieProduction48'],
   market_10: ['Paid_in_full'],
   market_50: ['New_world_order'],
+  market_200: ['New_world_order'],
   golden_10: ['Praise_the_sun'],
   golden_50: ['All_the_stars_in_heaven'],
+  golden_100: ['All_the_stars_in_heaven'],
   bakery_named: ['Labor_of_love'],
   milk_1000: ['And_beyond'],
   one_of_each: ['Ecumenopolis'],
@@ -366,9 +370,11 @@ const ACHIEVEMENTS = [
   { id: 'baked_10k', name: 'Dough Enthusiast', desc: 'Bake 10,000 cookies.', check: (u) => u.cookiesBakedAllTime >= 10000 },
   { id: 'baked_100k', name: 'Factory Fresh', desc: 'Bake 100,000 cookies.', check: (u) => u.cookiesBakedAllTime >= 100000 },
   { id: 'baked_1m', name: 'Crumbocalypse', desc: 'Bake 1,000,000 cookies.', check: (u) => u.cookiesBakedAllTime >= 1000000 },
+  { id: 'baked_10m', name: 'Cookie Cataclysm', desc: 'Bake 10,000,000 cookies.', check: (u) => u.cookiesBakedAllTime >= 10000000 },
   { id: 'spend_10k', name: 'Retail Therapy', desc: 'Spend 10,000 cookies.', check: (u) => u.cookiesSpent >= 10000 },
   { id: 'spend_100k', name: 'Cookie Investor', desc: 'Spend 100,000 cookies.', check: (u) => u.cookiesSpent >= 100000 },
   { id: 'spend_1m', name: 'Big Dough Energy', desc: 'Spend 1,000,000 cookies.', check: (u) => u.cookiesSpent >= 1000000 },
+  { id: 'spend_10m', name: 'Capital Crumbs', desc: 'Spend 10,000,000 cookies.', check: (u) => u.cookiesSpent >= 10000000 },
   { id: 'builder', name: 'Builder', desc: 'Own at least 20 total buildings.', check: (u) => getTotalBuildingsOwned(u) >= 20 },
   { id: 'architect', name: 'Architect', desc: 'Own at least 50 total buildings.', check: (u) => getTotalBuildingsOwned(u) >= 50 },
   { id: 'engineer', name: 'Engineer', desc: 'Own at least 100 total buildings.', check: (u) => getTotalBuildingsOwned(u) >= 100 },
@@ -382,10 +388,13 @@ const ACHIEVEMENTS = [
   { id: 'cps_10k', name: 'Planetary Oven', desc: 'Reach 10,000 CPS.', check: (u) => u.highestCps >= 10000 },
   { id: 'cps_1m', name: 'Quantum Oven', desc: 'Reach 1,000,000 CPS.', check: (u) => u.highestCps >= 1000000 },
   { id: 'cps_1b', name: 'Reality Oven', desc: 'Reach 1,000,000,000 CPS.', check: (u) => u.highestCps >= 1000000000 },
+  { id: 'cps_1t', name: 'Singularity Oven', desc: 'Reach 1,000,000,000,000 CPS.', check: (u) => u.highestCps >= 1000000000000 },
   { id: 'market_10', name: 'Bazaar Rookie', desc: 'Complete 10 marketplace transactions.', check: (u) => (u.marketplaceBuys + u.marketplaceSells) >= 10 },
   { id: 'market_50', name: 'Market Mogul', desc: 'Complete 50 marketplace transactions.', check: (u) => (u.marketplaceBuys + u.marketplaceSells) >= 50 },
+  { id: 'market_200', name: 'Bazaar Baron', desc: 'Complete 200 marketplace transactions.', check: (u) => (u.marketplaceBuys + u.marketplaceSells) >= 200 },
   { id: 'golden_10', name: 'Sun Chaser', desc: 'Trigger 10 Golden Cookies.', check: (u) => u.goldenCookiesTriggered >= 10 },
   { id: 'golden_50', name: 'Solar Addict', desc: 'Trigger 50 Golden Cookies.', check: (u) => u.goldenCookiesTriggered >= 50 },
+  { id: 'golden_100', name: 'Stellar Magnet', desc: 'Trigger 100 Golden Cookies.', check: (u) => u.goldenCookiesTriggered >= 100 },
   { id: 'bakery_named', name: 'Brand Identity', desc: 'Name your bakery.', check: (u) => u.bakeryName !== 'Unnamed Bakery' },
   { id: 'milk_1000', name: 'Dairy Singularity', desc: 'Reach 1,000% milk.', check: (u) => u.milkLevel >= 1000 },
   { id: 'one_of_each', name: 'Shopping Spree', desc: 'Own at least 1 of every building.', check: (u) => BUILDINGS.every((b) => (u.buildings[b.id] ?? 0) >= 1) },
@@ -765,6 +774,30 @@ function weightedPickItem(user, nowDate = new Date()) {
   return pool[Math.floor(Math.random() * pool.length)] ?? availableItems[0];
 }
 
+function getRarityDropChance(user, rarityId, nowDate = new Date()) {
+  if (!RARITY[rarityId]) return 0;
+  const unlocked = getUnlockedRarities(user, nowDate);
+  if (!unlocked.has(rarityId)) return 0;
+  const rarityWeights = RARITY_ORDER
+    .filter((rarity) => unlocked.has(rarity))
+    .map((rarity) => RARITY[rarity].weight);
+  const totalWeight = rarityWeights.reduce((sum, weight) => sum + weight, 0);
+  if (totalWeight <= 0) return 0;
+  return RARITY[rarityId].weight / totalWeight;
+}
+
+function getItemDropChance(user, itemOrId, nowDate = new Date()) {
+  const item = typeof itemOrId === 'string' ? ITEM_MAP.get(itemOrId) : itemOrId;
+  if (!item) return 0;
+  if (item.id === 'burnt_cookie') return BURNT_BAKE_CHANCE;
+  const unlocked = getUnlockedRarities(user, nowDate);
+  if (!unlocked.has(item.rarity)) return 0;
+  const rarityChance = getRarityDropChance(user, item.rarity, nowDate);
+  const rarityPoolSize = ITEMS.filter((entry) => unlocked.has(entry.rarity) && entry.rarity === item.rarity).length;
+  if (rarityPoolSize <= 0) return 0;
+  return (1 - BURNT_BAKE_CHANCE) * (rarityChance / rarityPoolSize);
+}
+
 function getManualBakeYield(user, nowTs = Date.now()) {
   let base = 1;
   if (hasUpgrade(user, 'fingers_crossed')) base += 1;
@@ -839,13 +872,15 @@ function bake(guildId, userId) {
 
   if (user.pendingGoldenCookie?.expiresAt <= nowTs) user.pendingGoldenCookie = null;
 
-  const yieldAmount = getManualBakeYield(user, nowTs);
+  const burnt = Math.random() < BURNT_BAKE_CHANCE;
+  const yieldAmount = burnt ? 0 : getManualBakeYield(user, nowTs);
   user.cookies += yieldAmount;
   user.cookiesBakedAllTime += yieldAmount;
   user.totalBakes += 1;
 
-  const item = weightedPickItem(user, new Date(nowTs));
-  registerItemBake(guildState, user, item, userId);
+  const burntItem = ITEM_MAP.get('burnt_cookie') ?? ITEMS[0];
+  const item = burnt ? burntItem : weightedPickItem(user, new Date(nowTs));
+  if (!burnt) registerItemBake(guildState, user, item, userId);
 
   let golden = null;
   const forceGolden = user.forceGoldenCookieOnNextBake;
@@ -856,7 +891,7 @@ function bake(guildId, userId) {
 
   const newlyEarned = evaluateAchievements(user);
   writeState(data);
-  return { user, item, passive, manualYield: yieldAmount, golden, newlyEarned };
+  return { user, item, passive, manualYield: yieldAmount, golden, newlyEarned, burnt };
 }
 
 function getUserSnapshot(guildId, userId) {
@@ -993,20 +1028,27 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
       { name: 'Achievements', value: `${getEarnedAchievementCount(user)}/${ACHIEVEMENTS.length}`, inline: true },
       { name: 'Progress', value: progressBar(user.milkLevel - start, Math.max(1, target - start)) },
     );
-    if (nextType) embed.addFields({ name: 'Next milk type', value: `${nextType.type} at ${nextType.pct}%` });
+    if (nextType) {
+      const nextMilkKey = nextType.type.toLowerCase().replace(/\s*milk$/, '');
+      const nextMilkEmoji = getCustomGuildEmoji(guild, MILK_EMOJI_ALIASES[nextMilkKey] ?? []) ?? '🥛';
+      embed.addFields({ name: 'Next milk type', value: `${nextMilkEmoji} **${nextType.type}** at ${nextType.pct}%` });
+    }
   }
 
   if (view === 'achievements') {
     const earnedIds = getEarnedAchievementIds(user);
     const earned = new Set(earnedIds);
-    const lastEarned = earnedIds.length
-      ? ACHIEVEMENTS.find((a) => a.id === earnedIds[earnedIds.length - 1])
-      : null;
-    const spotlight = lastEarned ?? ACHIEVEMENTS.find((a) => !earned.has(a.id)) ?? ACHIEVEMENTS[0];
+    const pageSize = 8;
+    const pageCount = Math.max(1, Math.ceil(ACHIEVEMENTS.length / pageSize));
+    const page = Math.max(0, Math.min(Number.isFinite(options.page) ? options.page : 0, pageCount - 1));
+    const pageEntries = ACHIEVEMENTS.slice(page * pageSize, page * pageSize + pageSize);
     embed.setDescription('Milestones that feed your glorious milk pipeline.');
-    const lines = ACHIEVEMENTS.slice(0, 20).map((a) => `${earned.has(a.id) ? '🔓' : '🔒'} ${getAchievementEmoji(a, guild)} **${a.name}** — ${a.desc}`);
+    const lines = pageEntries.map((a) => `${earned.has(a.id) ? '🔓' : '🔒'} ${getAchievementEmoji(a, guild)} **${a.name}** — ${a.desc}`);
     embed.addFields({ name: 'Achievement board', value: lines.join('\n').slice(0, 1024) });
-    embed.addFields({ name: 'Progress', value: `${earned.size}/${ACHIEVEMENTS.length}` });
+    embed.addFields(
+      { name: 'Progress', value: `${earned.size}/${ACHIEVEMENTS.length}`, inline: true },
+      { name: 'Page', value: `${page + 1}/${pageCount}`, inline: true },
+    );
   }
 
   if (view === 'codex') {
@@ -1016,8 +1058,10 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     const pageEntries = ITEMS.slice(page * pageSize, page * pageSize + pageSize);
     embed.setDescription(pageEntries
       .map((item) => {
-        const price = item.baseValue * RARITY[item.rarity].valueMultiplier;
-        return `${getItemEmoji(item, guild)} **${item.name}**\n\`${item.id}\`\n${item.flavorText}\nPrice: **${toCookieNumber(price)}**`;
+        const rarity = RARITY[item.rarity];
+        const price = item.baseValue * rarity.valueMultiplier;
+        const dropChancePct = getItemDropChance(user, item, new Date(nowTs)) * 100;
+        return `${getItemEmoji(item, guild)} **${item.name}**\n\`${item.id}\`\n${item.flavorText}\nRarity: ${getRarityEmoji(item.rarity, guild)} **${rarity.name}**\nDrop chance: **${dropChancePct.toFixed(3)}%**\nPrice: **${toCookieNumber(price)}**`;
       })
       .join('\n\n')
       .slice(0, 4096));
@@ -1173,6 +1217,26 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
           .setDisabled(page <= 0),
         new ButtonBuilder()
           .setCustomId(`bakery_codex_next:${page}`)
+          .setLabel('Next')
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(page >= pageCount - 1),
+      ),
+    );
+  }
+
+  if (view === 'achievements') {
+    const pageSize = 8;
+    const pageCount = Math.max(1, Math.ceil(ACHIEVEMENTS.length / pageSize));
+    const page = Math.max(0, Math.min(Number.isFinite(options.page) ? options.page : 0, pageCount - 1));
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`bakery_achievements_prev:${page}`)
+          .setLabel('Back')
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(page <= 0),
+        new ButtonBuilder()
+          .setCustomId(`bakery_achievements_next:${page}`)
           .setLabel('Next')
           .setStyle(ButtonStyle.Secondary)
           .setDisabled(page >= pageCount - 1),
@@ -1696,6 +1760,17 @@ function modalForBakeryName() {
     );
 }
 
+function resolveBakeryEmojiInput(guild, input) {
+  const raw = String(input ?? '').trim();
+  if (!raw) return null;
+  if (/^<a?:\w{2,32}:\d{17,20}>$/.test(raw)) return raw;
+  const normalized = normalizeEmojiName(raw);
+  if (!normalized) return raw;
+  const item = ITEMS.find((entry) => normalizeEmojiName(entry.id) === normalized || normalizeEmojiName(entry.name) === normalized);
+  if (item) return getItemEmoji(item, guild);
+  return raw;
+}
+
 function setBakeryIdentity(guildId, userId, bakeryName, bakeryEmoji) {
   const data = readState();
   const guildState = getGuildState(data, guildId);
@@ -1777,6 +1852,7 @@ module.exports = {
   buildItemInspectEmbed,
   modalForBakeryName,
   setBakeryIdentity,
+  resolveBakeryEmojiInput,
   buildBakeAdminEmbed,
   buildBakeAdminComponents,
   modalForAdminAction,
@@ -1796,4 +1872,5 @@ module.exports = {
   getBuildingPrice,
   getRarityEmoji,
   getItemEmoji,
+  getItemDropChance,
 };
