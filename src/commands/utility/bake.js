@@ -8,6 +8,8 @@ const {
   EmbedBuilder,
 } = require('discord.js');
 const economy = require('../../utils/bakeEconomy');
+const BAKE_COOLDOWN_MS = 30_000;
+const bakeCooldowns = new Map();
 
 const BURNT_BAKE_LINES = [
   'You forgot the timer and summoned a smoke alarm solo.',
@@ -66,7 +68,7 @@ function buildBakeReply(guild, userId) {
     .setDescription(description)
     .setTimestamp()
     .addFields(
-      { name: 'Rarity', value: `${economy.getRarityEmoji(item.rarity, guild)} ${rarity.name}\nChance: **${dropChance.toFixed(3)}%**`, inline: true },
+      { name: 'Rarity', value: `${rarity.name}\nChance: **${dropChance.toFixed(3)}%**`, inline: true },
       { name: 'Cookies', value: economy.toCookieNumber(user.cookies), inline: true },
       { name: 'CPS', value: economy.toCookieNumber(cps), inline: true },
       { name: 'Sell value', value: economy.toCookieNumber(sellValue), inline: true },
@@ -141,6 +143,23 @@ module.exports = {
         content: 'This command can only be used inside a server.',
       });
     }
+    if (economy.isUserBakeBanned(interaction.guild.id, interaction.user.id)) {
+      return interaction.reply({
+        content: 'You are banned from baking commands in this server.',
+        ephemeral: true,
+      });
+    }
+    const cooldownKey = `${interaction.guild.id}:${interaction.user.id}`;
+    const now = Date.now();
+    const nextAllowed = (bakeCooldowns.get(cooldownKey) ?? 0) + BAKE_COOLDOWN_MS;
+    if (nextAllowed > now) {
+      const remainingSeconds = Math.ceil((nextAllowed - now) / 1000);
+      return interaction.reply({
+        content: `Slow down, baker. You can use \`/bake\` again in **${remainingSeconds}s**.`,
+        ephemeral: true,
+      });
+    }
+    bakeCooldowns.set(cooldownKey, now);
     return interaction.reply(buildBakeReply(interaction.guild, interaction.user.id));
   },
   buildBakeReply,

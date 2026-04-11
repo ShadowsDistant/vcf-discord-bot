@@ -25,6 +25,19 @@ const { version: botVersion } = require('../../package.json');
 /** Commands whose `reason` option supports preset-reason autocomplete. */
 const REASON_AUTOCOMPLETE_COMMANDS = new Set(['ban', 'kick', 'warn']);
 const ERROR_DETAIL_LIMIT = 500;
+const pendingBakeryRenameSelections = new Map();
+
+function buildInventoryItemSelectOptions(user, guild) {
+  return Object.entries(user.inventory ?? {})
+    .filter(([, qty]) => qty > 0)
+    .slice(0, 25)
+    .map(([itemId, qty]) => ({
+      label: `${economy.ITEM_MAP.get(itemId)?.name ?? itemId}`.slice(0, 100),
+      description: `Owned: ${qty}`.slice(0, 100),
+      value: itemId,
+      emoji: economy.getItemEmoji(itemId, guild),
+    }));
+}
 
 async function sendBakeAdminLog(interaction, targetUserId, action, details) {
   const channelId = economy.getAdminLogChannelId(interaction.guild.id);
@@ -135,7 +148,7 @@ module.exports = {
       if (interaction.customId.startsWith('bakery_nav:')) {
         const requestedView = interaction.customId.split(':')[1];
         const view = requestedView === 'codex' ? 'guide' : requestedView;
-        const viewOptions = view === 'guide' ? { section: 'cookies', page: 0 } : {};
+        const viewOptions = view === 'guide' ? { section: 'info', page: 0 } : {};
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, view, viewOptions);
         const components = economy.buildDashboardComponents(snapshot.user, view, { guild: interaction.guild, ...viewOptions });
@@ -143,6 +156,12 @@ module.exports = {
       }
 
       if (interaction.customId === 'bake_again') {
+        if (economy.isUserBakeBanned(interaction.guild.id, interaction.user.id)) {
+          return interaction.reply({
+            embeds: [embeds.warning('You are banned from baking commands in this server.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
         return interaction.update(bakeCommand.buildBakeReply(interaction.guild, interaction.user.id));
       }
 
@@ -160,8 +179,8 @@ module.exports = {
         const currentPage = Number.parseInt(interaction.customId.split(':')[1], 10) || 0;
         const targetPage = interaction.customId.startsWith('bakery_codex_prev:') ? currentPage - 1 : currentPage + 1;
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
-        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'guide', { section: 'cookies', page: targetPage });
-        const components = economy.buildDashboardComponents(snapshot.user, 'guide', { section: 'cookies', page: targetPage, guild: interaction.guild });
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'guide', { section: 'info', page: targetPage });
+        const components = economy.buildDashboardComponents(snapshot.user, 'guide', { section: 'info', page: targetPage, guild: interaction.guild });
         return interaction.update({ embeds: [embed], components });
       }
 
@@ -186,7 +205,26 @@ module.exports = {
       }
 
       if (interaction.customId === 'bakery_set_listing' || interaction.customId === 'market_list_item') {
-        return interaction.showModal(economy.modalForListItem());
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const itemOptions = buildInventoryItemSelectOptions(snapshot.user, interaction.guild);
+        if (itemOptions.length === 0) {
+          return interaction.reply({
+            embeds: [embeds.warning('You have no inventory items to list.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        return interaction.reply({
+          embeds: [embeds.info('List Item', 'Select an inventory item to list.', interaction.guild)],
+          components: [
+            new ActionRowBuilder().addComponents(
+              new StringSelectMenuBuilder()
+                .setCustomId('market_list_item_select')
+                .setPlaceholder('Select an item')
+                .addOptions(itemOptions),
+            ),
+          ],
+          flags: MessageFlags.Ephemeral,
+        });
       }
 
       if (interaction.customId.startsWith('bakery_build_buy:')) {
@@ -523,7 +561,7 @@ module.exports = {
 
       if (interaction.customId.startsWith('bakery_guide_section:')) {
         const page = Number.parseInt(interaction.customId.split(':')[1], 10) || 0;
-        const section = interaction.values[0] ?? 'cookies';
+        const section = interaction.values[0] ?? 'info';
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'guide', { section, page });
         const components = economy.buildDashboardComponents(snapshot.user, 'guide', { section, page, guild: interaction.guild });
@@ -537,6 +575,44 @@ module.exports = {
         const market = economy.getMarketplaceEmbed(interaction.guild, snapshot.guildState, snapshot.user, page, rarityFilter);
         const components = economy.getMarketplaceComponents(snapshot.guildState, market.pageIndex, rarityFilter);
         return interaction.update({ embeds: [market.embed], components });
+      }
+
+      if (interaction.customId === 'market_list_item_select') {
+        const itemId = interaction.values[0];
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        if ((snapshot.user.inventory[itemId] ?? 0) <= 0) {
+          return interaction.reply({
+            embeds: [embeds.warning('You no longer have that item in your inventory.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        return interaction.showModal(economy.modalForListItem(itemId));
+      }
+
+      if (interaction.customId === 'bakery_name_emoji_select') {
+        const itemId = interaction.values[0];
+        const key = `${interaction.guild.id}:${interaction.user.id}`;
+        const bakeryName = pendingBakeryRenameSelections.get(key);
+        if (!bakeryName) {
+          return interaction.reply({
+            embeds: [embeds.warning('Bakery rename timed out. Please run Set Bakery Name again.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        if ((snapshot.user.inventory[itemId] ?? 0) <= 0) {
+          return interaction.reply({
+            embeds: [embeds.warning('You no longer own that cookie.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const selectedEmoji = economy.getItemEmoji(itemId, interaction.guild);
+        economy.setBakeryIdentity(interaction.guild.id, interaction.user.id, bakeryName, selectedEmoji);
+        pendingBakeryRenameSelections.delete(key);
+        return interaction.update({
+          embeds: [embeds.success(`Your bakery is now **${selectedEmoji} ${bakeryName}**. Branding complete.`, interaction.guild)],
+          components: [],
+        });
       }
 
       if (interaction.customId === 'market_select_listing') {
@@ -604,6 +680,15 @@ module.exports = {
           await sendBakeAdminLog(interaction, targetId, 'Trigger Golden Cookie', 'Forced Golden Cookie on next /bake');
           return interaction.reply({
             embeds: [embeds.success(`Forced Golden Cookie for <@${targetId}> on next bake.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'ban_bake' || action === 'unban_bake') {
+          const banned = action === 'ban_bake';
+          economy.adminSetBakeBan(interaction.guild.id, targetId, banned);
+          await sendBakeAdminLog(interaction, targetId, banned ? 'Ban Bake Commands' : 'Unban Bake Commands', banned ? 'User blocked from /bake and Bake Again' : 'User unblocked for /bake and Bake Again');
+          return interaction.reply({
+            embeds: [embeds.success(`${banned ? 'Banned' : 'Unbanned'} <@${targetId}> ${banned ? 'from' : 'for'} baking commands.`, interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
@@ -699,23 +784,38 @@ module.exports = {
     if (interaction.isModalSubmit()) {
       if (interaction.customId === 'bakery_modal_name') {
         const name = interaction.fields.getTextInputValue('name').trim();
-        const emoji = interaction.fields.getTextInputValue('emoji').trim();
-        const resolvedEmoji = economy.resolveBakeryEmojiInput(interaction.guild, emoji);
         if (!name) {
           return interaction.reply({
             embeds: [embeds.error('Bakery name cannot be empty.', interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
-        economy.setBakeryIdentity(interaction.guild.id, interaction.user.id, name, resolvedEmoji || undefined);
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const itemOptions = buildInventoryItemSelectOptions(snapshot.user, interaction.guild);
+        if (itemOptions.length === 0) {
+          economy.setBakeryIdentity(interaction.guild.id, interaction.user.id, name);
+          return interaction.reply({
+            embeds: [embeds.success(`Your bakery is now **${snapshot.user.bakeryEmoji ?? '🍪'} ${name}**.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        pendingBakeryRenameSelections.set(`${interaction.guild.id}:${interaction.user.id}`, name);
         return interaction.reply({
-          embeds: [embeds.success(`Your bakery is now **${resolvedEmoji || '🍪'} ${name}**. Branding complete.`, interaction.guild)],
+          embeds: [embeds.info('Choose Bakery Emoji', 'Select a cookie from your inventory to use as your bakery emoji.', interaction.guild)],
+          components: [
+            new ActionRowBuilder().addComponents(
+              new StringSelectMenuBuilder()
+                .setCustomId('bakery_name_emoji_select')
+                .setPlaceholder('Select bakery emoji from inventory')
+                .addOptions(itemOptions),
+            ),
+          ],
           flags: MessageFlags.Ephemeral,
         });
       }
 
-      if (interaction.customId === 'market_modal_list') {
-        const itemId = interaction.fields.getTextInputValue('itemId').trim().toLowerCase();
+      if (interaction.customId.startsWith('market_modal_list:')) {
+        const itemId = interaction.customId.split(':')[1];
         const quantity = Number.parseInt(interaction.fields.getTextInputValue('quantity').trim(), 10);
         const price = Number.parseInt(interaction.fields.getTextInputValue('price').trim(), 10);
         if (!economy.ITEM_MAP.has(itemId)) {
