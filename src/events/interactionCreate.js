@@ -19,6 +19,7 @@ const { fetchRobloxProfileByUsername, createRobloxEmbed } = require('../utils/ro
 const { ROLE_IDS } = require('../utils/roles');
 const { UPDATE_LOGS, createUpdateEmbed } = require('../utils/updateLogs');
 const economy = require('../utils/bakeEconomy');
+const bakeCommand = require('../commands/utility/bake');
 const { version: botVersion } = require('../../package.json');
 
 /** Commands whose `reason` option supports preset-reason autocomplete. */
@@ -132,10 +133,26 @@ module.exports = {
       }
 
       if (interaction.customId.startsWith('bakery_nav:')) {
-        const view = interaction.customId.split(':')[1];
+        const requestedView = interaction.customId.split(':')[1];
+        const view = requestedView === 'codex' ? 'guide' : requestedView;
+        const viewOptions = view === 'guide' ? { section: 'cookies', page: 0 } : {};
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
-        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, view);
-        const components = economy.buildDashboardComponents(snapshot.user, view, { guild: interaction.guild });
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, view, viewOptions);
+        const components = economy.buildDashboardComponents(snapshot.user, view, { guild: interaction.guild, ...viewOptions });
+        return interaction.update({ embeds: [embed], components });
+      }
+
+      if (interaction.customId === 'bake_again') {
+        return interaction.update(bakeCommand.buildBakeReply(interaction.guild, interaction.user.id));
+      }
+
+      if (interaction.customId.startsWith('bakery_guide_prev:') || interaction.customId.startsWith('bakery_guide_next:')) {
+        const [, section, currentPageRaw] = interaction.customId.split(':');
+        const currentPage = Number.parseInt(currentPageRaw, 10) || 0;
+        const targetPage = interaction.customId.startsWith('bakery_guide_prev:') ? currentPage - 1 : currentPage + 1;
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'guide', { section, page: targetPage });
+        const components = economy.buildDashboardComponents(snapshot.user, 'guide', { section, page: targetPage, guild: interaction.guild });
         return interaction.update({ embeds: [embed], components });
       }
 
@@ -143,8 +160,17 @@ module.exports = {
         const currentPage = Number.parseInt(interaction.customId.split(':')[1], 10) || 0;
         const targetPage = interaction.customId.startsWith('bakery_codex_prev:') ? currentPage - 1 : currentPage + 1;
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
-        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'codex', { page: targetPage });
-        const components = economy.buildDashboardComponents(snapshot.user, 'codex', { page: targetPage, guild: interaction.guild });
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'guide', { section: 'cookies', page: targetPage });
+        const components = economy.buildDashboardComponents(snapshot.user, 'guide', { section: 'cookies', page: targetPage, guild: interaction.guild });
+        return interaction.update({ embeds: [embed], components });
+      }
+
+      if (interaction.customId.startsWith('bakery_achievements_prev:') || interaction.customId.startsWith('bakery_achievements_next:')) {
+        const currentPage = Number.parseInt(interaction.customId.split(':')[1], 10) || 0;
+        const targetPage = interaction.customId.startsWith('bakery_achievements_prev:') ? currentPage - 1 : currentPage + 1;
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'achievements', { page: targetPage });
+        const components = economy.buildDashboardComponents(snapshot.user, 'achievements', { page: targetPage, guild: interaction.guild });
         return interaction.update({ embeds: [embed], components });
       }
 
@@ -467,10 +493,10 @@ module.exports = {
         }
         const inspect = economy.inspectItem(interaction.guild.id, interaction.user.id, itemId);
         const actionRow = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`bakery_item_action:sell:${itemId}`).setLabel('Sell').setStyle(ButtonStyle.Success),
-          new ButtonBuilder().setCustomId(`bakery_item_action:sellall:${itemId}`).setLabel('Sell All').setStyle(ButtonStyle.Success),
-          new ButtonBuilder().setCustomId(`bakery_item_action:consume:${itemId}`).setLabel('Consume').setStyle(ButtonStyle.Primary),
-          new ButtonBuilder().setCustomId(`bakery_item_action:inspect:${itemId}`).setLabel('Inspect').setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId(`bakery_item_action:sell:${itemId}`).setLabel('Sell').setStyle(ButtonStyle.Success).setEmoji(economy.getButtonEmoji(interaction.guild, ['Paid_in_full', 'sell'], '💰')),
+          new ButtonBuilder().setCustomId(`bakery_item_action:sellall:${itemId}`).setLabel('Sell All').setStyle(ButtonStyle.Success).setEmoji(economy.getButtonEmoji(interaction.guild, ['International_exchange', 'sell_all'], '💸')),
+          new ButtonBuilder().setCustomId(`bakery_item_action:consume:${itemId}`).setLabel('Consume').setStyle(ButtonStyle.Primary).setEmoji(economy.getButtonEmoji(interaction.guild, ['Cookie_dough', 'consume'], '🍽️')),
+          new ButtonBuilder().setCustomId(`bakery_item_action:inspect:${itemId}`).setLabel('Inspect').setStyle(ButtonStyle.Secondary).setEmoji(economy.getButtonEmoji(interaction.guild, ['Polymath', 'inspect'], '🔍')),
         );
         return interaction.reply({
           embeds: [economy.buildItemInspectEmbed(interaction.guild, inspect)],
@@ -492,6 +518,15 @@ module.exports = {
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'upgrades', { upgradeId });
         const components = economy.buildDashboardComponents(snapshot.user, 'upgrades', { upgradeId, guild: interaction.guild });
+        return interaction.update({ embeds: [embed], components });
+      }
+
+      if (interaction.customId.startsWith('bakery_guide_section:')) {
+        const page = Number.parseInt(interaction.customId.split(':')[1], 10) || 0;
+        const section = interaction.values[0] ?? 'cookies';
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'guide', { section, page });
+        const components = economy.buildDashboardComponents(snapshot.user, 'guide', { section, page, guild: interaction.guild });
         return interaction.update({ embeds: [embed], components });
       }
 
@@ -528,7 +563,7 @@ module.exports = {
           });
         }
         const action = interaction.values[0];
-        if (['give_cookies', 'remove_cookies', 'give_item', 'set_building', 'set_log_channel', 'set_mod_role'].includes(action)) {
+        if (['give_cookies', 'remove_cookies', 'give_item', 'set_building', 'set_log_channel'].includes(action)) {
           const modal = economy.modalForAdminAction(actorId, targetId, action);
           return interaction.showModal(modal);
         }
@@ -554,7 +589,11 @@ module.exports = {
                 new StringSelectMenuBuilder()
                   .setCustomId(`bakeadmin_achievement_select:${actorId}:${targetId}`)
                   .setPlaceholder('Select achievement')
-                  .addOptions(economy.ACHIEVEMENTS.slice(0, 25).map((achievement) => ({ label: achievement.name.slice(0, 100), value: achievement.id }))),
+                  .addOptions(economy.ACHIEVEMENTS.slice(0, 25).map((achievement) => ({
+                    label: achievement.name.slice(0, 100),
+                    value: achievement.id,
+                    emoji: economy.getAchievementEmoji(achievement, interaction.guild),
+                  }))),
               ),
             ],
             flags: MessageFlags.Ephemeral,
@@ -661,15 +700,16 @@ module.exports = {
       if (interaction.customId === 'bakery_modal_name') {
         const name = interaction.fields.getTextInputValue('name').trim();
         const emoji = interaction.fields.getTextInputValue('emoji').trim();
+        const resolvedEmoji = economy.resolveBakeryEmojiInput(interaction.guild, emoji);
         if (!name) {
           return interaction.reply({
             embeds: [embeds.error('Bakery name cannot be empty.', interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
-        economy.setBakeryIdentity(interaction.guild.id, interaction.user.id, name, emoji || undefined);
+        economy.setBakeryIdentity(interaction.guild.id, interaction.user.id, name, resolvedEmoji || undefined);
         return interaction.reply({
-          embeds: [embeds.success(`Your bakery is now **${emoji || '🍪'} ${name}**. Branding complete.`, interaction.guild)],
+          embeds: [embeds.success(`Your bakery is now **${resolvedEmoji || '🍪'} ${name}**. Branding complete.`, interaction.guild)],
           flags: MessageFlags.Ephemeral,
         });
       }
@@ -783,20 +823,6 @@ module.exports = {
           economy.setAdminLogChannel(interaction.guild.id, channelId);
           return interaction.reply({
             embeds: [embeds.success(`Set bake admin log channel to <#${channelId}>.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
-          });
-        }
-        if (action === 'set_mod_role') {
-          const roleId = parseMentionOrId(interaction.fields.getTextInputValue('value'), 'role');
-          if (!roleId || !interaction.guild.roles.cache.has(roleId)) {
-            return interaction.reply({
-              embeds: [embeds.error('Invalid role. Use a role mention like `@Moderator` or a role ID.', interaction.guild)],
-              flags: MessageFlags.Ephemeral,
-            });
-          }
-          economy.setAdminModRoleId(interaction.guild.id, roleId);
-          return interaction.reply({
-            embeds: [embeds.success(`Set bake admin mod role to <@&${roleId}>.`, interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }

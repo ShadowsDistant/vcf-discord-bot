@@ -33,7 +33,7 @@ A modern, feature-rich Discord bot built with **discord.js v14** featuring advan
 | Category | Highlights |
 |---|---|
 | **Moderation** | Ban, kick, timeout, warn system, purge, lock/unlock channels, slowmode, role management — with optional mod-role permission levels |
-| **Utility** | Ping, userinfo, serverinfo, avatar, botinfo, help |
+| **Utility** | Ping, userinfo, serverinfo, avatar, botinfo, help, updates |
 | **Shifts** | Clock-in/out, staff-role gate, shift history, wave period tracking, quota requirements, DMs on start/end, wave-end mass DM |
 | **Setup** | Admin-only server configuration (mod logs, welcome, staff roles, mod permission levels, quota, shift DMs, AutoMod) |
 | **Reasons** | Per-server preset ban/kick/warn reasons with autocomplete in mod commands |
@@ -263,6 +263,13 @@ List all available commands grouped by category, or get detailed info on a speci
 | Option | Type | Required | Description |
 |---|---|---|---|
 | `command` | String | ❌ | Command name to get detailed help for |
+
+---
+
+#### `/updates`
+View the latest public release notes and browse previous update logs from an interactive selector.
+
+Shows: current bot version, latest log version/date, and recent public changes.
 
 ---
 
@@ -536,13 +543,6 @@ Edit the `.env` file with your credentials:
 DISCORD_TOKEN=your_bot_token_here
 CLIENT_ID=your_application_client_id_here
 
-# Optional — set to a single guild ID for instant command deployment (for testing)
-# Leave blank to deploy globally (takes up to 1 hour to propagate)
-GUILD_ID=your_test_guild_id
-
-# Optional — when GUILD_ID is set, remove matching global commands to avoid duplicates
-CLEAR_GLOBAL_DUPLICATES=false
-
 # Optional — Discord user ID allowed to use developer commands
 # Defaults to the bot owner ID if not set
 DEV_USER_ID=your_discord_user_id
@@ -552,8 +552,6 @@ DEV_USER_ID=your_discord_user_id
 |---|---|---|
 | `DISCORD_TOKEN` | ✅ | Your bot's secret token from the Developer Portal |
 | `CLIENT_ID` | ✅ | Your application's client/application ID |
-| `GUILD_ID` | ❌ | A single guild ID for guild-scoped (instant) command deployment |
-| `CLEAR_GLOBAL_DUPLICATES` | ❌ | If `true`, removes matching global commands when doing a guild deploy to avoid duplicate slash commands |
 | `DEV_USER_ID` | ❌ | Discord user ID permitted to use `/setstatus`, `/servers`, `/announce` |
 
 > ⚠️ **Never commit your `.env` file.** It is listed in `.gitignore` by default.
@@ -566,10 +564,7 @@ You must deploy slash commands before they appear in Discord. Run:
 npm run deploy
 ```
 
-- If `GUILD_ID` is set, commands are registered to that guild instantly.
-- If `GUILD_ID` is blank, commands are registered globally and may take up to **1 hour** to propagate to all servers.
-- If both global and guild commands share the same names, Discord can show duplicate slash commands until one scope is cleaned up.
-- Set `CLEAR_GLOBAL_DUPLICATES=true` with `GUILD_ID` to auto-remove overlapping global commands.
+- Commands are registered globally and may take up to **1 hour** to propagate to all servers.
 
 > Re-run `npm run deploy` whenever you add, remove, or modify commands.
 
