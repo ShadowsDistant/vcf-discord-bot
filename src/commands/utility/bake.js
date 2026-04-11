@@ -47,7 +47,7 @@ module.exports = {
       });
       embed.addFields({
         name: '🏆 New achievements',
-        value: newlyEarned.slice(0, 4).map((achievement) => `• [🖼️](${economy.getAchievementImage(achievement.id)}) **${achievement.name}**`).join('\n'),
+        value: newlyEarned.slice(0, 4).map((achievement) => `• **${achievement.name}**`).join('\n'),
       });
     }
 

@@ -754,12 +754,13 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
 
   if (view === 'achievements') {
     const earned = new Set(user.milestones);
-    const lastEarnedId = user.milestones[user.milestones.length - 1];
-    const nextLocked = ACHIEVEMENTS.find((a) => !earned.has(a.id));
-    const spotlight = ACHIEVEMENTS.find((a) => a.id === lastEarnedId) ?? nextLocked ?? ACHIEVEMENTS[0];
+    const lastEarned = user.milestones.length
+      ? ACHIEVEMENTS.find((a) => a.id === user.milestones[user.milestones.length - 1])
+      : null;
+    const spotlight = lastEarned ?? ACHIEVEMENTS.find((a) => !earned.has(a.id)) ?? ACHIEVEMENTS[0];
     embed.setDescription('Milestones that feed your glorious milk pipeline.');
-    if (spotlight) embed.setThumbnail(getAchievementImage(spotlight.id));
-    const lines = ACHIEVEMENTS.slice(0, 20).map((a) => `${earned.has(a.id) ? '✅' : '⬜'} [🖼️](${getAchievementImage(a.id)}) **${a.name}** — ${a.desc}`);
+    embed.setThumbnail(getAchievementImage(spotlight.id));
+    const lines = ACHIEVEMENTS.slice(0, 20).map((a) => `${earned.has(a.id) ? '✅' : '⬜'} **${a.name}** — ${a.desc}`);
     embed.addFields({ name: 'Achievement board', value: lines.join('\n').slice(0, 1024) });
     embed.addFields({ name: 'Progress', value: `${earned.size}/${ACHIEVEMENTS.length}` });
   }
