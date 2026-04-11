@@ -98,7 +98,7 @@ module.exports = {
         const view = interaction.customId.split(':')[1];
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, view);
-        const components = economy.buildDashboardComponents(snapshot.user, view);
+        const components = economy.buildDashboardComponents(snapshot.user, view, { guild: interaction.guild });
         return interaction.update({ embeds: [embed], components });
       }
 
@@ -129,7 +129,7 @@ module.exports = {
         }
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'buildings', { buildingId });
-        const components = economy.buildDashboardComponents(snapshot.user, 'buildings', { buildingId });
+        const components = economy.buildDashboardComponents(snapshot.user, 'buildings', { buildingId, guild: interaction.guild });
         return interaction.update({ embeds: [embed], components });
       }
 
@@ -144,7 +144,7 @@ module.exports = {
         }
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'upgrades', { upgradeId });
-        const components = economy.buildDashboardComponents(snapshot.user, 'upgrades', { upgradeId });
+        const components = economy.buildDashboardComponents(snapshot.user, 'upgrades', { upgradeId, guild: interaction.guild });
         return interaction.update({ embeds: [embed], components });
       }
 
@@ -175,7 +175,7 @@ module.exports = {
         }
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const dashboard = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'inventory');
-        const components = economy.buildDashboardComponents(snapshot.user, 'inventory');
+        const components = economy.buildDashboardComponents(snapshot.user, 'inventory', { guild: interaction.guild });
         return interaction.update({ embeds: [dashboard], components });
       }
 
@@ -399,7 +399,7 @@ module.exports = {
         const rarityFilter = interaction.values[0] ?? 'all';
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'inventory', { page, rarityFilter });
-        const components = economy.buildDashboardComponents(snapshot.user, 'inventory', { page, rarityFilter });
+        const components = economy.buildDashboardComponents(snapshot.user, 'inventory', { page, rarityFilter, guild: interaction.guild });
         return interaction.update({ embeds: [embed], components });
       }
 
@@ -430,7 +430,7 @@ module.exports = {
         const buildingId = interaction.values[0];
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'buildings', { buildingId });
-        const components = economy.buildDashboardComponents(snapshot.user, 'buildings', { buildingId });
+        const components = economy.buildDashboardComponents(snapshot.user, 'buildings', { buildingId, guild: interaction.guild });
         return interaction.update({ embeds: [embed], components });
       }
 
@@ -438,7 +438,7 @@ module.exports = {
         const upgradeId = interaction.values[0];
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'upgrades', { upgradeId });
-        const components = economy.buildDashboardComponents(snapshot.user, 'upgrades', { upgradeId });
+        const components = economy.buildDashboardComponents(snapshot.user, 'upgrades', { upgradeId, guild: interaction.guild });
         return interaction.update({ embeds: [embed], components });
       }
 

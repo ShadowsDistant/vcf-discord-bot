@@ -22,7 +22,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setColor(rarity.color)
-      .setTitle(`${rarity.emoji} Fresh Batch: ${item.name}`)
+      .setTitle(`${economy.getItemEmoji(item, interaction.guild)} Fresh Batch: ${item.name}`)
       .setDescription(`You baked **${item.name}** and pocketed **${economy.toCookieNumber(manualYield)}** manual cookies.`)
       .setTimestamp()
       .addFields(
