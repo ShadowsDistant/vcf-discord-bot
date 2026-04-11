@@ -1645,7 +1645,7 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
         const rewardBox = REWARD_BOX_MAP.get(rewardBoxId);
         if (!rewardBox) return null;
         return {
-          label: `🎁 ${rewardBox.name}`.slice(0, 100),
+          label: rewardBox.name.slice(0, 100),
           description: `Gift Box • Owned: ${qty}`.slice(0, 100),
           value: `gift:${rewardBox.id}`,
           emoji: getRewardBoxEmoji(rewardBox, options.guild),
