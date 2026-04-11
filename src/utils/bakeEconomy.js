@@ -1644,7 +1644,7 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
         label: entry.item.name.slice(0, 100),
         description: `${RARITY[entry.item.rarity].name} • Owned: ${toCookieNumber(entry.qty)}`.slice(0, 100),
         value: entry.itemId,
-        emoji: getItemEmoji(entry.item, options.guild),
+        emoji: getItemEmoji(entry.itemId, options.guild),
       }))
       .slice(0, 25);
     const rewardGiftOptions = Object.entries(user.rewardGifts ?? {})
