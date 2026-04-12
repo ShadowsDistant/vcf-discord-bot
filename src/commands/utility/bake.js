@@ -94,6 +94,7 @@ function touchCooldown(guildId, userId, now = Date.now()) {
 }
 
 const cooldownPruneTimer = setInterval(() => pruneCooldowns(Date.now()), COOLDOWN_PRUNE_INTERVAL_MS);
+// Avoid keeping the Node process alive solely for periodic cache pruning.
 if (typeof cooldownPruneTimer.unref === 'function') cooldownPruneTimer.unref();
 
 function buildBakeReply(guild, userId) {

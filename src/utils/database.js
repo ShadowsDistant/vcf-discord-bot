@@ -33,8 +33,15 @@ function writeAtomic(filepath, content) {
     dir,
     `.${path.basename(filepath)}.${process.pid}.${Date.now()}.${crypto.randomBytes(8).toString('hex')}.tmp`,
   );
-  fs.writeFileSync(tempPath, content, 'utf8');
-  fs.renameSync(tempPath, filepath);
+  try {
+    fs.writeFileSync(tempPath, content, 'utf8');
+    fs.renameSync(tempPath, filepath);
+  } catch (err) {
+    if (fs.existsSync(tempPath)) {
+      fs.unlinkSync(tempPath);
+    }
+    throw err;
+  }
 }
 
 /** Write a value to a JSON data file. */

@@ -3,6 +3,7 @@
 const db = require('./database');
 
 const ANALYTICS_FILE = 'server_analytics.json';
+const ANALYTICS_RETENTION_DAYS = 120;
 
 function toDayKey(ts = Date.now()) {
   return new Date(ts).toISOString().slice(0, 10);
@@ -41,7 +42,7 @@ function getDayStore(guildStore, dayKey) {
   return guildStore.days[dayKey];
 }
 
-function pruneOldDays(guildStore, keepDays = 120) {
+function pruneOldDays(guildStore, keepDays = ANALYTICS_RETENTION_DAYS) {
   const keys = Object.keys(guildStore.days).sort();
   const overflow = Math.max(0, keys.length - keepDays);
   for (const key of keys.slice(0, overflow)) {

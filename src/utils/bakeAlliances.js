@@ -28,19 +28,22 @@ function normalizeName(name) {
 
 function createAlliance(guildId, ownerId, name) {
   const cleanName = normalizeName(name);
-  if (!cleanName) return { ok: false, reason: 'Alliance name cannot be empty.' };
+  const sanitized = economy.sanitizeBakeryName(cleanName);
+  if (!sanitized.ok) return { ok: false, reason: sanitized.reason };
+  const allianceName = sanitized.value.slice(0, 40);
+  if (!allianceName) return { ok: false, reason: 'Alliance name cannot be empty.' };
 
   return db.update(ALLIANCES_FILE, {}, (data) => {
     const guild = getGuildState(data, guildId);
     if (guild.userAlliance[ownerId]) return { ok: false, reason: 'You are already in an alliance.' };
 
-    const existing = Object.values(guild.alliances).find((entry) => entry.name.toLowerCase() === cleanName.toLowerCase());
+    const existing = Object.values(guild.alliances).find((entry) => entry.name.toLowerCase() === allianceName.toLowerCase());
     if (existing) return { ok: false, reason: 'That alliance name is already taken.' };
 
     const allianceId = String(guild.nextAllianceId++);
     guild.alliances[allianceId] = {
       id: allianceId,
-      name: cleanName,
+      name: allianceName,
       ownerId,
       members: [ownerId],
       createdAt: Date.now(),
