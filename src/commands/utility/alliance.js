@@ -601,9 +601,29 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('alliance')
     .setDescription('Open the unified alliance panel for challenges, management, and store upgrades.')
-    .setDMPermission(false),
+    .setDMPermission(false)
+    .addUserOption((option) =>
+      option
+        .setName('kick_member')
+        .setDescription('Alliance owner only: kick a member from your alliance.')
+        .setRequired(false),
+    ),
 
   async execute(interaction) {
+    const kickTarget = interaction.options.getUser('kick_member');
+    if (kickTarget) {
+      const result = alliances.removeAllianceMember(interaction.guild.id, interaction.user.id, kickTarget.id);
+      if (!result.ok) {
+        return interaction.reply({
+          embeds: [embeds.error(result.reason, interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      return interaction.reply({
+        embeds: [embeds.success(`Kicked <@${kickTarget.id}> from **${result.alliance.name}**.`, interaction.guild)],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
     return respondWithPanelReply(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'overview'));
   },
 
