@@ -25,6 +25,7 @@ const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
 const PANEL_CUSTOM_ID = 'shift_panel_action';
 const MODAL_PREFIX = 'shift_modal:';
 const MODERATION_MONTHLY_QUOTA_MS = 4 * 60 * 60 * 1000;
+const MEDALS = ['🥇', '🥈', '🥉'];
 
 function parseMentionUserId(value) {
   const raw = String(value ?? '').trim();
@@ -459,7 +460,10 @@ async function runLeaderboard(interaction) {
   }
 
   const top = leaderboard.slice(0, 10);
-  const rows = top.map((entry, i) => `**${i + 1}.** <@${entry.userId}> — **${formatDuration(entry.totalMs)}** (${entry.shiftCount} shift${entry.shiftCount !== 1 ? 's' : ''})`);
+  const rows = top.map((entry, i) => {
+    const rankLabel = MEDALS[i] ?? `**${i + 1}.**`;
+    return `${rankLabel} <@${entry.userId}> — **${formatDuration(entry.totalMs)}** (${entry.shiftCount} shift${entry.shiftCount !== 1 ? 's' : ''})`;
+  });
 
   const embed = new EmbedBuilder()
     .setColor(PALETTE.shift)

@@ -33,12 +33,8 @@ function parseMentionUserId(value) {
   return null;
 }
 
-function getStaffRoleIds() {
-  return [...ALL_STAFF_ROLE_IDS];
-}
-
 function isConfiguredStaffMember(member) {
-  const roleIds = getStaffRoleIds();
+  const roleIds = [...ALL_STAFF_ROLE_IDS];
   if (!roleIds.length) return false;
   return roleIds.some((roleId) => member.roles.cache.has(roleId));
 }

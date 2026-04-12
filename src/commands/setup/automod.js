@@ -347,7 +347,7 @@ async function handlePunishmentModal(interaction, config) {
 
   const timeoutInfo =
     (preset === 'delete_timeout' || preset === 'timeout') && config.timeoutDuration
-      ? ` Timeout duration: **${timeoutDurationRaw || `${Math.round(config.timeoutDuration / 60000)}m`}**.`
+      ? ` Timeout duration: **${Math.round(config.timeoutDuration / 60000)} minute(s)**.`
       : '';
 
   return interaction.reply({
