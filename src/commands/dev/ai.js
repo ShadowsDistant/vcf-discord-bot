@@ -32,6 +32,10 @@ const WEB_SEARCH_MAX_FLATTENED_RESULTS = 20;
 const MCP_DOCS_URL = 'https://docs.valleycorrectional.xyz/mcp';
 const MCP_DOCS_SNIPPET_MAX_CHARS = 3000;
 const MAX_CONTEXT_MESSAGES = 24;
+const MAX_TOOL_LOG_LINES = 12;
+const STREAM_MIN_CHARS_PER_FRAME = 180;
+const STREAM_MAX_FRAMES = 6;
+const STREAM_FRAME_DELAY_MS = 220;
 
 const AI_MODELS = Object.freeze([
   { displayName: 'Gemma 4 31B', value: 'google/gemma-4-31b-it' },
@@ -54,6 +58,12 @@ function truncate(text, max) {
   const normalized = asString(text, '').trim();
   if (!normalized) return '';
   return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
+}
+
+async function sleep(ms) {
+  await new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function safeJsonParse(value) {
@@ -951,7 +961,14 @@ function trimMessagesForContext(messages) {
   return systemMessage ? [systemMessage, ...nonSystem] : nonSystem;
 }
 
-async function runAiCompletion({ apiKey, model, context, prompt, priorMessages = [] }) {
+async function runAiCompletion({
+  apiKey,
+  model,
+  context,
+  prompt,
+  priorMessages = [],
+  onProgress = null,
+}) {
   const tools = buildToolDefinitions();
   const messages = priorMessages.length
     ? [...priorMessages]
@@ -965,8 +982,17 @@ async function runAiCompletion({ apiKey, model, context, prompt, priorMessages =
 
   let rawFinalText = '';
   let structured = null;
+  const toolUsage = [];
+
+  if (typeof onProgress === 'function') {
+    await onProgress({ type: 'phase', phase: 'Calling model…' });
+  }
 
   for (let i = 0; i < MAX_TOOL_ROUNDS; i += 1) {
+    if (typeof onProgress === 'function') {
+      await onProgress({ type: 'phase', phase: `Model round ${i + 1}/${MAX_TOOL_ROUNDS}…` });
+    }
+
     const data = await requestOpenRouterChat({
       apiKey,
       model,
@@ -988,7 +1014,28 @@ async function runAiCompletion({ apiKey, model, context, prompt, priorMessages =
       for (const call of toolCalls) {
         const toolName = call?.function?.name;
         const toolArgs = call?.function?.arguments ?? '{}';
+        if (typeof onProgress === 'function') {
+          await onProgress({
+            type: 'tool_start',
+            name: toolName,
+            args: toolArgs,
+          });
+        }
         const result = await runTool(context, toolName, toolArgs);
+        toolUsage.push({
+          name: asString(toolName, 'unknown_tool'),
+          args: truncate(asString(toolArgs, '{}'), 220),
+          ok: result?.ok !== false,
+          error: truncate(asString(result?.error, ''), 160),
+        });
+        if (typeof onProgress === 'function') {
+          await onProgress({
+            type: 'tool_result',
+            name: toolName,
+            ok: result?.ok !== false,
+            error: result?.error ?? '',
+          });
+        }
         messages.push({
           role: 'tool',
           tool_call_id: call.id,
@@ -1000,6 +1047,10 @@ async function runAiCompletion({ apiKey, model, context, prompt, priorMessages =
 
     rawFinalText = extractTextContent(choice.content);
     structured = extractStructuredPayload(rawFinalText);
+    if (typeof onProgress === 'function') {
+      await onProgress({ type: 'phase', phase: 'Streaming response…' });
+      await onProgress({ type: 'final_text', text: rawFinalText });
+    }
     messages.push({ role: 'assistant', content: rawFinalText || choice.content || '' });
     break;
   }
@@ -1007,6 +1058,7 @@ async function runAiCompletion({ apiKey, model, context, prompt, priorMessages =
   return {
     rawFinalText,
     structured,
+    toolUsage,
     messages: trimMessagesForContext(messages),
   };
 }
@@ -1038,6 +1090,72 @@ function createAiEmbed(guild, payload, modelDisplayName) {
   }
 
   return embed;
+}
+
+function formatToolUsageLines(toolUsage) {
+  const entries = Array.isArray(toolUsage) ? toolUsage : [];
+  if (!entries.length) return ['No tools were used in this response.'];
+  return entries
+    .slice(-MAX_TOOL_LOG_LINES)
+    .map((entry, index) => {
+      const status = entry.ok ? '✅' : '❌';
+      const args = entry.args ? ` · args: \`${truncate(entry.args, 120)}\`` : '';
+      const err = entry.ok ? '' : ` · ${truncate(entry.error, 90)}`;
+      return `${index + 1}. ${status} \`${entry.name}\`${args}${err}`;
+    });
+}
+
+function createAiToolsEmbed(guild, modelDisplayName, toolUsage) {
+  const lines = formatToolUsageLines(toolUsage);
+  return new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle('AI Tool Usage')
+    .setDescription(lines.join('\n').slice(0, 4096))
+    .setTimestamp()
+    .setFooter({
+      text: `${guild?.name ?? 'Server'} · ${modelDisplayName}`,
+      iconURL: guild?.iconURL({ dynamic: true }) ?? undefined,
+    });
+}
+
+function createAiStreamingEmbed(guild, modelDisplayName, phase, toolUsage, partialText = '') {
+  const lines = formatToolUsageLines(toolUsage);
+  const description = truncate(partialText, 1800) || 'Waiting for model output…';
+  const embed = new EmbedBuilder()
+    .setColor(0xfee75c)
+    .setTitle('AI Response (Streaming)')
+    .setDescription(description)
+    .setTimestamp()
+    .setFooter({
+      text: `${guild?.name ?? 'Server'} · ${modelDisplayName}`,
+      iconURL: guild?.iconURL({ dynamic: true }) ?? undefined,
+    })
+    .addFields({
+      name: 'Status',
+      value: truncate(phase || 'Working…', 1024),
+      inline: false,
+    }, {
+      name: 'Tools Used (Live)',
+      value: lines.join('\n').slice(0, 1024),
+      inline: false,
+    });
+  return embed;
+}
+
+function buildStreamFrames(text) {
+  const normalized = asString(text, '').trim();
+  if (!normalized) return [];
+  const frameCount = Math.min(
+    STREAM_MAX_FRAMES,
+    Math.max(2, Math.ceil(normalized.length / STREAM_MIN_CHARS_PER_FRAME)),
+  );
+  const step = Math.max(1, Math.floor(normalized.length / frameCount));
+  const frames = [];
+  for (let i = step; i < normalized.length; i += step) {
+    frames.push(normalized.slice(0, i));
+  }
+  frames.push(normalized);
+  return frames.slice(0, STREAM_MAX_FRAMES);
 }
 
 function resolveButtonStyle(style) {
@@ -1076,11 +1194,12 @@ function buildAiComponents(payload, ownerId) {
     ...payload.fields.flatMap((field) => field.selectMenus ?? []),
   ].slice(0, 8);
 
-  const components = [];
+  const actionRows = [];
   let usedRows = 0;
+  const maxActionRows = MAX_COMPONENT_ROWS - 1;
 
   let buttonCursor = 0;
-  while (buttonCursor < orderedButtons.length && usedRows < MAX_COMPONENT_ROWS) {
+  while (buttonCursor < orderedButtons.length && usedRows < maxActionRows) {
     const row = new ActionRowBuilder();
     let added = 0;
 
@@ -1115,13 +1234,13 @@ function buildAiComponents(payload, ownerId) {
     }
 
     if (row.components.length > 0) {
-      components.push(row);
+      actionRows.push(row);
       usedRows += 1;
     }
   }
 
   for (const selectMenu of orderedSelectMenus) {
-    if (usedRows >= MAX_COMPONENT_ROWS) break;
+    if (usedRows >= maxActionRows) break;
 
     const actionIndex = interactiveSelectMenus.length;
     const optionPrompts = Object.fromEntries(selectMenu.options.map((option) => [option.value, option.prompt]));
@@ -1139,20 +1258,73 @@ function buildAiComponents(payload, ownerId) {
         default: option.default,
       })));
 
-    components.push(new ActionRowBuilder().addComponents(menu));
+    actionRows.push(new ActionRowBuilder().addComponents(menu));
     usedRows += 1;
   }
 
-  if (interactiveButtons.length > 0 || interactiveSelectMenus.length > 0) {
-    aiComponentStates.set(token, {
-      ownerId,
-      interactiveButtons,
-      interactiveSelectMenus,
-      expiresAt: Date.now() + AI_COMPONENT_TTL_MS,
-    });
-  }
+  return {
+    token,
+    actionRows,
+    interactiveButtons,
+    interactiveSelectMenus,
+  };
+}
 
-  return components;
+function buildAiViewToggleRow(ownerId, token, activeView) {
+  const currentView = activeView === 'tools' ? 'tools' : 'output';
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setStyle(ButtonStyle.Secondary)
+      .setLabel('Output View')
+      .setCustomId(`ai_view:${ownerId}:${token}:output`)
+      .setDisabled(currentView === 'output'),
+    new ButtonBuilder()
+      .setStyle(ButtonStyle.Secondary)
+      .setLabel('Tools View')
+      .setCustomId(`ai_view:${ownerId}:${token}:tools`)
+      .setDisabled(currentView === 'tools'),
+  );
+}
+
+function buildAiViewComponents(ownerId, token, actionRows, activeView) {
+  const rows = [buildAiViewToggleRow(ownerId, token, activeView)];
+  rows.push(...(Array.isArray(actionRows) ? actionRows.slice(0, MAX_COMPONENT_ROWS - 1) : []));
+  return rows;
+}
+
+function registerAiComponentState({
+  token,
+  ownerId,
+  interactiveButtons,
+  interactiveSelectMenus,
+  actionRows,
+  outputEmbed,
+  toolsEmbed,
+}) {
+  aiComponentStates.set(token, {
+    token,
+    ownerId,
+    interactiveButtons: Array.isArray(interactiveButtons) ? interactiveButtons : [],
+    interactiveSelectMenus: Array.isArray(interactiveSelectMenus) ? interactiveSelectMenus : [],
+    actionRows: Array.isArray(actionRows) ? actionRows : [],
+    outputEmbed,
+    toolsEmbed,
+    expiresAt: Date.now() + AI_COMPONENT_TTL_MS,
+  });
+}
+
+function buildAiOutputPayload(state) {
+  return {
+    embeds: [state.outputEmbed],
+    components: buildAiViewComponents(state.ownerId, state.token, state.actionRows, 'output'),
+  };
+}
+
+function buildAiToolsPayload(state) {
+  return {
+    embeds: [state.toolsEmbed],
+    components: buildAiViewComponents(state.ownerId, state.token, state.actionRows, 'tools'),
+  };
 }
 
 function storeConversationState(messageId, state) {
@@ -1180,11 +1352,31 @@ function buildInteractionContext(source) {
   };
 }
 
-async function generateAiResponse({ source, prompt, model, priorMessages }) {
+async function generateAiResponse({
+  source,
+  prompt,
+  model,
+  priorMessages,
+  progressEditor = null,
+}) {
   const apiKey = getOpenRouterApiKey();
   if (!apiKey) {
     throw new Error('OPENROUTER_API_KEY is not configured.');
   }
+
+  const modelDisplayName = getModelDisplayName(model);
+  let phase = 'Preparing request…';
+  const liveToolUsage = [];
+
+  const pushProgressUpdate = async (partialText = '') => {
+    if (typeof progressEditor !== 'function') return;
+    await progressEditor({
+      embeds: [createAiStreamingEmbed(source.guild, modelDisplayName, phase, liveToolUsage, partialText)],
+      components: [],
+    });
+  };
+
+  await pushProgressUpdate('');
 
   const completion = await runAiCompletion({
     apiKey,
@@ -1192,17 +1384,66 @@ async function generateAiResponse({ source, prompt, model, priorMessages }) {
     context: buildInteractionContext(source),
     prompt,
     priorMessages,
+    onProgress: async (event) => {
+      if (event?.type === 'phase') {
+        phase = event.phase || phase;
+        await pushProgressUpdate('');
+        return;
+      }
+      if (event?.type === 'tool_start') {
+        phase = `Running tool: ${event.name ?? 'unknown'}…`;
+        await pushProgressUpdate('');
+        return;
+      }
+      if (event?.type === 'tool_result') {
+        liveToolUsage.push({
+          name: asString(event.name, 'unknown_tool'),
+          args: '',
+          ok: event.ok !== false,
+          error: truncate(asString(event.error, ''), 160),
+        });
+        phase = event.ok === false ? `Tool failed: ${event.name ?? 'unknown'}` : `Tool complete: ${event.name ?? 'unknown'}`;
+        await pushProgressUpdate('');
+        return;
+      }
+      if (event?.type === 'final_text') {
+        const frames = buildStreamFrames(event.text);
+        for (const frame of frames) {
+          await pushProgressUpdate(frame);
+          await sleep(STREAM_FRAME_DELAY_MS);
+        }
+      }
+    },
   });
 
   const normalized = normalizePayload(completion.structured, completion.rawFinalText);
-  const modelDisplayName = getModelDisplayName(model);
-  const embed = createAiEmbed(source.guild, normalized, modelDisplayName);
+  const outputEmbed = createAiEmbed(source.guild, normalized, modelDisplayName);
+  const toolsEmbed = createAiToolsEmbed(source.guild, modelDisplayName, completion.toolUsage);
   const ownerId = source.user?.id ?? source.author?.id;
-  const components = ownerId ? buildAiComponents(normalized, ownerId) : [];
+  let outputPayload = { embeds: [outputEmbed], components: [] };
+  let toolsPayload = { embeds: [toolsEmbed], components: [] };
+
+  if (ownerId) {
+    const componentBundle = buildAiComponents(normalized, ownerId);
+    registerAiComponentState({
+      token: componentBundle.token,
+      ownerId,
+      interactiveButtons: componentBundle.interactiveButtons,
+      interactiveSelectMenus: componentBundle.interactiveSelectMenus,
+      actionRows: componentBundle.actionRows,
+      outputEmbed,
+      toolsEmbed,
+    });
+    const state = aiComponentStates.get(componentBundle.token);
+    if (state) {
+      outputPayload = buildAiOutputPayload(state);
+      toolsPayload = buildAiToolsPayload(state);
+    }
+  }
 
   return {
-    embed,
-    components,
+    outputPayload,
+    toolsPayload,
     completionMessages: completion.messages,
     model,
   };
@@ -1223,18 +1464,33 @@ function parseAiComponentCustomId(customId) {
   };
 }
 
+function parseAiViewCustomId(customId) {
+  const parts = asString(customId, '').split(':');
+  if (parts.length !== 4) return null;
+  const [kind, ownerId, token, view] = parts;
+  if (kind !== 'ai_view') return null;
+  if (view !== 'output' && view !== 'tools') return null;
+  return {
+    ownerId,
+    token,
+    view,
+  };
+}
+
 function isAiComponentCustomId(customId) {
   const value = asString(customId, '');
-  return value.startsWith('ai_btn:') || value.startsWith('ai_sel:');
+  return value.startsWith('ai_btn:') || value.startsWith('ai_sel:') || value.startsWith('ai_view:');
 }
 
 async function handleAiComponentInteraction(interaction) {
+  const viewToggle = parseAiViewCustomId(interaction.customId);
   const parsed = parseAiComponentCustomId(interaction.customId);
-  if (!parsed) return false;
+  if (!viewToggle && !parsed) return false;
 
   pruneComponentStates();
 
-  if (parsed.ownerId !== interaction.user.id) {
+  const ownerId = viewToggle?.ownerId ?? parsed?.ownerId;
+  if (ownerId !== interaction.user.id) {
     await interaction.reply({
       embeds: [embeds.error('These AI controls belong to someone else.', interaction.guild)],
       flags: MessageFlags.Ephemeral,
@@ -1242,12 +1498,22 @@ async function handleAiComponentInteraction(interaction) {
     return true;
   }
 
-  const state = aiComponentStates.get(parsed.token);
-  if (!state || state.ownerId !== parsed.ownerId) {
+  const token = viewToggle?.token ?? parsed?.token;
+  const state = aiComponentStates.get(token);
+  if (!state || state.ownerId !== ownerId) {
     await interaction.reply({
       embeds: [embeds.warning('These AI controls have expired. Run `/ai` again.', interaction.guild)],
       flags: MessageFlags.Ephemeral,
     });
+    return true;
+  }
+
+  if (viewToggle) {
+    if (viewToggle.view === 'tools') {
+      await interaction.update(buildAiToolsPayload(state));
+    } else {
+      await interaction.update(buildAiOutputPayload(state));
+    }
     return true;
   }
 
@@ -1295,12 +1561,10 @@ async function handleAiComponentInteraction(interaction) {
       prompt: followupPrompt,
       model,
       priorMessages: previous?.messages ?? [],
+      progressEditor: async (payload) => interaction.editReply(payload),
     });
 
-    const sentMessage = await interaction.editReply({
-      embeds: [response.embed],
-      components: response.components,
-    });
+    const sentMessage = await interaction.editReply(response.outputPayload);
 
     storeConversationState(sentMessage.id, {
       userId: interaction.user.id,
@@ -1341,7 +1605,11 @@ async function handleAiReplyMessage(message) {
   const previous = getConversationState(reference.id);
   const model = previous?.model ?? DEFAULT_MODEL;
 
-  await message.channel.sendTyping().catch(() => null);
+  const progressMessage = await message.reply({
+    embeds: [createAiStreamingEmbed(message.guild, getModelDisplayName(model), 'Preparing request…', [], '')],
+    components: [],
+  }).catch(() => null);
+  if (!progressMessage) return true;
 
   try {
     const response = await generateAiResponse({
@@ -1349,12 +1617,10 @@ async function handleAiReplyMessage(message) {
       prompt,
       model,
       priorMessages: previous?.messages ?? [],
+      progressEditor: async (payload) => progressMessage.edit(payload),
     });
 
-    const sentMessage = await message.reply({
-      embeds: [response.embed],
-      components: response.components,
-    });
+    const sentMessage = await progressMessage.edit(response.outputPayload);
 
     storeConversationState(sentMessage.id, {
       userId: message.author.id,
@@ -1362,13 +1628,14 @@ async function handleAiReplyMessage(message) {
       messages: response.completionMessages,
     });
   } catch (error) {
-    await message.reply({
+    await progressMessage.edit({
       embeds: [
         embeds.error(
           `AI request failed: ${truncate(error.message, 500)}`,
           message.guild ?? null,
         ),
       ],
+      components: [],
     }).catch(() => null);
   }
 
@@ -1434,12 +1701,10 @@ module.exports = {
         prompt: userPrompt,
         model,
         priorMessages: [],
+        progressEditor: async (payload) => interaction.editReply(payload),
       });
 
-      const sentMessage = await interaction.editReply({
-        embeds: [response.embed],
-        components: response.components,
-      });
+      const sentMessage = await interaction.editReply(response.outputPayload);
 
       storeConversationState(sentMessage.id, {
         userId: interaction.user.id,
