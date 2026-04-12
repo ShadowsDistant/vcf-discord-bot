@@ -2395,10 +2395,12 @@ function modalForBakeryName() {
 }
 
 function sanitizeBakeryName(input) {
-  const raw = String(input ?? '').trim();
+  const raw = String(input ?? '')
+    .replace(/[\u200B-\u200D\uFEFF\u00AD\u2060\u180E]/g, '')
+    .trim();
   if (!raw) return { ok: false, reason: 'Bakery name cannot be empty.', value: '' };
   if (raw.length > 60) return { ok: false, reason: 'Bakery name must be 60 characters or fewer.', value: '' };
-  if (/@everyone|@here|<@!?&?\d+>/.test(raw)) {
+  if (/@everyone|@here|<@!?(\d+)>|<@&(\d+)>/.test(raw)) {
     return { ok: false, reason: 'Bakery name cannot contain mentions.', value: '' };
   }
   if (/(discord\.gg\/|discord\.com\/invite\/|hxxps?:\/\/|https?:\/\/)/i.test(raw)) {

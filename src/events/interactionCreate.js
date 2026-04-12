@@ -297,21 +297,46 @@ module.exports = {
         }
         if (action === 'timeout5m' || action === 'timeout1h') {
           const durationMs = action === 'timeout5m' ? 5 * 60_000 : 60 * 60_000;
-          await member.timeout(durationMs, `${interaction.user.tag}: quick moderation panel`).catch(() => null);
+          const ok = await member.timeout(durationMs, `${interaction.user.tag}: quick moderation panel`)
+            .then(() => true)
+            .catch(() => false);
+          if (!ok) {
+            return interaction.reply({
+              embeds: [embeds.error('Failed to timeout user (permissions or hierarchy).', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
           return interaction.reply({
             embeds: [embeds.success(`Timed out <@${targetId}> for **${Math.floor(durationMs / 60_000)}m**.`, interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
         if (action === 'kick') {
-          await member.kick(`${interaction.user.tag}: quick moderation panel`).catch(() => null);
+          const ok = await member.kick(`${interaction.user.tag}: quick moderation panel`)
+            .then(() => true)
+            .catch(() => false);
+          if (!ok) {
+            return interaction.reply({
+              embeds: [embeds.error('Failed to kick user (permissions or hierarchy).', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
           return interaction.reply({
             embeds: [embeds.success(`Kicked <@${targetId}>.`, interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
         if (action === 'ban') {
-          await interaction.guild.members.ban(targetId, { reason: `${interaction.user.tag}: quick moderation panel` }).catch(() => null);
+          const ok = await interaction.guild.members
+            .ban(targetId, { reason: `${interaction.user.tag}: quick moderation panel` })
+            .then(() => true)
+            .catch(() => false);
+          if (!ok) {
+            return interaction.reply({
+              embeds: [embeds.error('Failed to ban user (permissions or hierarchy).', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
           return interaction.reply({
             embeds: [embeds.success(`Banned <@${targetId}>.`, interaction.guild)],
             flags: MessageFlags.Ephemeral,

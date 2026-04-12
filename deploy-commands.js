@@ -26,10 +26,13 @@ function normalizeEnvValue(value) {
 const DISCORD_TOKEN = normalizeEnvValue(process.env.DISCORD_TOKEN);
 const CLIENT_ID = normalizeEnvValue(process.env.CLIENT_ID);
 const SNOWFLAKE_REGEX = /^\d{17,20}$/;
-const REQUIRED_BAKE_COMMANDS = normalizeEnvValue(process.env.REQUIRED_BAKE_COMMANDS)
-  .split(',')
-  .map((v) => v.trim().toLowerCase())
-  .filter(Boolean);
+const requiredBakeCommandsRaw = normalizeEnvValue(process.env.REQUIRED_BAKE_COMMANDS);
+const REQUIRED_BAKE_COMMANDS = requiredBakeCommandsRaw
+  ? requiredBakeCommandsRaw
+    .split(',')
+    .map((v) => v.trim().toLowerCase())
+    .filter(Boolean)
+  : [];
 
 if (!DISCORD_TOKEN || !CLIENT_ID) {
   console.error('❌  Missing required environment variables: DISCORD_TOKEN, CLIENT_ID');

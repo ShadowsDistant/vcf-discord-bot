@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const SHIFT_ID_MIN = 1;
@@ -30,7 +31,7 @@ function writeAtomic(filepath, content) {
   const dir = path.dirname(filepath);
   const tempPath = path.join(
     dir,
-    `.${path.basename(filepath)}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`,
+    `.${path.basename(filepath)}.${process.pid}.${Date.now()}.${crypto.randomBytes(8).toString('hex')}.tmp`,
   );
   fs.writeFileSync(tempPath, content, 'utf8');
   fs.renameSync(tempPath, filepath);
