@@ -99,25 +99,27 @@ function getChallengeStatus(guildId, userId, ts = Date.now()) {
 
 function claimAvailableRewards(guildId, userId, ts = Date.now()) {
   const status = getChallengeStatus(guildId, userId, ts);
-  const rewards = [];
+  const rewardsToGrant = [];
 
   db.update(CHALLENGE_FILE, {}, (data) => {
     const claimStore = getClaimStore(data, guildId, userId);
 
     if (status.daily.complete && !status.daily.claimed) {
       claimStore.daily[status.daily.key] = status.daily.id;
-      economy.adminGiveCookies(guildId, userId, status.daily.rewardCookies);
-      rewards.push({ type: 'daily', cookies: status.daily.rewardCookies, challenge: status.daily.name });
+      rewardsToGrant.push({ type: 'daily', cookies: status.daily.rewardCookies, challenge: status.daily.name });
     }
 
     if (status.weekly.complete && !status.weekly.claimed) {
       claimStore.weekly[status.weekly.key] = status.weekly.id;
-      economy.adminGiveCookies(guildId, userId, status.weekly.rewardCookies);
-      rewards.push({ type: 'weekly', cookies: status.weekly.rewardCookies, challenge: status.weekly.name });
+      rewardsToGrant.push({ type: 'weekly', cookies: status.weekly.rewardCookies, challenge: status.weekly.name });
     }
   });
 
-  return rewards;
+  for (const reward of rewardsToGrant) {
+    economy.adminGiveCookies(guildId, userId, reward.cookies);
+  }
+
+  return rewardsToGrant;
 }
 
 module.exports = {
