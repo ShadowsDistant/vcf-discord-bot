@@ -3,10 +3,12 @@
 const { Events } = require('discord.js');
 const embeds = require('../utils/embeds');
 const db = require('../utils/database');
+const analytics = require('../utils/analytics');
 
 module.exports = {
   name: Events.GuildMemberAdd,
   async execute(member) {
+    analytics.recordMemberJoin(member.guild.id, Date.now());
     const config = db.getConfig(member.guild.id);
     if (!config.welcomeChannelId) return;
 

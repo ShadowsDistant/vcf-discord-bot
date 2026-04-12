@@ -1,14 +1,17 @@
 'use strict';
 
-const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
+const analytics = require('../../utils/analytics');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('warn')
     .setDescription('Issue a warning to a member.')
+    .setDMPermission(false)
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
     .addUserOption((o) =>
       o.setName('user').setDescription('The member to warn.').setRequired(true),
     )
@@ -43,6 +46,7 @@ module.exports = {
       moderatorId: interaction.user.id,
       reason,
     });
+    analytics.recordModAction(interaction.guild.id, 'warn', Date.now());
 
     return interaction.reply({
       embeds: [

@@ -363,8 +363,9 @@ function scanMessage(content, enabledCats) {
           return { triggered: true, category: catId, matchedTerm: pattern };
         }
 
-        // 2. Stripped (no separators) test — catches "n.i.g.g.a" style bypasses
-        if (strippedPattern.length >= 5 && stripped.includes(strippedPattern)) {
+        // 2. Stripped (no separators) test for separator-based bypasses only
+        const usesSeparators = /[\s._-]/.test(pattern);
+        if (usesSeparators && strippedPattern.length >= 6 && stripped.includes(strippedPattern)) {
           return { triggered: true, category: catId, matchedTerm: pattern };
         }
 

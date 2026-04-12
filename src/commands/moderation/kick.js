@@ -1,13 +1,16 @@
 'use strict';
 
-const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
+const analytics = require('../../utils/analytics');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('kick')
     .setDescription('Kick a member from the server.')
+    .setDMPermission(false)
+    .setDefaultMemberPermissions(PermissionFlagsBits.KickMembers)
     .addUserOption((o) =>
       o.setName('user').setDescription('The member to kick.').setRequired(true),
     )
@@ -55,6 +58,7 @@ module.exports = {
 
     try {
       await member.kick(`${interaction.user.tag}: ${reason}`);
+      analytics.recordModAction(interaction.guild.id, 'kick', Date.now());
       return interaction.reply({
         embeds: [
           embeds.modAction({

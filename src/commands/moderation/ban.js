@@ -1,13 +1,16 @@
 'use strict';
 
-const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
+const analytics = require('../../utils/analytics');
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('ban')
     .setDescription('Permanently ban a member from the server.')
+    .setDMPermission(false)
+    .setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
     .addUserOption((o) =>
       o.setName('user').setDescription('The user to ban.').setRequired(true),
     )
@@ -60,6 +63,7 @@ module.exports = {
         reason: `${interaction.user.tag}: ${reason}`,
         deleteMessageSeconds: deleteDays * 86400,
       });
+      analytics.recordModAction(interaction.guild.id, 'ban', Date.now());
 
       return interaction.reply({
         embeds: [

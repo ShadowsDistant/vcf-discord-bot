@@ -1233,57 +1233,57 @@ function createGoldenCookieState(user, settings, nowTs = Date.now()) {
 }
 
 function bake(guildId, userId) {
-  const data = readState();
-  const guildState = getGuildState(data, guildId);
-  cleanMarketplace(guildState);
-  const user = getUserState(guildState, userId);
-  const nowTs = Date.now();
-  const activeEvent = getActiveBakeEvent(guildState, nowTs);
-  const passive = applyPassiveIncome(user, nowTs);
+  return db.update(ECONOMY_FILE, {}, (data) => {
+    const guildState = getGuildState(data, guildId);
+    cleanMarketplace(guildState);
+    const user = getUserState(guildState, userId);
+    const nowTs = Date.now();
+    const activeEvent = getActiveBakeEvent(guildState, nowTs);
+    const passive = applyPassiveIncome(user, nowTs);
 
-  if (user.pendingGoldenCookie?.expiresAt <= nowTs) user.pendingGoldenCookie = null;
+    if (user.pendingGoldenCookie?.expiresAt <= nowTs) user.pendingGoldenCookie = null;
 
-  const burnt = Math.random() < BURNT_BAKE_CHANCE;
-  const yieldAmount = burnt ? 0 : getManualBakeYield(user, nowTs);
-  user.cookies += yieldAmount;
-  user.cookiesBakedAllTime += yieldAmount;
-  user.totalBakes += 1;
+    const burnt = Math.random() < BURNT_BAKE_CHANCE;
+    const yieldAmount = burnt ? 0 : getManualBakeYield(user, nowTs);
+    user.cookies += yieldAmount;
+    user.cookiesBakedAllTime += yieldAmount;
+    user.totalBakes += 1;
 
-  const burntItem = ITEM_MAP.get('burnt_cookie') ?? ITEMS[0];
-  const boostedSpecialItemIds = SPECIAL_COOKIE_IDS.filter((itemId) => ITEM_MAP.has(itemId));
-  const boostedEventRoll = activeEvent?.id === BAKE_EVENT_SPECIAL_COOKIE_HUNT
-    && boostedSpecialItemIds.length > 0
-    && Math.random() < SPECIAL_COOKIE_EVENT_BOOST_CHANCE;
-  const boostedItemId = boostedEventRoll
-    ? boostedSpecialItemIds[Math.floor(Math.random() * boostedSpecialItemIds.length)]
-    : null;
-  const item = burnt
-    ? burntItem
-    : (boostedItemId ? ITEM_MAP.get(boostedItemId) : weightedPickItem(user, new Date(nowTs)));
-  // Burnt bakes keep a display item for UX feedback, but intentionally grant no inventory or item-stat progression as the penalty.
-  if (!burnt) registerItemBake(guildState, user, item, userId);
+    const burntItem = ITEM_MAP.get('burnt_cookie') ?? ITEMS[0];
+    const boostedSpecialItemIds = SPECIAL_COOKIE_IDS.filter((itemId) => ITEM_MAP.has(itemId));
+    const boostedEventRoll = activeEvent?.id === BAKE_EVENT_SPECIAL_COOKIE_HUNT
+      && boostedSpecialItemIds.length > 0
+      && Math.random() < SPECIAL_COOKIE_EVENT_BOOST_CHANCE;
+    const boostedItemId = boostedEventRoll
+      ? boostedSpecialItemIds[Math.floor(Math.random() * boostedSpecialItemIds.length)]
+      : null;
+    const item = burnt
+      ? burntItem
+      : (boostedItemId ? ITEM_MAP.get(boostedItemId) : weightedPickItem(user, new Date(nowTs)));
+    // Burnt bakes keep a display item for UX feedback, but intentionally grant no inventory or item-stat progression as the penalty.
+    if (!burnt) registerItemBake(guildState, user, item, userId);
 
-  let golden = null;
-  const forceGolden = user.forceGoldenCookieOnNextBake;
-  user.forceGoldenCookieOnNextBake = false;
-  if (forceGolden || Math.random() < getGoldenChance(user)) {
-    golden = createGoldenCookieState(user, guildState.settings, nowTs);
-  }
+    let golden = null;
+    const forceGolden = user.forceGoldenCookieOnNextBake;
+    user.forceGoldenCookieOnNextBake = false;
+    if (forceGolden || Math.random() < getGoldenChance(user)) {
+      golden = createGoldenCookieState(user, guildState.settings, nowTs);
+    }
 
-  const newlyEarned = evaluateAchievements(user);
-  const rankUpdate = syncUserRank(user);
-  writeState(data);
-  return {
-    user,
-    item,
-    passive,
-    manualYield: yieldAmount,
-    golden,
-    newlyEarned,
-    burnt,
-    rankUpdate,
-    activeEvent: activeEvent ? { id: activeEvent.id, endsAt: activeEvent.endsAt } : null,
-  };
+    const newlyEarned = evaluateAchievements(user);
+    const rankUpdate = syncUserRank(user);
+    return {
+      user,
+      item,
+      passive,
+      manualYield: yieldAmount,
+      golden,
+      newlyEarned,
+      burnt,
+      rankUpdate,
+      activeEvent: activeEvent ? { id: activeEvent.id, endsAt: activeEvent.endsAt } : null,
+    };
+  });
 }
 
 function getUserSnapshot(guildId, userId) {
@@ -1808,22 +1808,21 @@ function pickGoldenReward(user) {
 }
 
 function claimGoldenCookie(guildId, userId, token) {
-  const data = readState();
-  const guildState = getGuildState(data, guildId);
-  const user = getUserState(guildState, userId);
-  const now = Date.now();
-  const pending = user.pendingGoldenCookie;
-  if (!pending || pending.token !== token) {
-    return { ok: false, reason: 'This Golden Cookie fizzled out or was never yours.' };
-  }
-  if (pending.expiresAt < now) {
-    user.pendingGoldenCookie = null;
-    writeState(data);
-    return { ok: false, reason: 'Too slow. The Golden Cookie evaporated while laughing at you.' };
-  }
+  return db.update(ECONOMY_FILE, {}, (data) => {
+    const guildState = getGuildState(data, guildId);
+    const user = getUserState(guildState, userId);
+    const now = Date.now();
+    const pending = user.pendingGoldenCookie;
+    if (!pending || pending.token !== token) {
+      return { ok: false, reason: 'This Golden Cookie fizzled out or was never yours.' };
+    }
+    if (pending.expiresAt < now) {
+      user.pendingGoldenCookie = null;
+      return { ok: false, reason: 'Too slow. The Golden Cookie evaporated while laughing at you.' };
+    }
 
-  const reward = pickGoldenReward(user);
-  let description = '';
+    const reward = pickGoldenReward(user);
+    let description = '';
 
   if (reward === 'frenzy') {
     user.activeBuffs.push({ type: 'frenzy', multiplier: 7, expiresAt: now + 30000 });
@@ -1869,11 +1868,11 @@ function claimGoldenCookie(guildId, userId, token) {
     }
   }
 
-  user.pendingGoldenCookie = null;
-  user.goldenCookiesClaimed += 1;
-  evaluateAchievements(user);
-  writeState(data);
-  return { ok: true, reward, description, user };
+    user.pendingGoldenCookie = null;
+    user.goldenCookiesClaimed += 1;
+    evaluateAchievements(user);
+    return { ok: true, reward, description, user };
+  });
 }
 
 function getListingDisplay(listing, guild) {
@@ -2395,6 +2394,27 @@ function modalForBakeryName() {
     );
 }
 
+function sanitizeBakeryName(input) {
+  const raw = String(input ?? '')
+    .replace(/[\u200B-\u200D\uFEFF\u00AD\u2060\u180E]/g, '')
+    .trim();
+  if (!raw) return { ok: false, reason: 'Bakery name cannot be empty.', value: '' };
+  if (raw.length > 60) return { ok: false, reason: 'Bakery name must be 60 characters or fewer.', value: '' };
+  if (/@everyone|@here|<@!?(\d+)>|<@&(\d+)>/.test(raw)) {
+    return { ok: false, reason: 'Bakery name cannot contain mentions.', value: '' };
+  }
+  if (/(discord\.gg\/|discord\.com\/invite\/|hxxps?:\/\/|https?:\/\/)/i.test(raw)) {
+    return { ok: false, reason: 'Bakery name cannot contain links or invites.', value: '' };
+  }
+  const compact = raw
+    .replace(/[`*_~|>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 60);
+  if (!compact) return { ok: false, reason: 'Bakery name is not valid after sanitization.', value: '' };
+  return { ok: true, reason: null, value: compact };
+}
+
 function resolveBakeryEmojiInput(guild, input) {
   const raw = String(input ?? '').trim();
   if (!raw) return null;
@@ -2411,13 +2431,16 @@ function resolveBakeryEmojiInput(guild, input) {
 }
 
 function setBakeryIdentity(guildId, userId, bakeryName, bakeryEmoji) {
+  const sanitized = sanitizeBakeryName(bakeryName);
+  if (!sanitized.ok) return { ok: false, reason: sanitized.reason };
   const data = readState();
   const guildState = getGuildState(data, guildId);
   const user = getUserState(guildState, userId);
-  user.bakeryName = bakeryName;
+  user.bakeryName = sanitized.value;
   if (bakeryEmoji) user.bakeryEmoji = bakeryEmoji;
   evaluateAchievements(user);
   writeState(data);
+  return { ok: true, bakeryName: sanitized.value, bakeryEmoji: user.bakeryEmoji ?? '🍪' };
 }
 
 function inspectItem(guildId, userId, itemId) {
@@ -2532,6 +2555,7 @@ module.exports = {
   inspectItem,
   buildItemInspectEmbed,
   modalForBakeryName,
+  sanitizeBakeryName,
   setBakeryIdentity,
   resolveBakeryEmojiInput,
   buildBakeAdminEmbed,

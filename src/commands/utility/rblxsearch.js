@@ -1,6 +1,6 @@
 'use strict';
 
-const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
 const { fetchRobloxProfileByUsername, createRobloxEmbed } = require('../../utils/roblox');
@@ -11,6 +11,8 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('rblxsearch')
     .setDescription("Look up a server member's Roblox profile using their server nickname.")
+    .setDMPermission(false)
+    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .addUserOption((o) =>
       o
         .setName('user')

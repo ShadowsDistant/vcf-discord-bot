@@ -5,6 +5,15 @@ const { PALETTE } = require('./embeds');
 
 const UPDATE_LOGS = [
   {
+    version: 'v1.1.0',
+    date: '2026-04-12',
+    changes: [
+      'Hardened persistence and interaction safety: atomic JSON updates, bake-again cooldown parity, bounded in-memory cleanup, and stronger bakery-name sanitization.',
+      'Shipped server analytics, daily/weekly bakery challenges, and alliance foundations with persistent storage and leaderboard/challenge tracking.',
+      'Added context menu workflows (Moderate User, View Profile, View Bakery, Report Message) and modernized admin flows with richer select menus.',
+    ],
+  },
+  {
     version: 'v1.0.1',
     date: '2026-04-11',
     changes: [

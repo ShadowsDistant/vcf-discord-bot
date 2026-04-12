@@ -11,6 +11,7 @@ const economy = require('../../utils/bakeEconomy');
 const BAKE_COOLDOWN_MS = 30_000;
 const bakeCooldowns = new Map();
 const COOLDOWN_PRUNE_INTERVAL_MS = BAKE_COOLDOWN_MS;
+const MAX_BAKE_COOLDOWN_ENTRIES = 10_000;
 let lastCooldownPruneAt = 0;
 const SPECIAL_EVENT_CHANNEL_ID = '1492310367869862089';
 const SPECIAL_COOKIE_EVENT_DETAILS = {
@@ -65,8 +66,36 @@ function pruneCooldowns(now = Date.now()) {
     .filter(([, lastUsedAt]) => (now - lastUsedAt) > BAKE_COOLDOWN_MS)
     .map(([key]) => key);
   for (const key of expiredKeys) bakeCooldowns.delete(key);
+  if (bakeCooldowns.size > MAX_BAKE_COOLDOWN_ENTRIES) {
+    const overflow = bakeCooldowns.size - MAX_BAKE_COOLDOWN_ENTRIES;
+    const oldest = [...bakeCooldowns.entries()]
+      .sort((a, b) => a[1] - b[1])
+      .slice(0, overflow)
+      .map(([key]) => key);
+    for (const key of oldest) bakeCooldowns.delete(key);
+  }
   lastCooldownPruneAt = now;
 }
+
+function getCooldownKey(guildId, userId) {
+  return `${guildId}:${userId}`;
+}
+
+function getCooldownRemainingMs(guildId, userId, now = Date.now()) {
+  pruneCooldowns(now);
+  const cooldownKey = getCooldownKey(guildId, userId);
+  const nextAllowed = (bakeCooldowns.get(cooldownKey) ?? 0) + BAKE_COOLDOWN_MS;
+  return Math.max(0, nextAllowed - now);
+}
+
+function touchCooldown(guildId, userId, now = Date.now()) {
+  pruneCooldowns(now);
+  bakeCooldowns.set(getCooldownKey(guildId, userId), now);
+}
+
+const cooldownPruneTimer = setInterval(() => pruneCooldowns(Date.now()), COOLDOWN_PRUNE_INTERVAL_MS);
+// Avoid keeping the Node process alive solely for periodic cache pruning.
+if (typeof cooldownPruneTimer.unref === 'function') cooldownPruneTimer.unref();
 
 function buildBakeReply(guild, userId) {
   return buildBakeOutcome(guild, userId).reply;
@@ -228,18 +257,16 @@ module.exports = {
         ephemeral: true,
       });
     }
-    const cooldownKey = `${interaction.guild.id}:${interaction.user.id}`;
     const now = Date.now();
-    pruneCooldowns(now);
-    const nextAllowed = (bakeCooldowns.get(cooldownKey) ?? 0) + BAKE_COOLDOWN_MS;
-    if (nextAllowed > now) {
-      const remainingSeconds = Math.ceil((nextAllowed - now) / 1000);
+    const remainingMs = getCooldownRemainingMs(interaction.guild.id, interaction.user.id, now);
+    if (remainingMs > 0) {
+      const remainingSeconds = Math.ceil(remainingMs / 1000);
       return interaction.reply({
         content: `Slow down, baker. You can use \`/bake\` again in **${remainingSeconds}s**.`,
         ephemeral: true,
       });
     }
-    bakeCooldowns.set(cooldownKey, now);
+    touchCooldown(interaction.guild.id, interaction.user.id, now);
     const outcome = buildBakeOutcome(interaction.guild, interaction.user.id);
     await interaction.reply(outcome.reply);
     if (outcome.specialCookieEvent) {
@@ -250,4 +277,6 @@ module.exports = {
   buildBakeReply,
   buildBakeOutcome,
   postSpecialCookieEvent,
+  getCooldownRemainingMs,
+  touchCooldown,
 };

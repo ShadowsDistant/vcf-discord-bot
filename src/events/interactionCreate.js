@@ -4,6 +4,7 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ChannelSelectMenuBuilder,
   EmbedBuilder,
   Events,
   MessageFlags,
@@ -17,6 +18,7 @@ const db = require('../utils/database');
 const { formatDuration } = require('../utils/helpers');
 const { fetchRobloxProfileByUsername, createRobloxEmbed } = require('../utils/roblox');
 const { ROLE_IDS } = require('../utils/roles');
+const { hasModLevel, MOD_LEVEL } = require('../utils/permissions');
 const { UPDATE_LOGS, createUpdateEmbed } = require('../utils/updateLogs');
 const economy = require('../utils/bakeEconomy');
 const bakeCommand = require('../commands/utility/bake');
@@ -28,8 +30,14 @@ const ERROR_DETAIL_LIMIT = 500;
 const MAX_SELECT_MENU_OPTIONS = 25;
 const DEFAULT_GUIDE_SECTION = 'info';
 const BAKERY_RENAME_TTL_MS = 10 * 60 * 1000;
+const GUIDE_STATE_TTL_MS = 60 * 60 * 1000;
 const SPECIAL_COOKIE_EVENT_CHANNEL_ID = '1492310367869862089';
-const COMPONENT_EXPIRY_MS = 10 * 60 * 1000;
+const REPORTS_CHANNEL_ID = '1492689950540435637';
+const REPORTS_PING_ROLE_ID = '1425569078596337745';
+const COMPONENT_EXPIRY_DEFAULT_MS = 10 * 60 * 1000;
+const COMPONENT_EXPIRY_LONG_MS = 30 * 60 * 1000;
+const MAX_PENDING_RENAME_SELECTIONS = 2_000;
+const MAX_GUIDE_VIEW_SELECTIONS = 5_000;
 const pendingBakeryRenameSelections = new Map();
 const guideViewSelections = new Map();
 
@@ -38,6 +46,14 @@ function prunePendingBakeryRenameSelections(now = Date.now()) {
     .filter(([, entry]) => (entry?.expiresAt ?? 0) <= now)
     .map(([key]) => key);
   for (const key of expiredKeys) pendingBakeryRenameSelections.delete(key);
+  if (pendingBakeryRenameSelections.size > MAX_PENDING_RENAME_SELECTIONS) {
+    const overflow = pendingBakeryRenameSelections.size - MAX_PENDING_RENAME_SELECTIONS;
+    const oldestKeys = [...pendingBakeryRenameSelections.entries()]
+      .sort((a, b) => (a[1]?.expiresAt ?? 0) - (b[1]?.expiresAt ?? 0))
+      .slice(0, overflow)
+      .map(([key]) => key);
+    for (const key of oldestKeys) pendingBakeryRenameSelections.delete(key);
+  }
 }
 
 function setPendingBakeryRenameSelection(guildId, userId, bakeryName) {
@@ -60,15 +76,46 @@ function clearPendingBakeryRenameSelection(guildId, userId) {
 }
 
 function getGuideState(guildId, userId) {
-  return guideViewSelections.get(`${guildId}:${userId}`) ?? { section: DEFAULT_GUIDE_SECTION, page: 0 };
+  pruneGuideStateSelections();
+  const entry = guideViewSelections.get(`${guildId}:${userId}`);
+  if (!entry) return { section: DEFAULT_GUIDE_SECTION, page: 0 };
+  return { section: entry.section, page: entry.page };
 }
 
 function setGuideState(guildId, userId, section, page) {
+  pruneGuideStateSelections();
   guideViewSelections.set(`${guildId}:${userId}`, {
     section: section ?? DEFAULT_GUIDE_SECTION,
     page: Number.isFinite(page) ? Math.max(0, page) : 0,
+    expiresAt: Date.now() + GUIDE_STATE_TTL_MS,
   });
 }
+
+function pruneGuideStateSelections(now = Date.now()) {
+  const expiredKeys = [...guideViewSelections.entries()]
+    .filter(([, entry]) => (entry?.expiresAt ?? 0) <= now)
+    .map(([key]) => key);
+  for (const key of expiredKeys) guideViewSelections.delete(key);
+  if (guideViewSelections.size > MAX_GUIDE_VIEW_SELECTIONS) {
+    const overflow = guideViewSelections.size - MAX_GUIDE_VIEW_SELECTIONS;
+    const oldestKeys = [...guideViewSelections.entries()]
+      .sort((a, b) => (a[1]?.expiresAt ?? 0) - (b[1]?.expiresAt ?? 0))
+      .slice(0, overflow)
+      .map(([key]) => key);
+    for (const key of oldestKeys) guideViewSelections.delete(key);
+  }
+}
+
+const renameSelectionPruneTimer = setInterval(
+  () => prunePendingBakeryRenameSelections(Date.now()),
+  Math.min(BAKERY_RENAME_TTL_MS, 60_000),
+);
+const guideStatePruneTimer = setInterval(
+  () => pruneGuideStateSelections(Date.now()),
+  60_000,
+);
+if (typeof renameSelectionPruneTimer.unref === 'function') renameSelectionPruneTimer.unref();
+if (typeof guideStatePruneTimer.unref === 'function') guideStatePruneTimer.unref();
 
 function buildInventoryItemSelectOptions(user, guild) {
   return Object.entries(user.inventory ?? {})
@@ -134,16 +181,24 @@ function getErrorDetails(err) {
 }
 
 function getComponentOwnerId(interaction) {
-  const commandOwnerId = interaction.message?.interactionMetadata?.user?.id
-    ?? interaction.message?.interaction?.user?.id
-    ?? null;
-  return commandOwnerId;
+  return interaction.message?.interactionMetadata?.user?.id ?? null;
+}
+
+function getComponentExpiryMs(customId) {
+  if (
+    customId?.startsWith('bakery_')
+    || customId?.startsWith('market_')
+    || customId === 'updates_log_select'
+  ) {
+    return COMPONENT_EXPIRY_LONG_MS;
+  }
+  return COMPONENT_EXPIRY_DEFAULT_MS;
 }
 
 function isComponentExpired(interaction, nowTs = Date.now()) {
   const createdTs = interaction.message?.createdTimestamp;
   if (!Number.isFinite(createdTs)) return false;
-  return (nowTs - createdTs) > COMPONENT_EXPIRY_MS;
+  return (nowTs - createdTs) > getComponentExpiryMs(interaction.customId);
 }
 
 function normalizeLookupValue(value) {
@@ -214,6 +269,118 @@ module.exports = {
         });
       }
 
+      if (interaction.customId.startsWith('ctx_mod_')) {
+        if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.moderator)) {
+          return interaction.reply({
+            embeds: [embeds.error('You no longer have permission to use this moderation panel.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const [, actionWithTarget] = interaction.customId.split('ctx_mod_');
+        const [action, targetId] = actionWithTarget.split(':');
+        const member = await interaction.guild.members.fetch(targetId).catch(() => null);
+        if (!member) {
+          return interaction.reply({
+            embeds: [embeds.error('That user is no longer in this server.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'warn') {
+          db.addWarning(interaction.guild.id, targetId, {
+            moderatorId: interaction.user.id,
+            reason: 'Quick moderation panel warning.',
+          });
+          return interaction.reply({
+            embeds: [embeds.success(`Warned <@${targetId}>.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'timeout5m' || action === 'timeout1h') {
+          const durationMs = action === 'timeout5m' ? 5 * 60_000 : 60 * 60_000;
+          const ok = await member.timeout(durationMs, `${interaction.user.tag}: quick moderation panel`)
+            .then(() => true)
+            .catch(() => false);
+          if (!ok) {
+            return interaction.reply({
+              embeds: [embeds.error('Failed to timeout user (permissions or hierarchy).', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          return interaction.reply({
+            embeds: [embeds.success(`Timed out <@${targetId}> for **${Math.floor(durationMs / 60_000)}m**.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'kick') {
+          const ok = await member.kick(`${interaction.user.tag}: quick moderation panel`)
+            .then(() => true)
+            .catch(() => false);
+          if (!ok) {
+            return interaction.reply({
+              embeds: [embeds.error('Failed to kick user (permissions or hierarchy).', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          return interaction.reply({
+            embeds: [embeds.success(`Kicked <@${targetId}>.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'ban') {
+          const ok = await interaction.guild.members
+            .ban(targetId, { reason: `${interaction.user.tag}: quick moderation panel` })
+            .then(() => true)
+            .catch(() => false);
+          if (!ok) {
+            return interaction.reply({
+              embeds: [embeds.error('Failed to ban user (permissions or hierarchy).', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          return interaction.reply({
+            embeds: [embeds.success(`Banned <@${targetId}>.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+      }
+
+      if (interaction.customId.startsWith('report_action:')) {
+        if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.moderator)) {
+          return interaction.reply({
+            embeds: [embeds.error('Only moderation staff can use report actions.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const [, action, sourceChannelId, messageId, authorId] = interaction.customId.split(':');
+        const targetChannel = await interaction.guild.channels.fetch(sourceChannelId).catch(() => null);
+        if (!targetChannel || !targetChannel.isTextBased()) {
+          return interaction.reply({
+            embeds: [embeds.error('Source channel is unavailable for this report.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const targetMessage = await targetChannel.messages.fetch(messageId).catch(() => null);
+        const targetMember = await interaction.guild.members.fetch(authorId).catch(() => null);
+        if (action === 'delete_message' && targetMessage) {
+          await targetMessage.delete().catch(() => null);
+          return interaction.reply({ embeds: [embeds.success('Reported message deleted.', interaction.guild)], flags: MessageFlags.Ephemeral });
+        }
+        if (action === 'warn_author') {
+          db.addWarning(interaction.guild.id, authorId, {
+            moderatorId: interaction.user.id,
+            reason: 'Warning issued from report queue.',
+          });
+          return interaction.reply({ embeds: [embeds.success('Author warned.', interaction.guild)], flags: MessageFlags.Ephemeral });
+        }
+        if (action === 'timeout_author' && targetMember) {
+          await targetMember.timeout(60 * 60_000, `${interaction.user.tag}: report action`).catch(() => null);
+          return interaction.reply({ embeds: [embeds.success('Author timed out for 1 hour.', interaction.guild)], flags: MessageFlags.Ephemeral });
+        }
+        if (action === 'dismiss') {
+          return interaction.update({ components: [] });
+        }
+      }
+
       const ownerId = getComponentOwnerId(interaction);
       if (ownerId && ownerId !== interaction.user.id) {
         return interaction.reply({
@@ -239,6 +406,23 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+        const remainingMs = bakeCommand.getCooldownRemainingMs(
+          interaction.guild.id,
+          interaction.user.id,
+          Date.now(),
+        );
+        if (remainingMs > 0) {
+          return interaction.reply({
+            embeds: [
+              embeds.warning(
+                `Slow down, baker. You can bake again in **${Math.ceil(remainingMs / 1000)}s**.`,
+                interaction.guild,
+              ),
+            ],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        bakeCommand.touchCooldown(interaction.guild.id, interaction.user.id, Date.now());
         const outcome = bakeCommand.buildBakeOutcome(interaction.guild, interaction.user.id);
         await interaction.update(outcome.reply);
         if (outcome.specialCookieEvent) {
@@ -763,10 +947,21 @@ module.exports = {
           });
         }
         const selectedEmoji = economy.getItemEmoji(itemId, interaction.guild);
-        economy.setBakeryIdentity(interaction.guild.id, interaction.user.id, bakeryName, selectedEmoji);
+        const setResult = economy.setBakeryIdentity(
+          interaction.guild.id,
+          interaction.user.id,
+          bakeryName,
+          selectedEmoji,
+        );
+        if (!setResult?.ok) {
+          return interaction.reply({
+            embeds: [embeds.error(setResult?.reason ?? 'Could not update bakery identity.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
         clearPendingBakeryRenameSelection(interaction.guild.id, interaction.user.id);
         return interaction.update({
-          embeds: [embeds.success(`Your bakery is now **${selectedEmoji} ${bakeryName}**. Branding complete.`, interaction.guild)],
+          embeds: [embeds.success(`Your bakery is now **${selectedEmoji} ${setResult.bakeryName}**. Branding complete.`, interaction.guild)],
           components: [],
         });
       }
@@ -795,9 +990,24 @@ module.exports = {
           });
         }
         const action = interaction.values[0];
-        if (['give_cookies', 'remove_cookies', 'give_item', 'set_building', 'set_log_channel', 'start_event'].includes(action)) {
+        if (['give_cookies', 'remove_cookies', 'give_item', 'set_building', 'start_event'].includes(action)) {
           const modal = economy.modalForAdminAction(actorId, targetId, action);
           return interaction.showModal(modal);
+        }
+        if (action === 'set_log_channel') {
+          return interaction.reply({
+            embeds: [embeds.info('Set Log Channel', 'Choose the bake admin log channel.', interaction.guild)],
+            components: [
+              new ActionRowBuilder().addComponents(
+                new ChannelSelectMenuBuilder()
+                  .setCustomId(`bakeadmin_log_channel_select:${actorId}:${targetId}`)
+                  .setPlaceholder('Select a channel')
+                  .setMinValues(1)
+                  .setMaxValues(1),
+              ),
+            ],
+            flags: MessageFlags.Ephemeral,
+          });
         }
         if (action === 'unlock_upgrade') {
           return interaction.reply({
@@ -1028,25 +1238,148 @@ module.exports = {
       }
     }
 
+    if (interaction.isChannelSelectMenu()) {
+      if (isComponentExpired(interaction)) {
+        return interaction.reply({
+          embeds: [embeds.warning('This channel picker has expired. Run the command again to refresh.', interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      const ownerId = getComponentOwnerId(interaction);
+      if (ownerId && ownerId !== interaction.user.id) {
+        return interaction.reply({
+          embeds: [embeds.error('This channel picker belongs to someone else\'s command.', interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      if (interaction.customId.startsWith('bakeadmin_log_channel_select:')) {
+        const [, actorId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const channelId = interaction.values[0];
+        economy.setAdminLogChannel(interaction.guild.id, channelId);
+        return interaction.update({
+          embeds: [embeds.success(`Set bake admin log channel to <#${channelId}>.`, interaction.guild)],
+          components: [],
+        });
+      }
+    }
+
+    if (interaction.isUserSelectMenu()) {
+      if (isComponentExpired(interaction)) {
+        return interaction.reply({
+          embeds: [embeds.warning('This user picker has expired. Run the command again to refresh.', interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      const ownerId = getComponentOwnerId(interaction);
+      if (ownerId && ownerId !== interaction.user.id) {
+        return interaction.reply({
+          embeds: [embeds.error('This user picker belongs to someone else\'s command.', interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      if (interaction.customId.startsWith('bakeadmin_target_select:')) {
+        const actorId = interaction.customId.split(':')[1];
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const targetId = interaction.values[0];
+        const embed = economy.buildBakeAdminEmbed(interaction.guild, interaction.user.id, targetId);
+        const components = economy.buildBakeAdminComponents(interaction.user.id, targetId);
+        return interaction.update({ embeds: [embed], components });
+      }
+    }
+
     if (interaction.isModalSubmit()) {
+      if (interaction.customId.startsWith('ctx_report_message:')) {
+        const [, sourceChannelId, messageId, authorId] = interaction.customId.split(':');
+        const category = interaction.fields.getTextInputValue('category').trim();
+        const reason = interaction.fields.getTextInputValue('reason').trim();
+        const reportChannel = await interaction.guild.channels.fetch(REPORTS_CHANNEL_ID).catch(() => null);
+        if (!reportChannel || !reportChannel.isTextBased()) {
+          return interaction.reply({
+            embeds: [embeds.error('Reports channel is not configured correctly.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        const sourceChannel = await interaction.guild.channels.fetch(sourceChannelId).catch(() => null);
+        if (!sourceChannel || !sourceChannel.isTextBased()) {
+          return interaction.reply({
+            embeds: [embeds.error('Original channel is no longer available.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const sourceMessage = await sourceChannel.messages.fetch(messageId).catch(() => null);
+        const messageContent = sourceMessage?.content?.slice(0, 1000) || '(message unavailable)';
+        const jumpLink = sourceMessage?.url ?? 'Unavailable';
+
+        const reportEmbed = new EmbedBuilder()
+          .setColor(0xed4245)
+          .setTitle('🚨 Message Report')
+          .setDescription(messageContent)
+          .addFields(
+            { name: 'Category', value: category.slice(0, 100), inline: true },
+            { name: 'Reporter', value: `<@${interaction.user.id}>`, inline: true },
+            { name: 'Author', value: `<@${authorId}>`, inline: true },
+            { name: 'Channel', value: `${sourceChannel}`, inline: true },
+            { name: 'Reason', value: reason.slice(0, 1024), inline: false },
+            { name: 'Jump Link', value: jumpLink, inline: false },
+          )
+          .setTimestamp();
+
+        const actions = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`report_action:delete_message:${sourceChannelId}:${messageId}:${authorId}`).setLabel('Delete Message').setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId(`report_action:warn_author:${sourceChannelId}:${messageId}:${authorId}`).setLabel('Warn Author').setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId(`report_action:timeout_author:${sourceChannelId}:${messageId}:${authorId}`).setLabel('Timeout Author').setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId(`report_action:dismiss:${sourceChannelId}:${messageId}:${authorId}`).setLabel('Dismiss').setStyle(ButtonStyle.Success),
+        );
+
+        await reportChannel.send({
+          content: `<@&${REPORTS_PING_ROLE_ID}>`,
+          embeds: [reportEmbed],
+          components: [actions],
+        }).catch(() => null);
+
+        return interaction.reply({
+          embeds: [embeds.success('Report submitted to moderators.', interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
       if (interaction.customId === 'bakery_modal_name') {
         const name = interaction.fields.getTextInputValue('name').trim();
-        if (!name) {
+        const sanitized = economy.sanitizeBakeryName(name);
+        if (!sanitized.ok) {
           return interaction.reply({
-            embeds: [embeds.error('Bakery name cannot be empty.', interaction.guild)],
+            embeds: [embeds.error(sanitized.reason, interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const itemOptions = buildInventoryItemSelectOptions(snapshot.user, interaction.guild);
         if (itemOptions.length === 0) {
-          economy.setBakeryIdentity(interaction.guild.id, interaction.user.id, name);
+          const setResult = economy.setBakeryIdentity(interaction.guild.id, interaction.user.id, sanitized.value);
+          if (!setResult?.ok) {
+            return interaction.reply({
+              embeds: [embeds.error(setResult?.reason ?? 'Could not update bakery identity.', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
           return interaction.reply({
-            embeds: [embeds.success(`Your bakery is now **${snapshot.user.bakeryEmoji ?? '🍪'} ${name}**.`, interaction.guild)],
+            embeds: [embeds.success(`Your bakery is now **${setResult.bakeryEmoji} ${setResult.bakeryName}**.`, interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
-        setPendingBakeryRenameSelection(interaction.guild.id, interaction.user.id, name);
+        setPendingBakeryRenameSelection(interaction.guild.id, interaction.user.id, sanitized.value);
         return interaction.reply({
           embeds: [embeds.info('Choose Bakery Emoji', 'Select a cookie from your inventory to use as your bakery emoji.', interaction.guild)],
           components: [
@@ -1258,7 +1591,11 @@ module.exports = {
       return;
     }
 
-    if (!interaction.isChatInputCommand()) return;
+    if (
+      !interaction.isChatInputCommand()
+      && !interaction.isUserContextMenuCommand()
+      && !interaction.isMessageContextMenuCommand()
+    ) return;
 
     const command = interaction.client.commands.get(interaction.commandName);
 
