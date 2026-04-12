@@ -22,6 +22,7 @@ const { hasModLevel, MOD_LEVEL } = require('../utils/permissions');
 const { UPDATE_LOGS, createUpdateEmbed } = require('../utils/updateLogs');
 const economy = require('../utils/bakeEconomy');
 const bakeCommand = require('../commands/utility/bake');
+const allianceCommand = require('../commands/utility/alliance');
 const { sendModerationActionDm, sendReporterStatusDm } = require('../utils/moderationNotifications');
 const { version: botVersion } = require('../../package.json');
 
@@ -577,6 +578,9 @@ module.exports = {
           flags: MessageFlags.Ephemeral,
         });
       }
+      if (allianceCommand.isAllianceButtonCustomId(interaction.customId)) {
+        return allianceCommand.handleAllianceButton(interaction);
+      }
 
       if (interaction.customId.startsWith('bakery_nav:')) {
         const requestedView = interaction.customId.split(':')[1];
@@ -980,6 +984,9 @@ module.exports = {
           embeds: [embeds.error('These select menus belong to someone else\'s command.', interaction.guild)],
           flags: MessageFlags.Ephemeral,
         });
+      }
+      if (allianceCommand.isAllianceSelectCustomId(interaction.customId)) {
+        return allianceCommand.handleAllianceSelect(interaction);
       }
       if (interaction.customId.startsWith('rmr:')) {
         const [, sourceChannelId, messageId, authorId] = interaction.customId.split(':');
@@ -1578,6 +1585,9 @@ module.exports = {
     }
 
     if (interaction.isModalSubmit()) {
+      if (allianceCommand.isAllianceModalCustomId(interaction.customId)) {
+        return allianceCommand.handleAllianceModal(interaction);
+      }
       if (interaction.customId.startsWith('ctx_report_message:')) {
         const [, sourceChannelId, messageId, authorId] = interaction.customId.split(':');
         const remainingMs = getReportCooldownRemainingMs(interaction.guild.id, interaction.user.id, Date.now());
