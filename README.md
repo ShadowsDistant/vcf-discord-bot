@@ -579,7 +579,7 @@ Query AI via OpenRouter and return the result in a structured embed with optiona
 | Option | Type | Required | Description |
 |---|---|---|---|
 | `prompt` | String | ✅ | Prompt sent to the AI model |
-| `model` | Choice | ❌ | `GLM 5` (`z-ai/glm5`) or `MiniMax M2.7` (`minimaxai/minimax-m2.7`) |
+| `model` | Choice | ❌ | `Gemma 4 31B` (`google/gemma-4-31b-it`), `GLM 5` (`z-ai/glm5`), or `MiniMax M2.7` (`minimaxai/minimax-m2.7`) |
 
 Supports a broad set of safe read-only server tools (server overview, features, channels, roles, members, emojis) for context-aware responses.
 Replies to AI messages continue the same conversation context.
@@ -632,7 +632,7 @@ OPENROUTER_API_KEY=your_openrouter_api_key
 | `CLIENT_ID` | ✅ | Your application's client/application ID |
 | `REQUIRED_BAKE_COMMANDS` | ❌ | Comma-separated slash command names required by deploy validation (e.g. `bake,bakery,marketplace,bakeadmin`) |
 | `DEV_USER_ID` | ❌ | Discord user ID permitted to use `/setstatus`, `/servers` |
-| `OPENROUTER_API_KEY` | ❌ | OpenRouter API key used by `/ai` model choices (`z-ai/glm5`, `minimaxai/minimax-m2.7`) |
+| `OPENROUTER_API_KEY` | ❌ | OpenRouter API key used by `/ai` model choices (`google/gemma-4-31b-it`, `z-ai/glm5`, `minimaxai/minimax-m2.7`) |
 
 > ⚠️ **Never commit your `.env` file.** It is listed in `.gitignore` by default.
 

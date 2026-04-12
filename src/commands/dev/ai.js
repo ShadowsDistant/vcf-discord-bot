@@ -24,6 +24,7 @@ const MAX_STORED_CONVERSATIONS = 500;
 const MAX_CONTEXT_MESSAGES = 24;
 
 const AI_MODELS = Object.freeze([
+  { displayName: 'Gemma 4 31B', value: 'google/gemma-4-31b-it' },
   { displayName: 'GLM 5', value: 'z-ai/glm5' },
   { displayName: 'MiniMax M2.7', value: 'minimaxai/minimax-m2.7' },
 ]);
@@ -134,7 +135,14 @@ function normalizeButton(button) {
   const prompt = truncate(button?.prompt, 1500);
   const url = style === 'link' ? truncate(button?.url, 500) : '';
 
-  if (style === 'link' && !url.startsWith('http://') && !url.startsWith('https://')) return null;
+  if (style === 'link') {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    } catch {
+      return null;
+    }
+  }
 
   return {
     label,
@@ -149,12 +157,15 @@ function normalizeSelectMenu(selectMenu) {
   const placeholder = truncate(selectMenu?.placeholder, 150) || 'Choose an option';
   const rawOptions = Array.isArray(selectMenu?.options) ? selectMenu.options : [];
   const options = [];
+  const seenValues = new Set();
 
   for (const [index, option] of rawOptions.entries()) {
     if (options.length >= 25) break;
     const label = truncate(option?.label, 100);
     if (!label) continue;
     const value = truncate(option?.value, 100) || `opt_${index + 1}`;
+    if (seenValues.has(value)) continue;
+    seenValues.add(value);
     const description = truncate(option?.description, 100);
     const prompt = truncate(option?.prompt, 1500) || label;
     options.push({
@@ -168,8 +179,12 @@ function normalizeSelectMenu(selectMenu) {
 
   if (!options.length) return null;
 
-  const minValues = Math.min(options.length, Math.max(1, Number(selectMenu?.min_values) || 1));
-  const maxValues = Math.min(options.length, Math.max(minValues, Number(selectMenu?.max_values) || 1));
+  const parsedMinValues = Number(selectMenu?.min_values);
+  const parsedMaxValues = Number(selectMenu?.max_values);
+  const requestedMinValues = Number.isFinite(parsedMinValues) ? parsedMinValues : 1;
+  const requestedMaxValues = Number.isFinite(parsedMaxValues) ? parsedMaxValues : 1;
+  const minValues = Math.min(options.length, Math.max(1, requestedMinValues));
+  const maxValues = Math.min(options.length, Math.max(minValues, requestedMaxValues));
 
   return {
     placeholder,
@@ -681,7 +696,7 @@ async function requestOpenRouterChat({ apiKey, model, messages, tools }) {
 
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(`OpenRouter API ${response.status}: ${truncate(body, 400)}`);
+      throw new Error(`OpenRouter API ${response.status} (${model}): ${truncate(body, 400)}`);
     }
 
     return response.json();
@@ -768,7 +783,7 @@ async function runAiCompletion({ apiKey, model, context, prompt, priorMessages =
     });
 
     const choice = data?.choices?.[0]?.message;
-    if (!choice) throw new Error('No response choices were returned by the AI provider.');
+    if (!choice) throw new Error(`No response choices were returned by the AI provider (${model}).`);
 
     const toolCalls = Array.isArray(choice.tool_calls) ? choice.tool_calls : [];
     if (toolCalls.length > 0) {
@@ -1017,7 +1032,8 @@ function parseAiComponentCustomId(customId) {
 }
 
 function isAiComponentCustomId(customId) {
-  return parseAiComponentCustomId(customId) != null;
+  const value = asString(customId, '');
+  return value.startsWith('ai_btn:') || value.startsWith('ai_sel:');
 }
 
 async function handleAiComponentInteraction(interaction) {
@@ -1194,15 +1210,16 @@ module.exports = {
 
   async execute(interaction) {
     if (!isDevUser(interaction.user.id)) {
-      return interaction.reply({
+      await interaction.reply({
         embeds: [embeds.error('This command is restricted to the bot developer.', interaction.guild ?? null)],
         flags: MessageFlags.Ephemeral,
       });
+      return null;
     }
 
     const apiKey = getOpenRouterApiKey();
     if (!apiKey) {
-      return interaction.reply({
+      await interaction.reply({
         embeds: [
           embeds.error(
             'OPENROUTER_API_KEY is not configured. Add it to your environment before using `/ai`.',
@@ -1211,6 +1228,7 @@ module.exports = {
         ],
         flags: MessageFlags.Ephemeral,
       });
+      return null;
     }
 
     const userPrompt = interaction.options.getString('prompt', true).trim();
@@ -1237,7 +1255,7 @@ module.exports = {
         messages: response.completionMessages,
       });
     } catch (error) {
-      return interaction.editReply({
+      await interaction.editReply({
         embeds: [
           embeds.error(
             `AI request failed: ${truncate(error.message, 500)}`,
@@ -1246,6 +1264,7 @@ module.exports = {
         ],
         components: [],
       });
+      return null;
     }
 
     return null;
