@@ -1444,7 +1444,14 @@ module.exports = {
         const sourceMessage = await sourceChannel.messages.fetch(messageId).catch(() => null);
         const messageContent = sourceMessage?.content?.slice(0, 1000) || '(message unavailable)';
         const attachmentSummary = sourceMessage?.attachments?.size
-          ? sourceMessage.attachments.map((attachment) => attachment.url).slice(0, 3).join('\n')
+          ? sourceMessage.attachments
+            .map((attachment) => {
+              const safeName = (attachment.name ?? 'attachment').slice(0, 120);
+              const safeUrl = attachment.url.slice(0, 250);
+              return `[${safeName}](${safeUrl})`;
+            })
+            .slice(0, 3)
+            .join('\n')
           : 'None';
         const jumpLink = sourceMessage?.url ?? 'Unavailable';
 

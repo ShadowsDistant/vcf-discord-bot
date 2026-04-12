@@ -75,7 +75,7 @@ module.exports = {
       for (const guild of client.guilds.cache.values()) {
         ensureMonthlyWaveStart(guild, client).catch(() => null);
       }
-    }, 60 * 60 * 1000);
+    }, 24 * 60 * 60 * 1000);
     if (typeof monthlyTimer.unref === 'function') monthlyTimer.unref();
   },
 };
