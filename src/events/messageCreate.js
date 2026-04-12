@@ -7,6 +7,8 @@ const { hasModLevel, MOD_LEVEL } = require('../utils/permissions');
 const embeds = require('../utils/embeds');
 const { hasModerationAccessRole } = require('../utils/roles');
 const analytics = require('../utils/analytics');
+const { sendModerationActionDm } = require('../utils/moderationNotifications');
+const { fetchLogChannel } = require('../utils/logChannels');
 
 /**
  * Returns the list of category IDs that are enabled for a guild's automod config.
@@ -113,20 +115,34 @@ module.exports = {
     // Apply additional punishment if configured
     if ((punishment === 'delete_timeout' || punishment === 'timeout') && member.moderatable) {
       const timeoutMs = automodConfig.timeoutDuration ?? 300_000; // default 5 min
+      await sendModerationActionDm({
+        user: message.author,
+        guild: message.guild,
+        action: 'Timeout',
+        reason: `AutoMod: ${categoryLabel} filter triggered`,
+        moderatorTag: 'AutoMod',
+        duration: `${Math.floor(timeoutMs / 60_000)} minute(s)`,
+      });
       await member
         .timeout(timeoutMs, `AutoMod: ${categoryLabel} filter triggered`)
         .catch(() => null);
     }
 
     if (punishment === 'delete_kick' && member.kickable) {
+      await sendModerationActionDm({
+        user: message.author,
+        guild: message.guild,
+        action: 'Kick',
+        reason: `AutoMod: ${categoryLabel} filter triggered`,
+        moderatorTag: 'AutoMod',
+      });
       await member.kick(`AutoMod: ${categoryLabel} filter triggered`).catch(() => null);
     }
 
     // ── Log to mod-log channel ───────────────────────────────────────────────
-    const logChannelId = automodConfig.logChannelId ?? db.getConfig(guildId).logChannelId;
-    if (logChannelId) {
-      const logChannel = message.guild.channels.cache.get(logChannelId);
-      if (logChannel?.isTextBased()) {
+    {
+      const logChannel = await fetchLogChannel(message.guild, 'automod');
+      if (logChannel) {
         const punishmentLabel = {
           delete: 'Message deleted',
           delete_timeout: 'Message deleted + timeout',

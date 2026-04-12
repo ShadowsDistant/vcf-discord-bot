@@ -22,6 +22,7 @@ const { hasModLevel, MOD_LEVEL } = require('../utils/permissions');
 const { UPDATE_LOGS, createUpdateEmbed } = require('../utils/updateLogs');
 const economy = require('../utils/bakeEconomy');
 const bakeCommand = require('../commands/utility/bake');
+const { sendModerationActionDm, sendReporterStatusDm } = require('../utils/moderationNotifications');
 const { version: botVersion } = require('../../package.json');
 
 /** Commands whose `reason` option supports preset-reason autocomplete. */
@@ -34,12 +35,14 @@ const GUIDE_STATE_TTL_MS = 60 * 60 * 1000;
 const SPECIAL_COOKIE_EVENT_CHANNEL_ID = '1492310367869862089';
 const REPORTS_CHANNEL_ID = '1492689950540435637';
 const REPORTS_PING_ROLE_ID = '1425569078596337745';
+const REPORT_COOLDOWN_MS = 15 * 60 * 1000;
 const COMPONENT_EXPIRY_DEFAULT_MS = 10 * 60 * 1000;
 const COMPONENT_EXPIRY_LONG_MS = 30 * 60 * 1000;
 const MAX_PENDING_RENAME_SELECTIONS = 2_000;
 const MAX_GUIDE_VIEW_SELECTIONS = 5_000;
 const pendingBakeryRenameSelections = new Map();
 const guideViewSelections = new Map();
+const reportCooldowns = new Map();
 
 function prunePendingBakeryRenameSelections(now = Date.now()) {
   const expiredKeys = [...pendingBakeryRenameSelections.entries()]
@@ -238,6 +241,20 @@ function parseMentionOrId(input, type) {
   return null;
 }
 
+function getReportCooldownKey(guildId, userId) {
+  return `${guildId}:${userId}`;
+}
+
+function getReportCooldownRemainingMs(guildId, userId, now = Date.now()) {
+  const key = getReportCooldownKey(guildId, userId);
+  const last = reportCooldowns.get(key) ?? 0;
+  return Math.max(0, (last + REPORT_COOLDOWN_MS) - now);
+}
+
+function touchReportCooldown(guildId, userId, now = Date.now()) {
+  reportCooldowns.set(getReportCooldownKey(guildId, userId), now);
+}
+
 module.exports = {
   name: Events.InteractionCreate,
   async execute(interaction) {
@@ -286,9 +303,17 @@ module.exports = {
           });
         }
         if (action === 'warn') {
+          const reason = 'Quick moderation panel warning.';
           db.addWarning(interaction.guild.id, targetId, {
             moderatorId: interaction.user.id,
-            reason: 'Quick moderation panel warning.',
+            reason,
+          });
+          await sendModerationActionDm({
+            user: member.user,
+            guild: interaction.guild,
+            action: 'Warning',
+            reason,
+            moderatorTag: interaction.user.tag,
           });
           return interaction.reply({
             embeds: [embeds.success(`Warned <@${targetId}>.`, interaction.guild)],
@@ -297,6 +322,15 @@ module.exports = {
         }
         if (action === 'timeout5m' || action === 'timeout1h') {
           const durationMs = action === 'timeout5m' ? 5 * 60_000 : 60 * 60_000;
+          const reason = 'Quick moderation panel timeout.';
+          await sendModerationActionDm({
+            user: member.user,
+            guild: interaction.guild,
+            action: 'Timeout',
+            reason,
+            moderatorTag: interaction.user.tag,
+            duration: `${Math.floor(durationMs / 60_000)} minutes`,
+          });
           const ok = await member.timeout(durationMs, `${interaction.user.tag}: quick moderation panel`)
             .then(() => true)
             .catch(() => false);
@@ -312,6 +346,14 @@ module.exports = {
           });
         }
         if (action === 'kick') {
+          const reason = 'Quick moderation panel kick.';
+          await sendModerationActionDm({
+            user: member.user,
+            guild: interaction.guild,
+            action: 'Kick',
+            reason,
+            moderatorTag: interaction.user.tag,
+          });
           const ok = await member.kick(`${interaction.user.tag}: quick moderation panel`)
             .then(() => true)
             .catch(() => false);
@@ -327,6 +369,14 @@ module.exports = {
           });
         }
         if (action === 'ban') {
+          const reason = 'Quick moderation panel ban.';
+          await sendModerationActionDm({
+            user: member.user,
+            guild: interaction.guild,
+            action: 'Ban',
+            reason,
+            moderatorTag: interaction.user.tag,
+          });
           const ok = await interaction.guild.members
             .ban(targetId, { reason: `${interaction.user.tag}: quick moderation panel` })
             .then(() => true)
@@ -351,7 +401,7 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
-        const [, action, sourceChannelId, messageId, authorId] = interaction.customId.split(':');
+        const [, action, sourceChannelId, messageId, authorId, reporterId] = interaction.customId.split(':');
         const targetChannel = await interaction.guild.channels.fetch(sourceChannelId).catch(() => null);
         if (!targetChannel || !targetChannel.isTextBased()) {
           return interaction.reply({
@@ -363,21 +413,66 @@ module.exports = {
         const targetMember = await interaction.guild.members.fetch(authorId).catch(() => null);
         if (action === 'delete_message' && targetMessage) {
           await targetMessage.delete().catch(() => null);
+          if (reporterId) {
+            const reporter = await interaction.client.users.fetch(reporterId).catch(() => null);
+            await sendReporterStatusDm({ user: reporter, guild: interaction.guild, status: 'action_taken' });
+          }
           return interaction.reply({ embeds: [embeds.success('Reported message deleted.', interaction.guild)], flags: MessageFlags.Ephemeral });
         }
         if (action === 'warn_author') {
+          const contentReason = (targetMessage?.content ?? '(message unavailable)').slice(0, 700);
+          const reason = `Warning issued from report queue.\nReported content: ${contentReason}`;
           db.addWarning(interaction.guild.id, authorId, {
             moderatorId: interaction.user.id,
-            reason: 'Warning issued from report queue.',
+            reason,
           });
+          if (targetMember?.user) {
+            await sendModerationActionDm({
+              user: targetMember.user,
+              guild: interaction.guild,
+              action: 'Warning',
+              reason,
+              moderatorTag: interaction.user.tag,
+            });
+          }
+          if (reporterId) {
+            const reporter = await interaction.client.users.fetch(reporterId).catch(() => null);
+            await sendReporterStatusDm({ user: reporter, guild: interaction.guild, status: 'action_taken' });
+          }
           return interaction.reply({ embeds: [embeds.success('Author warned.', interaction.guild)], flags: MessageFlags.Ephemeral });
         }
         if (action === 'timeout_author' && targetMember) {
+          const reason = 'Timeout issued from report queue.';
+          await sendModerationActionDm({
+            user: targetMember.user,
+            guild: interaction.guild,
+            action: 'Timeout',
+            reason,
+            moderatorTag: interaction.user.tag,
+            duration: '1 hour',
+          });
           await targetMember.timeout(60 * 60_000, `${interaction.user.tag}: report action`).catch(() => null);
+          if (reporterId) {
+            const reporter = await interaction.client.users.fetch(reporterId).catch(() => null);
+            await sendReporterStatusDm({ user: reporter, guild: interaction.guild, status: 'action_taken' });
+          }
           return interaction.reply({ embeds: [embeds.success('Author timed out for 1 hour.', interaction.guild)], flags: MessageFlags.Ephemeral });
         }
         if (action === 'dismiss') {
-          return interaction.update({ components: [] });
+          const modal = new ModalBuilder()
+            .setCustomId(`report_dismiss_reason:${sourceChannelId}:${messageId}:${authorId}:${reporterId ?? ''}`)
+            .setTitle('Dismiss Report')
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId('reason')
+                  .setLabel('Dismissal reason')
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setMaxLength(500),
+              ),
+            );
+          return interaction.showModal(modal);
         }
       }
 
@@ -1301,6 +1396,13 @@ module.exports = {
     if (interaction.isModalSubmit()) {
       if (interaction.customId.startsWith('ctx_report_message:')) {
         const [, sourceChannelId, messageId, authorId] = interaction.customId.split(':');
+        const remainingMs = getReportCooldownRemainingMs(interaction.guild.id, interaction.user.id, Date.now());
+        if (remainingMs > 0) {
+          return interaction.reply({
+            embeds: [embeds.warning(`You can submit another report in **${Math.ceil(remainingMs / 60_000)} minute(s)**.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
         const category = interaction.fields.getTextInputValue('category').trim();
         const reason = interaction.fields.getTextInputValue('reason').trim();
         const reportChannel = await interaction.guild.channels.fetch(REPORTS_CHANNEL_ID).catch(() => null);
@@ -1320,27 +1422,31 @@ module.exports = {
         }
         const sourceMessage = await sourceChannel.messages.fetch(messageId).catch(() => null);
         const messageContent = sourceMessage?.content?.slice(0, 1000) || '(message unavailable)';
+        const attachmentSummary = sourceMessage?.attachments?.size
+          ? sourceMessage.attachments.map((attachment) => attachment.url).slice(0, 3).join('\n')
+          : 'None';
         const jumpLink = sourceMessage?.url ?? 'Unavailable';
 
         const reportEmbed = new EmbedBuilder()
           .setColor(0xed4245)
-          .setTitle('🚨 Message Report')
-          .setDescription(messageContent)
+          .setTitle('🚨 Message Report Submitted')
+          .setDescription(`**Reported Content**\n${messageContent}`)
           .addFields(
             { name: 'Category', value: category.slice(0, 100), inline: true },
             { name: 'Reporter', value: `<@${interaction.user.id}>`, inline: true },
             { name: 'Author', value: `<@${authorId}>`, inline: true },
             { name: 'Channel', value: `${sourceChannel}`, inline: true },
+            { name: 'Attachments', value: attachmentSummary.slice(0, 1024), inline: false },
             { name: 'Reason', value: reason.slice(0, 1024), inline: false },
             { name: 'Jump Link', value: jumpLink, inline: false },
           )
           .setTimestamp();
 
         const actions = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`report_action:delete_message:${sourceChannelId}:${messageId}:${authorId}`).setLabel('Delete Message').setStyle(ButtonStyle.Danger),
-          new ButtonBuilder().setCustomId(`report_action:warn_author:${sourceChannelId}:${messageId}:${authorId}`).setLabel('Warn Author').setStyle(ButtonStyle.Secondary),
-          new ButtonBuilder().setCustomId(`report_action:timeout_author:${sourceChannelId}:${messageId}:${authorId}`).setLabel('Timeout Author').setStyle(ButtonStyle.Primary),
-          new ButtonBuilder().setCustomId(`report_action:dismiss:${sourceChannelId}:${messageId}:${authorId}`).setLabel('Dismiss').setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId(`report_action:delete_message:${sourceChannelId}:${messageId}:${authorId}:${interaction.user.id}`).setLabel('Delete Message').setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId(`report_action:warn_author:${sourceChannelId}:${messageId}:${authorId}:${interaction.user.id}`).setLabel('Warn Author').setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId(`report_action:timeout_author:${sourceChannelId}:${messageId}:${authorId}:${interaction.user.id}`).setLabel('Timeout Author').setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId(`report_action:dismiss:${sourceChannelId}:${messageId}:${authorId}:${interaction.user.id}`).setLabel('Dismiss').setStyle(ButtonStyle.Success),
         );
 
         await reportChannel.send({
@@ -1348,11 +1454,56 @@ module.exports = {
           embeds: [reportEmbed],
           components: [actions],
         }).catch(() => null);
+        touchReportCooldown(interaction.guild.id, interaction.user.id, Date.now());
+        await sendReporterStatusDm({ user: interaction.user, guild: interaction.guild, status: 'submitted' });
 
         return interaction.reply({
           embeds: [embeds.success('Report submitted to moderators.', interaction.guild)],
           flags: MessageFlags.Ephemeral,
         });
+      }
+
+      if (interaction.customId.startsWith('report_dismiss_reason:')) {
+        const [, sourceChannelId, messageId, authorId, reporterId] = interaction.customId.split(':');
+        const dismissReason = interaction.fields.getTextInputValue('reason').trim();
+        if (!dismissReason) {
+          return interaction.reply({
+            embeds: [embeds.error('A dismissal reason is required.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const components = [
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`report_action:delete_message:${sourceChannelId}:${messageId}:${authorId}:${reporterId ?? ''}`).setLabel('Delete Message').setStyle(ButtonStyle.Danger).setDisabled(true),
+            new ButtonBuilder().setCustomId(`report_action:warn_author:${sourceChannelId}:${messageId}:${authorId}:${reporterId ?? ''}`).setLabel('Warn Author').setStyle(ButtonStyle.Secondary).setDisabled(true),
+            new ButtonBuilder().setCustomId(`report_action:timeout_author:${sourceChannelId}:${messageId}:${authorId}:${reporterId ?? ''}`).setLabel('Timeout Author').setStyle(ButtonStyle.Primary).setDisabled(true),
+            new ButtonBuilder().setCustomId(`report_action:dismiss:${sourceChannelId}:${messageId}:${authorId}:${reporterId ?? ''}`).setLabel('Dismissed').setStyle(ButtonStyle.Success).setDisabled(true),
+          ),
+        ];
+        const existingEmbed = interaction.message?.embeds?.[0]
+          ? EmbedBuilder.from(interaction.message.embeds[0])
+          : embeds.info('Message Report', 'Report dismissed.', interaction.guild);
+        existingEmbed.addFields({
+          name: 'Dismissed By',
+          value: `${interaction.user} (\`${interaction.user.tag}\`)`,
+          inline: true,
+        }, {
+          name: 'Dismissal Reason',
+          value: dismissReason.slice(0, 1024),
+          inline: false,
+        });
+
+        await interaction.update({ embeds: [existingEmbed], components });
+        if (reporterId) {
+          const reporter = await interaction.client.users.fetch(reporterId).catch(() => null);
+          await sendReporterStatusDm({
+            user: reporter,
+            guild: interaction.guild,
+            status: 'dismissed',
+            reportReason: dismissReason,
+          });
+        }
+        return;
       }
 
       if (interaction.customId === 'bakery_modal_name') {
