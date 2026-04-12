@@ -238,8 +238,7 @@ async function runStart(interaction) {
       .addFields(
         { name: '  Server', value: interaction.guild.name, inline: true },
         { name: '  Started At', value: `<t:${startedTs}:T>`, inline: true },
-      )
-      .setTimestamp();
+      );
 
     await interaction.user.send({ embeds: [dmEmbed] }).catch(() => null);
   }
@@ -323,7 +322,6 @@ async function runLogActive(interaction) {
   const embed = new EmbedBuilder()
     .setColor(PALETTE.shift)
     .setTitle(`  Active Shifts (${active.length})`)
-    .setTimestamp()
     .setFooter({
       text: interaction.guild.name,
       iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined,
@@ -374,7 +372,6 @@ async function runLogUser(interaction, target) {
         `Status: ${activeShift ? ' **On Shift**' : ' **Off Shift**'}`,
       ].join('\n'),
     })
-    .setTimestamp()
     .setFooter({
       text: interaction.guild.name,
       iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined,
@@ -466,7 +463,6 @@ async function runLeaderboard(interaction) {
     .setColor(PALETTE.shift)
     .setTitle('  Shift Leaderboard')
     .setDescription(rows.join('\n'))
-    .setTimestamp()
     .setFooter({
       text: `${leaderboard.length} staff member${leaderboard.length !== 1 ? 's' : ''} on record · ${interaction.guild.name}`,
       iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined,

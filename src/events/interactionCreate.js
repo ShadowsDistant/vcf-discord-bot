@@ -25,6 +25,7 @@ const alliances = require('../utils/bakeAlliances');
 const { patchInteractionDisplayComponents } = require('../utils/displayComponents');
 const bakeCommand = require('../commands/utility/bake');
 const allianceCommand = require('../commands/utility/alliance');
+const helpCommand = require('../commands/utility/help');
 const shiftCommand = require('../commands/shifts/shift');
 const automodCommand = require('../commands/setup/automod');
 const staffInfractionCommand = require('../commands/moderation/staffinfraction');
@@ -1006,6 +1007,9 @@ module.exports = {
       }
       if (allianceCommand.isAllianceSelectCustomId(interaction.customId)) {
         return allianceCommand.handleAllianceSelect(interaction);
+      }
+      if (helpCommand.isHelpCategorySelect(interaction.customId)) {
+        return helpCommand.handleHelpCategorySelect(interaction);
       }
       if (shiftCommand.isShiftPanelSelect(interaction.customId)) {
         return shiftCommand.handleShiftPanelSelect(interaction);

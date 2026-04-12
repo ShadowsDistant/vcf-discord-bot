@@ -1,6 +1,12 @@
 'use strict';
 
-const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
+const {
+  ActionRowBuilder,
+  SlashCommandBuilder,
+  EmbedBuilder,
+  MessageFlags,
+  StringSelectMenuBuilder,
+} = require('discord.js');
 const { PALETTE, error: embedError } = require('../../utils/embeds');
 const path = require('path');
 const fs = require('fs');
@@ -12,6 +18,7 @@ const {
 } = require('../../utils/roles');
 const { hasModLevel, hasSidRole, MOD_LEVEL } = require('../../utils/permissions');
 
+const HELP_CATEGORY_SELECT_ID = 'help_category_select';
 const SENIOR_MOD_COMMANDS = new Set(['ban', 'unban']);
 const MANAGEMENT_COMMANDS = new Set(['announce', 'say']);
 const SHIFT_COMMANDS = new Set(['shift']);
@@ -35,6 +42,17 @@ const MODERATION_RANK_BY_COMMAND = {
   role: 'Junior Moderator+',
 };
 const EMBED_FIELD_VALUE_LIMIT = 1024;
+
+const CATEGORY_LABELS = {
+  moderation: 'Moderation',
+  utility: 'Utility',
+  shifts: 'Shifts',
+  setup: 'Management',
+  dev: 'Developer',
+  context: 'Context',
+};
+
+const CATEGORY_ORDER = ['moderation', 'utility', 'shifts', 'setup', 'context', 'dev'];
 
 function buildCommandFolderMap(commandsPath) {
   const map = new Map();
@@ -120,6 +138,82 @@ function splitFieldValue(value, maxLength = EMBED_FIELD_VALUE_LIMIT) {
   return chunks;
 }
 
+function sortCategories(categoryKeys) {
+  return [...categoryKeys].sort((a, b) => {
+    const aIdx = CATEGORY_ORDER.indexOf(a);
+    const bIdx = CATEGORY_ORDER.indexOf(b);
+    if (aIdx === -1 && bIdx === -1) return a.localeCompare(b);
+    if (aIdx === -1) return 1;
+    if (bIdx === -1) return -1;
+    return aIdx - bIdx;
+  });
+}
+
+function collectVisibleCategories(interaction, commandsPath, commandFolderMap, canSeeDev) {
+  const categories = {};
+  let visibleCommandCount = 0;
+
+  for (const folder of fs.readdirSync(commandsPath)) {
+    const folderPath = path.join(commandsPath, folder);
+    if (!fs.statSync(folderPath).isDirectory()) continue;
+
+    const cmds = interaction.client.commands.filter((_v, k) => {
+      if (commandFolderMap.get(k) !== folder) return false;
+      return canUseCommand(interaction, k, folder, canSeeDev);
+    });
+
+    if (cmds.size > 0) {
+      visibleCommandCount += cmds.size;
+      categories[folder] = cmds
+        .map((c) => {
+          const rank = folder === 'moderation' ? ` *(Rank: ${MODERATION_RANK_BY_COMMAND[c.data.name] ?? 'Junior Moderator+'})*` : '';
+          return `\`/${c.data.name}\` — ${c.data.description}${rank}`;
+        })
+        .join('\n');
+    }
+  }
+
+  return { categories, visibleCommandCount };
+}
+
+function buildCategorySelect(sortedCategoryKeys, selectedCategory) {
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(HELP_CATEGORY_SELECT_ID)
+      .setPlaceholder('Select a command category')
+      .addOptions(
+        sortedCategoryKeys.map((key) => ({
+          label: CATEGORY_LABELS[key] ?? key,
+          value: key,
+          default: key === selectedCategory,
+        })),
+      ),
+  );
+}
+
+function buildCategoryEmbed(interaction, categoryKey, categoryText, visibleCommandCount) {
+  const categoryLabel = CATEGORY_LABELS[categoryKey] ?? categoryKey;
+  const splitValues = splitFieldValue(categoryText);
+
+  const embed = new EmbedBuilder()
+    .setColor(PALETTE.primary)
+    .setTitle('Command List')
+    .setDescription(`Showing **${categoryLabel}** commands.`)
+    .setFooter({
+      text: `${visibleCommandCount} command${visibleCommandCount === 1 ? '' : 's'} total · ${interaction.guild.name}`,
+      iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined,
+    });
+
+  for (let i = 0; i < splitValues.length; i += 1) {
+    embed.addFields({
+      name: i === 0 ? categoryLabel : `${categoryLabel} (cont. ${i})`,
+      value: splitValues[i],
+    });
+  }
+
+  return embed;
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('help')
@@ -130,6 +224,41 @@ module.exports = {
         .setDescription('The command to get detailed help for.')
         .setAutocomplete(false),
     ),
+
+  isHelpCategorySelect(customId) {
+    return customId === HELP_CATEGORY_SELECT_ID;
+  },
+
+  async handleHelpCategorySelect(interaction) {
+    const canSeeDev = isDevUser(interaction.user.id);
+    const commandsPath = path.join(__dirname, '..');
+    const commandFolderMap = buildCommandFolderMap(commandsPath);
+    const { categories, visibleCommandCount } = collectVisibleCategories(
+      interaction,
+      commandsPath,
+      commandFolderMap,
+      canSeeDev,
+    );
+
+    const categoryKeys = Object.keys(categories);
+    if (!categoryKeys.length) {
+      return interaction.update({
+        embeds: [embedError('No commands are available to you right now.', interaction.guild)],
+        components: [],
+      });
+    }
+
+    const sortedCategoryKeys = sortCategories(categoryKeys);
+    const selectedCategory = interaction.values?.[0];
+    const activeCategory = sortedCategoryKeys.includes(selectedCategory)
+      ? selectedCategory
+      : sortedCategoryKeys[0];
+
+    return interaction.update({
+      embeds: [buildCategoryEmbed(interaction, activeCategory, categories[activeCategory], visibleCommandCount)],
+      components: [buildCategorySelect(sortedCategoryKeys, activeCategory)],
+    });
+  },
 
   async execute(interaction) {
     const commandName = interaction.options.getString('command');
@@ -156,9 +285,8 @@ module.exports = {
 
       const embed = new EmbedBuilder()
         .setColor(PALETTE.primary)
-        .setTitle(`  /${cmd.data.name}`)
+        .setTitle(`/${cmd.data.name}`)
         .setDescription(cmd.data.description)
-        .setTimestamp()
         .setFooter({
           text: interaction.guild.name,
           iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined,
@@ -167,59 +295,28 @@ module.exports = {
       return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
     }
 
-    // Group commands by category (folder name)
-    const categories = {};
-    let visibleCommandCount = 0;
+    const { categories, visibleCommandCount } = collectVisibleCategories(
+      interaction,
+      commandsPath,
+      commandFolderMap,
+      canSeeDev,
+    );
 
-    for (const folder of fs.readdirSync(commandsPath)) {
-      const folderPath = path.join(commandsPath, folder);
-      if (!fs.statSync(folderPath).isDirectory()) continue;
-
-      const cmds = interaction.client.commands.filter((_v, k) => {
-        if (commandFolderMap.get(k) !== folder) return false;
-        return canUseCommand(interaction, k, folder, canSeeDev);
+    const categoryKeys = Object.keys(categories);
+    if (!categoryKeys.length) {
+      return interaction.reply({
+        embeds: [embedError('No commands are available to you right now.', interaction.guild)],
+        flags: MessageFlags.Ephemeral,
       });
-
-      if (cmds.size > 0) {
-        visibleCommandCount += cmds.size;
-        categories[folder] = cmds
-          .map((c) => {
-            const rank = folder === 'moderation' ? ` *(Rank: ${MODERATION_RANK_BY_COMMAND[c.data.name] ?? 'Junior Moderator+'})*` : '';
-            return `\`/${c.data.name}\` — ${c.data.description}${rank}`;
-          })
-          .join('\n');
-      }
     }
 
-    const categoryEmojis = {
-      moderation: '  Moderation',
-      utility: '  Utility',
-      shifts: '  Shifts',
-      setup: '  Management',
-      dev: '‍  Developer',
-    };
+    const sortedCategoryKeys = sortCategories(categoryKeys);
+    const defaultCategory = sortedCategoryKeys[0];
 
-    const embed = new EmbedBuilder()
-      .setColor(PALETTE.primary)
-      .setTitle('  Command List')
-      .setDescription('Here is a list of all available commands.')
-      .setTimestamp()
-      .setFooter({
-        text: `${visibleCommandCount} command${visibleCommandCount === 1 ? '' : 's'} total · ${interaction.guild.name}`,
-        iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined,
-      });
-
-    for (const [cat, value] of Object.entries(categories)) {
-      const categoryName = categoryEmojis[cat] ?? cat;
-      const splitValues = splitFieldValue(value);
-      for (let i = 0; i < splitValues.length; i += 1) {
-        embed.addFields({
-          name: i === 0 ? categoryName : `${categoryName} (cont. ${i})`,
-          value: splitValues[i],
-        });
-      }
-    }
-
-    return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    return interaction.reply({
+      embeds: [buildCategoryEmbed(interaction, defaultCategory, categories[defaultCategory], visibleCommandCount)],
+      components: [buildCategorySelect(sortedCategoryKeys, defaultCategory)],
+      flags: MessageFlags.Ephemeral,
+    });
   },
 };
