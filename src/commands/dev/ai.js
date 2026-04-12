@@ -33,9 +33,7 @@ const MCP_DOCS_URL = 'https://docs.valleycorrectional.xyz/mcp';
 const MCP_DOCS_SNIPPET_MAX_CHARS = 3000;
 const MAX_CONTEXT_MESSAGES = 24;
 const MAX_TOOL_LOG_LINES = 12;
-const STREAM_MIN_CHARS_PER_FRAME = 180;
-const STREAM_MAX_FRAMES = 6;
-const STREAM_FRAME_DELAY_MS = 220;
+const DEFAULT_EMBED_COLOR = 0x808080;
 
 const AI_MODELS = Object.freeze([
   { displayName: 'Gemma 4 31B', value: 'google/gemma-4-31b-it' },
@@ -58,12 +56,6 @@ function truncate(text, max) {
   const normalized = asString(text, '').trim();
   if (!normalized) return '';
   return normalized.length > max ? `${normalized.slice(0, max - 1)}…` : normalized;
-}
-
-async function sleep(ms) {
-  await new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
 }
 
 function safeJsonParse(value) {
@@ -140,10 +132,22 @@ function pruneComponentStates(now = Date.now()) {
   }
 }
 
-function normalizeColor(value, fallback = 0x5865f2) {
+function normalizeColor(value, fallback = DEFAULT_EMBED_COLOR) {
   const colorValue = Number(value);
   if (Number.isInteger(colorValue) && colorValue >= 0 && colorValue <= 0xffffff) return colorValue;
   return fallback;
+}
+
+function normalizeHttpUrl(value, maxLength = 500) {
+  const raw = truncate(value, maxLength);
+  if (!raw) return '';
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return '';
+    return parsed.toString();
+  } catch {
+    return '';
+  }
 }
 
 function normalizeButton(button) {
@@ -216,10 +220,15 @@ function normalizeSelectMenu(selectMenu) {
 
 function normalizePayload(payload, fallbackText) {
   const title = truncate(payload?.title, 256) || 'AI Response';
-  const summary = truncate(payload?.summary, 4096) || truncate(fallbackText, 4096) || 'No response.';
+  const text = truncate(payload?.text, 4096)
+    || truncate(payload?.summary, 4096)
+    || truncate(fallbackText, 4096)
+    || 'No response.';
+  const summary = truncate(payload?.summary, 4096) || text;
   const answer = truncate(payload?.answer, 1024);
   const footer = truncate(payload?.footer, 2048);
   const color = normalizeColor(payload?.color);
+  const thumbnail = normalizeHttpUrl(payload?.thumbnail_url ?? payload?.thumbnail?.url ?? payload?.thumbnail, 500);
 
   const fields = [];
   const rawFields = Array.isArray(payload?.fields) ? payload.fields : [];
@@ -255,9 +264,11 @@ function normalizePayload(payload, fallbackText) {
   return {
     title,
     summary,
+    text,
     answer,
     footer,
     color,
+    thumbnail,
     fields,
     buttons: topButtons,
     selectMenus: topSelectMenus,
@@ -918,7 +929,7 @@ function buildSystemPrompt(model) {
     'Return ONLY valid JSON with this structure:',
     '{',
     '  "title": "short title",',
-    '  "summary": "high-level summary",',
+    '  "text": "short embed description",',
     '  "answer": "main answer text",',
     '  "fields": [',
     '    {',
@@ -939,11 +950,12 @@ function buildSystemPrompt(model) {
     '  "select_menus": [',
     '    {"placeholder":"Choose option","options":[{"label":"Option A","value":"a","description":"Optional","prompt":"follow-up prompt"}]}',
     '  ],',
+    '  "thumbnail_url": "https://example.com/image.png",',
     '  "footer": "short footer",',
-    '  "color": 5793266',
+    '  "color": 8421504',
     '}',
     'Guidance for consistency:',
-    '- Keep title and summary stable and clear.',
+    '- Keep title and text stable and clear across runs.',
     '- Use answer for main output and fields for structured detail.',
     '- Add buttons/select menus only when they provide clear next steps.',
   ].join('\n');
@@ -962,7 +974,6 @@ async function runAiCompletion({
   context,
   prompt,
   priorMessages = [],
-  onProgress = null,
 }) {
   const tools = buildToolDefinitions();
   const messages = priorMessages.length
@@ -978,22 +989,27 @@ async function runAiCompletion({
   let rawFinalText = '';
   let structured = null;
   const toolUsage = [];
-
-  if (typeof onProgress === 'function') {
-    await onProgress({ type: 'phase', phase: 'Calling model…' });
-  }
+  let roundsUsed = 0;
+  let promptTokens = 0;
+  let completionTokens = 0;
+  let totalTokens = 0;
 
   for (let i = 0; i < MAX_TOOL_ROUNDS; i += 1) {
-    if (typeof onProgress === 'function') {
-      await onProgress({ type: 'phase', phase: `Model round ${i + 1}/${MAX_TOOL_ROUNDS}…` });
-    }
-
     const data = await requestNvidiaBuildAiChat({
       apiKey,
       model,
       messages,
       tools,
     });
+    roundsUsed = i + 1;
+
+    const usage = data?.usage ?? {};
+    const promptDelta = Number(usage.prompt_tokens ?? usage.input_tokens ?? 0);
+    const completionDelta = Number(usage.completion_tokens ?? usage.output_tokens ?? 0);
+    const totalDelta = Number(usage.total_tokens ?? 0);
+    if (Number.isFinite(promptDelta) && promptDelta > 0) promptTokens += promptDelta;
+    if (Number.isFinite(completionDelta) && completionDelta > 0) completionTokens += completionDelta;
+    if (Number.isFinite(totalDelta) && totalDelta > 0) totalTokens += totalDelta;
 
     const choice = data?.choices?.[0]?.message;
     if (!choice) throw new Error(`No response choices were returned by the AI provider (${model}).`);
@@ -1009,13 +1025,6 @@ async function runAiCompletion({
       for (const call of toolCalls) {
         const toolName = call?.function?.name;
         const toolArgs = call?.function?.arguments ?? '{}';
-        if (typeof onProgress === 'function') {
-          await onProgress({
-            type: 'tool_start',
-            name: toolName,
-            args: toolArgs,
-          });
-        }
         const result = await runTool(context, toolName, toolArgs);
         toolUsage.push({
           name: asString(toolName, 'unknown_tool'),
@@ -1023,14 +1032,6 @@ async function runAiCompletion({
           ok: result?.ok !== false,
           error: truncate(asString(result?.error, ''), 160),
         });
-        if (typeof onProgress === 'function') {
-          await onProgress({
-            type: 'tool_result',
-            name: toolName,
-            ok: result?.ok !== false,
-            error: result?.error ?? '',
-          });
-        }
         messages.push({
           role: 'tool',
           tool_call_id: call.id,
@@ -1042,18 +1043,24 @@ async function runAiCompletion({
 
     rawFinalText = extractTextContent(choice.content);
     structured = extractStructuredPayload(rawFinalText);
-    if (typeof onProgress === 'function') {
-      await onProgress({ type: 'phase', phase: 'Streaming response…' });
-      await onProgress({ type: 'final_text', text: rawFinalText });
-    }
     messages.push({ role: 'assistant', content: rawFinalText || choice.content || '' });
     break;
+  }
+
+  if (!totalTokens && (promptTokens || completionTokens)) {
+    totalTokens = promptTokens + completionTokens;
   }
 
   return {
     rawFinalText,
     structured,
     toolUsage,
+    usage: {
+      promptTokens,
+      completionTokens,
+      totalTokens,
+    },
+    roundsUsed,
     messages: trimMessagesForContext(messages),
   };
 }
@@ -1062,12 +1069,16 @@ function createAiEmbed(guild, payload, modelDisplayName) {
   const embed = new EmbedBuilder()
     .setColor(payload.color)
     .setTitle(payload.title)
-    .setDescription(payload.summary)
+    .setDescription(payload.text)
     .setTimestamp()
     .setFooter({
       text: payload.footer || `${guild?.name ?? 'Server'} · ${modelDisplayName}`,
       iconURL: guild?.iconURL({ dynamic: true }) ?? undefined,
     });
+
+  if (payload.thumbnail) {
+    embed.setThumbnail(payload.thumbnail);
+  }
 
   if (payload.answer) {
     embed.addFields({
@@ -1100,57 +1111,36 @@ function formatToolUsageLines(toolUsage) {
     });
 }
 
-function createAiToolsEmbed(guild, modelDisplayName, toolUsage) {
+function createAiToolsEmbed(guild, modelDisplayName, toolUsage, details = {}) {
   const lines = formatToolUsageLines(toolUsage);
+  const {
+    responseTimeMs = 0,
+    roundsUsed = 0,
+    promptTokens = 0,
+    completionTokens = 0,
+    totalTokens = 0,
+  } = details;
   return new EmbedBuilder()
     .setColor(0x5865f2)
-    .setTitle('AI Tool Usage')
+    .setTitle('AI Response Details')
     .setDescription(lines.join('\n').slice(0, 4096))
-    .setTimestamp()
-    .setFooter({
-      text: `${guild?.name ?? 'Server'} · ${modelDisplayName}`,
-      iconURL: guild?.iconURL({ dynamic: true }) ?? undefined,
-    });
-}
-
-function createAiStreamingEmbed(guild, modelDisplayName, phase, toolUsage, partialText = '') {
-  const lines = formatToolUsageLines(toolUsage);
-  const description = truncate(partialText, 1800) || 'Waiting for model output…';
-  const embed = new EmbedBuilder()
-    .setColor(0xfee75c)
-    .setTitle('AI Response (Streaming)')
-    .setDescription(description)
-    .setTimestamp()
-    .setFooter({
-      text: `${guild?.name ?? 'Server'} · ${modelDisplayName}`,
-      iconURL: guild?.iconURL({ dynamic: true }) ?? undefined,
-    })
     .addFields({
-      name: 'Status',
-      value: truncate(phase || 'Working…', 1024),
+      name: 'Response',
+      value: [
+        `Model: \`${modelDisplayName}\``,
+        `Response time: \`${responseTimeMs} ms\``,
+        `Model rounds: \`${roundsUsed}\``,
+        `Prompt tokens: \`${promptTokens}\``,
+        `Completion tokens: \`${completionTokens}\``,
+        `Total tokens: \`${totalTokens}\``,
+      ].join('\n').slice(0, 1024),
       inline: false,
-    }, {
-      name: 'Tools Used (Live)',
-      value: lines.join('\n').slice(0, 1024),
-      inline: false,
+    })
+    .setTimestamp()
+    .setFooter({
+      text: `${guild?.name ?? 'Server'} · ${modelDisplayName}`,
+      iconURL: guild?.iconURL({ dynamic: true }) ?? undefined,
     });
-  return embed;
-}
-
-function buildStreamFrames(text) {
-  const normalized = asString(text, '').trim();
-  if (!normalized) return [];
-  const frameCount = Math.min(
-    STREAM_MAX_FRAMES,
-    Math.max(2, Math.ceil(normalized.length / STREAM_MIN_CHARS_PER_FRAME)),
-  );
-  const step = Math.max(1, Math.floor(normalized.length / frameCount));
-  const frames = [];
-  for (let i = step; i < normalized.length; i += step) {
-    frames.push(normalized.slice(0, i));
-  }
-  frames.push(normalized);
-  return frames.slice(0, STREAM_MAX_FRAMES);
 }
 
 function resolveButtonStyle(style) {
@@ -1265,24 +1255,31 @@ function buildAiComponents(payload, ownerId) {
   };
 }
 
-function buildAiViewToggleRow(ownerId, token, activeView) {
+function buildAiViewSelectorRow(ownerId, token, activeView) {
   const currentView = activeView === 'tools' ? 'tools' : 'output';
-  return new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setStyle(ButtonStyle.Secondary)
-      .setLabel('Output View')
-      .setCustomId(`ai_view:${ownerId}:${token}:output`)
-      .setDisabled(currentView === 'output'),
-    new ButtonBuilder()
-      .setStyle(ButtonStyle.Secondary)
-      .setLabel('Tools View')
-      .setCustomId(`ai_view:${ownerId}:${token}:tools`)
-      .setDisabled(currentView === 'tools'),
-  );
+  return new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
+    .setCustomId(`ai_viewsel:${ownerId}:${token}`)
+    .setPlaceholder('Choose AI view')
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(
+      {
+        label: 'Output View',
+        value: 'output',
+        description: 'Show the structured AI answer',
+        default: currentView === 'output',
+      },
+      {
+        label: 'Tools & Details View',
+        value: 'tools',
+        description: 'Show tools used and response metadata',
+        default: currentView === 'tools',
+      },
+    ));
 }
 
 function buildAiViewComponents(ownerId, token, actionRows, activeView) {
-  const rows = [buildAiViewToggleRow(ownerId, token, activeView)];
+  const rows = [buildAiViewSelectorRow(ownerId, token, activeView)];
   rows.push(...(Array.isArray(actionRows) ? actionRows.slice(0, MAX_COMPONENT_ROWS - 1) : []));
   return rows;
 }
@@ -1352,7 +1349,6 @@ async function generateAiResponse({
   prompt,
   model,
   priorMessages,
-  progressEditor = null,
 }) {
   const apiKey = getNvidiaApiKey();
   if (!apiKey) {
@@ -1360,18 +1356,7 @@ async function generateAiResponse({
   }
 
   const modelDisplayName = getModelDisplayName(model);
-  let phase = 'Preparing request…';
-  const liveToolUsage = [];
-
-  const pushProgressUpdate = async (partialText = '') => {
-    if (typeof progressEditor !== 'function') return;
-    await progressEditor({
-      embeds: [createAiStreamingEmbed(source.guild, modelDisplayName, phase, liveToolUsage, partialText)],
-      components: [],
-    });
-  };
-
-  await pushProgressUpdate('');
+  const startedAt = Date.now();
 
   const completion = await runAiCompletion({
     apiKey,
@@ -1379,41 +1364,18 @@ async function generateAiResponse({
     context: buildInteractionContext(source),
     prompt,
     priorMessages,
-    onProgress: async (event) => {
-      if (event?.type === 'phase') {
-        phase = event.phase || phase;
-        await pushProgressUpdate('');
-        return;
-      }
-      if (event?.type === 'tool_start') {
-        phase = `Running tool: ${event.name ?? 'unknown'}…`;
-        await pushProgressUpdate('');
-        return;
-      }
-      if (event?.type === 'tool_result') {
-        liveToolUsage.push({
-          name: asString(event.name, 'unknown_tool'),
-          args: '',
-          ok: event.ok !== false,
-          error: truncate(asString(event.error, ''), 160),
-        });
-        phase = event.ok === false ? `Tool failed: ${event.name ?? 'unknown'}` : `Tool complete: ${event.name ?? 'unknown'}`;
-        await pushProgressUpdate('');
-        return;
-      }
-      if (event?.type === 'final_text') {
-        const frames = buildStreamFrames(event.text);
-        for (const frame of frames) {
-          await pushProgressUpdate(frame);
-          await sleep(STREAM_FRAME_DELAY_MS);
-        }
-      }
-    },
   });
+  const responseTimeMs = Date.now() - startedAt;
 
   const normalized = normalizePayload(completion.structured, completion.rawFinalText);
   const outputEmbed = createAiEmbed(source.guild, normalized, modelDisplayName);
-  const toolsEmbed = createAiToolsEmbed(source.guild, modelDisplayName, completion.toolUsage);
+  const toolsEmbed = createAiToolsEmbed(source.guild, modelDisplayName, completion.toolUsage, {
+    responseTimeMs,
+    roundsUsed: completion.roundsUsed,
+    promptTokens: completion.usage?.promptTokens ?? 0,
+    completionTokens: completion.usage?.completionTokens ?? 0,
+    totalTokens: completion.usage?.totalTokens ?? 0,
+  });
   const ownerId = source.user?.id ?? source.author?.id;
   let outputPayload = { embeds: [outputEmbed], components: [] };
   let toolsPayload = { embeds: [toolsEmbed], components: [] };
@@ -1474,19 +1436,31 @@ function parseAiViewCustomId(customId) {
   };
 }
 
+function parseAiViewSelectCustomId(customId) {
+  const parts = asString(customId, '').split(':');
+  if (parts.length !== 3) return null;
+  const [kind, ownerId, token] = parts;
+  if (kind !== 'ai_viewsel') return null;
+  return {
+    ownerId,
+    token,
+  };
+}
+
 function isAiComponentCustomId(customId) {
   const value = asString(customId, '');
-  return value.startsWith('ai_btn:') || value.startsWith('ai_sel:') || value.startsWith('ai_view:');
+  return value.startsWith('ai_btn:') || value.startsWith('ai_sel:') || value.startsWith('ai_view:') || value.startsWith('ai_viewsel:');
 }
 
 async function handleAiComponentInteraction(interaction) {
   const viewToggle = parseAiViewCustomId(interaction.customId);
+  const viewSelect = parseAiViewSelectCustomId(interaction.customId);
   const parsed = parseAiComponentCustomId(interaction.customId);
-  if (!viewToggle && !parsed) return false;
+  if (!viewToggle && !viewSelect && !parsed) return false;
 
   pruneComponentStates();
 
-  const ownerId = viewToggle?.ownerId ?? parsed?.ownerId;
+  const ownerId = viewToggle?.ownerId ?? viewSelect?.ownerId ?? parsed?.ownerId;
   if (ownerId !== interaction.user.id) {
     await interaction.reply({
       embeds: [embeds.error('These AI controls belong to someone else.', interaction.guild)],
@@ -1495,7 +1469,7 @@ async function handleAiComponentInteraction(interaction) {
     return true;
   }
 
-  const token = viewToggle?.token ?? parsed?.token;
+  const token = viewToggle?.token ?? viewSelect?.token ?? parsed?.token;
   const state = aiComponentStates.get(token);
   if (!state || state.ownerId !== ownerId) {
     await interaction.reply({
@@ -1505,8 +1479,11 @@ async function handleAiComponentInteraction(interaction) {
     return true;
   }
 
-  if (viewToggle) {
-    if (viewToggle.view === 'tools') {
+  if (viewToggle || viewSelect) {
+    const selectedView = viewToggle?.view
+      ?? (Array.isArray(interaction.values) ? interaction.values[0] : '')
+      ?? '';
+    if (selectedView === 'tools') {
       await interaction.update(buildAiToolsPayload(state));
     } else {
       await interaction.update(buildAiOutputPayload(state));
@@ -1558,7 +1535,6 @@ async function handleAiComponentInteraction(interaction) {
       prompt: followupPrompt,
       model,
       priorMessages: previous?.messages ?? [],
-      progressEditor: async (payload) => interaction.editReply(payload),
     });
 
     const sentMessage = await interaction.editReply(response.outputPayload);
@@ -1602,22 +1578,16 @@ async function handleAiReplyMessage(message) {
   const previous = getConversationState(reference.id);
   const model = previous?.model ?? DEFAULT_MODEL;
 
-  const progressMessage = await message.reply({
-    embeds: [createAiStreamingEmbed(message.guild, getModelDisplayName(model), 'Preparing request…', [], '')],
-    components: [],
-  }).catch(() => null);
-  if (!progressMessage) return true;
-
   try {
     const response = await generateAiResponse({
       source: message,
       prompt,
       model,
       priorMessages: previous?.messages ?? [],
-      progressEditor: async (payload) => progressMessage.edit(payload),
     });
 
-    const sentMessage = await progressMessage.edit(response.outputPayload);
+    const sentMessage = await message.reply(response.outputPayload).catch(() => null);
+    if (!sentMessage) return true;
 
     storeConversationState(sentMessage.id, {
       userId: message.author.id,
@@ -1625,7 +1595,7 @@ async function handleAiReplyMessage(message) {
       messages: response.completionMessages,
     });
   } catch (error) {
-    await progressMessage.edit({
+    await message.reply({
       embeds: [
         embeds.error(
           `AI request failed: ${truncate(error.message, 500)}`,
@@ -1698,7 +1668,6 @@ module.exports = {
         prompt: userPrompt,
         model,
         priorMessages: [],
-        progressEditor: async (payload) => interaction.editReply(payload),
       });
 
       const sentMessage = await interaction.editReply(response.outputPayload);
