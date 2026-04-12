@@ -574,14 +574,18 @@ Shows: server name, ID, member count, total guild count, and total combined memb
 ---
 
 #### `/ai`
-Query NVIDIA Build AI (`google/gemma-4-31b-it`) and return the result in a structured embed.
+Query AI via OpenRouter and return the result in a structured embed with optional buttons/select menus.
 
 | Option | Type | Required | Description |
 |---|---|---|---|
 | `prompt` | String | ✅ | Prompt sent to the AI model |
+| `model` | Choice | ❌ | `Gemma 4 31B` (`google/gemma-4-31b-it`), `GLM 5` (`z-ai/glm5`), or `MiniMax M2.7` (`minimaxai/minimax-m2.7`) |
 
-Supports safe read-only server tools (server overview, role/channel listing, member search) for context-aware responses.
-Access is restricted to Discord user ID `757698506411475005`.
+Supports a broad set of safe read-only tools (server overview, features, channels, roles, members, emojis, web search, and Valley Correctional MCP docs lookup) for context-aware responses.
+During generation, `/ai` streams a live progress embed and tracks tool activity.
+After completion, the response includes **Output View** and **Tools View** buttons so you can switch between final output and tool-usage details.
+Replies to AI messages continue the same conversation context.
+Access is restricted to the configured developer user ID (`DEV_USER_ID`, otherwise bot owner ID).
 
 ---
 
@@ -620,8 +624,8 @@ CLIENT_ID=your_application_client_id_here
 # Defaults to the bot owner ID if not set
 DEV_USER_ID=your_discord_user_id
 
-# Optional — NVIDIA Build API key used by /ai
-NVIDIA_API_KEY=your_nvidia_api_key
+# Optional — OpenRouter API key used by /ai
+OPENROUTER_API_KEY=your_openrouter_api_key
 ```
 
 | Variable | Required | Description |
@@ -630,7 +634,7 @@ NVIDIA_API_KEY=your_nvidia_api_key
 | `CLIENT_ID` | ✅ | Your application's client/application ID |
 | `REQUIRED_BAKE_COMMANDS` | ❌ | Comma-separated slash command names required by deploy validation (e.g. `bake,bakery,marketplace,bakeadmin`) |
 | `DEV_USER_ID` | ❌ | Discord user ID permitted to use `/setstatus`, `/servers` |
-| `NVIDIA_API_KEY` | ❌ | NVIDIA Build API key used by `/ai` (`google/gemma-4-31b-it`) |
+| `OPENROUTER_API_KEY` | ❌ | OpenRouter API key used by `/ai` model choices (`google/gemma-4-31b-it`, `z-ai/glm5`, `minimaxai/minimax-m2.7`) |
 
 > ⚠️ **Never commit your `.env` file.** It is listed in `.gitignore` by default.
 
