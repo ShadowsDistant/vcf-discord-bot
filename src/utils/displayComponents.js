@@ -51,6 +51,13 @@ function buildEmbedText(embedData) {
   return chunks.filter(Boolean).join('\n\n').trim();
 }
 
+/**
+ * Converts a legacy message payload with action rows into Components V2 display payload.
+ * @param {object} payload - Discord.js message options (e.g., content/embeds/components/flags).
+ * @param {"create"|"edit"} [mode='create'] - Use 'edit' when editing an existing message.
+ * @param {boolean} [addV2Flag=true] - When true, applies MessageFlags.IsComponentsV2.
+ * @returns {object} Transformed payload when conversion applies, otherwise the original payload.
+ */
 function createDisplayPayload(payload, mode = 'create', addV2Flag = true) {
   if (!payload || typeof payload !== 'object') return payload;
   if (!Array.isArray(payload.components) || payload.components.length === 0) return payload;
