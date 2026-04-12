@@ -54,6 +54,20 @@ module.exports = {
     const peakHour = data.peakHour
       ? `**${data.peakHour.hour}:00–${String((Number(data.peakHour.hour) + 1) % 24).padStart(2, '0')}:00 UTC** (${data.peakHour.count.toLocaleString()} msgs)`
       : 'No hourly data recorded.';
+    const channelShare = data.messages > 0 && data.channelTotals[0]
+      ? `${((data.channelTotals[0].count / data.messages) * 100).toFixed(1)}%`
+      : '0.0%';
+    const topDays = data.topDays.length
+      ? data.topDays.map((entry, idx) => `${idx + 1}. **${entry.day}** — ${entry.count.toLocaleString()} msgs`).join('\n')
+      : 'No daily message data.';
+    const busyHours = data.busyHours.length
+      ? data.busyHours
+        .map((entry, idx) => `${idx + 1}. **${entry.hour}:00 UTC** — ${entry.count.toLocaleString()} msgs`)
+        .join('\n')
+      : 'No hourly distribution available.';
+    const topAction = data.topAction
+      ? `${data.topAction.action.toUpperCase()} (${data.topAction.count.toLocaleString()})`
+      : 'No moderation actions.';
 
     const embed = new EmbedBuilder()
       .setColor(0x5865f2)
@@ -77,6 +91,9 @@ module.exports = {
           name: 'Message Activity',
           value: [
             `Total messages: **${data.messages.toLocaleString()}**`,
+            `Avg/day: **${Math.round(data.avgDailyMessages).toLocaleString()}**`,
+            `Avg/active day: **${Math.round(data.avgMessagesPerActiveDay).toLocaleString()}**`,
+            `Active days: **${data.activeDays}/${Math.max(1, data.dayKeys.length)}**`,
             `Peak hour: ${peakHour}`,
           ].join('\n'),
           inline: true,
@@ -87,12 +104,21 @@ module.exports = {
             `Warns: **${data.modActions.warn.toLocaleString()}**`,
             `Kicks: **${data.modActions.kick.toLocaleString()}**`,
             `Bans: **${data.modActions.ban.toLocaleString()}**`,
+            `Top action: **${topAction}**`,
           ].join('\n'),
           inline: true,
         },
         {
           name: 'Top Active Channels',
-          value: topChannels.slice(0, 1024),
+          value: `${topChannels}\n\nTop channel share: **${channelShare}**`.slice(0, 1024),
+        },
+        {
+          name: 'Top Message Days',
+          value: topDays.slice(0, 1024),
+        },
+        {
+          name: 'Busiest Hours',
+          value: busyHours.slice(0, 1024),
         },
       )
       .setTimestamp()

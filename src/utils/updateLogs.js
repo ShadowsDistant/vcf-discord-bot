@@ -5,6 +5,16 @@ const { PALETTE } = require('./embeds');
 
 const UPDATE_LOGS = [
   {
+    version: 'v1.2.0',
+    date: '2026-04-12',
+    changes: [
+      'Expanded /analytics with deeper trend metrics: active-day coverage, averages, top days, busiest hours, and channel-share insights.',
+      'Rebuilt /alliance into a unified interactive panel with select-menu navigation, owner management actions, and an alliance-wide upgrade store.',
+      'Added rotating weekly alliance challenge pool (30 variants), contributor leader tracking, completion rewards for all members, and alliance member DM notifications for challenge rewards and upgrade purchases.',
+      'Added optional alliance approval-to-join flow with pending request review controls for alliance owners.',
+    ],
+  },
+  {
     version: 'v1.1.0',
     date: '2026-04-12',
     changes: [

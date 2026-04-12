@@ -103,6 +103,12 @@ function getAnalytics(guildId, periodDays = 7) {
       modActions: { warn: 0, kick: 0, ban: 0 },
       channelTotals: [],
       peakHour: null,
+      activeDays: 0,
+      avgDailyMessages: 0,
+      avgMessagesPerActiveDay: 0,
+      topAction: null,
+      topDays: [],
+      busyHours: [],
     };
   }
 
@@ -115,6 +121,7 @@ function getAnalytics(guildId, periodDays = 7) {
     modActions: { warn: 0, kick: 0, ban: 0 },
     channelTotals: {},
     hourTotals: {},
+    dayMessageTotals: {},
   };
 
   for (const dayKey of dayKeys) {
@@ -122,6 +129,7 @@ function getAnalytics(guildId, periodDays = 7) {
     summary.joins += Number(day.joins ?? 0);
     summary.leaves += Number(day.leaves ?? 0);
     summary.messages += Number(day.messages ?? 0);
+    summary.dayMessageTotals[dayKey] = Number(day.messages ?? 0);
 
     for (const action of ['warn', 'kick', 'ban']) {
       summary.modActions[action] += Number(day.modActions?.[action] ?? 0);
@@ -143,6 +151,21 @@ function getAnalytics(guildId, periodDays = 7) {
 
   const peakHourEntry = Object.entries(summary.hourTotals)
     .sort((a, b) => b[1] - a[1])[0] ?? null;
+  const activeDays = dayKeys.filter((dayKey) => {
+    const day = guildStore.days[dayKey] ?? getDefaultDay();
+    return Number(day.messages ?? 0) > 0 || Number(day.joins ?? 0) > 0 || Number(day.leaves ?? 0) > 0;
+  }).length;
+  const avgDailyMessages = dayKeys.length > 0 ? summary.messages / dayKeys.length : 0;
+  const avgMessagesPerActiveDay = activeDays > 0 ? summary.messages / activeDays : 0;
+  const topActionEntry = Object.entries(summary.modActions).sort((a, b) => b[1] - a[1])[0] ?? null;
+  const topDays = Object.entries(summary.dayMessageTotals)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([day, count]) => ({ day, count }));
+  const busyHours = Object.entries(summary.hourTotals)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([hour, count]) => ({ hour, count }));
 
   return {
     dayKeys: summary.dayKeys,
@@ -152,6 +175,12 @@ function getAnalytics(guildId, periodDays = 7) {
     modActions: summary.modActions,
     channelTotals,
     peakHour: peakHourEntry ? { hour: peakHourEntry[0], count: peakHourEntry[1] } : null,
+    activeDays,
+    avgDailyMessages,
+    avgMessagesPerActiveDay,
+    topAction: topActionEntry ? { action: topActionEntry[0], count: topActionEntry[1] } : null,
+    topDays,
+    busyHours,
   };
 }
 
