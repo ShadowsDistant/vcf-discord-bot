@@ -574,7 +574,7 @@ Shows: server name, ID, member count, total guild count, and total combined memb
 ---
 
 #### `/ai`
-Query AI via OpenRouter and return the result in a structured embed with optional buttons/select menus.
+Query AI via NVIDIA Build AI and return the result in a structured embed with optional buttons/select menus.
 
 | Option | Type | Required | Description |
 |---|---|---|---|
@@ -624,8 +624,8 @@ CLIENT_ID=your_application_client_id_here
 # Defaults to the bot owner ID if not set
 DEV_USER_ID=your_discord_user_id
 
-# Optional — OpenRouter API key used by /ai
-OPENROUTER_API_KEY=your_openrouter_api_key
+# Optional — NVIDIA Build AI API key used by /ai
+NVIDIA_API_KEY=your_nvidia_api_key
 ```
 
 | Variable | Required | Description |
@@ -634,7 +634,7 @@ OPENROUTER_API_KEY=your_openrouter_api_key
 | `CLIENT_ID` | ✅ | Your application's client/application ID |
 | `REQUIRED_BAKE_COMMANDS` | ❌ | Comma-separated slash command names required by deploy validation (e.g. `bake,bakery,marketplace,bakeadmin`) |
 | `DEV_USER_ID` | ❌ | Discord user ID permitted to use `/setstatus`, `/servers` |
-| `OPENROUTER_API_KEY` | ❌ | OpenRouter API key used by `/ai` model choices (`google/gemma-4-31b-it`, `z-ai/glm5`, `minimaxai/minimax-m2.7`) |
+| `NVIDIA_API_KEY` | ❌ | NVIDIA Build AI API key used by `/ai` via `https://integrate.api.nvidia.com/v1` |
 
 > ⚠️ **Never commit your `.env` file.** It is listed in `.gitignore` by default.
 

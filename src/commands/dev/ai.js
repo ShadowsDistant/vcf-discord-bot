@@ -14,7 +14,7 @@ const { randomBytes } = require('crypto');
 const embeds = require('../../utils/embeds');
 const { isDevUser } = require('../../utils/roles');
 
-const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+const NVIDIA_BUILD_AI_BASE_URL = 'https://integrate.api.nvidia.com/v1';
 const REQUEST_TIMEOUT_MS = 30000;
 const WEB_SEARCH_TIMEOUT_MS = 10000;
 const MCP_DOCS_TIMEOUT_MS = 12000;
@@ -114,8 +114,8 @@ function getModelDisplayName(model) {
   return MODEL_DISPLAY_NAME_BY_VALUE.get(model) ?? model;
 }
 
-function getOpenRouterApiKey() {
-  const value = asString(process.env.OPENROUTER_API_KEY, '').trim();
+function getNvidiaApiKey() {
+  const value = asString(process.env.NVIDIA_API_KEY, '').trim();
   return value || '';
 }
 
@@ -868,12 +868,12 @@ async function runTool(context, name, args) {
   return { ok: false, error: `Unknown tool: ${name}` };
 }
 
-async function requestOpenRouterChat({ apiKey, model, messages, tools }) {
+async function requestNvidiaBuildAiChat({ apiKey, model, messages, tools }) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
 
   try {
-    const response = await fetch(`${OPENROUTER_BASE_URL}/chat/completions`, {
+    const response = await fetch(`${NVIDIA_BUILD_AI_BASE_URL}/chat/completions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -891,7 +891,7 @@ async function requestOpenRouterChat({ apiKey, model, messages, tools }) {
 
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(`OpenRouter API ${response.status} (${model}): ${truncate(body, 400)}`);
+      throw new Error(`NVIDIA Build AI API ${response.status} (${model}): ${truncate(body, 400)}`);
     }
 
     return response.json();
@@ -988,7 +988,7 @@ async function runAiCompletion({
       await onProgress({ type: 'phase', phase: `Model round ${i + 1}/${MAX_TOOL_ROUNDS}…` });
     }
 
-    const data = await requestOpenRouterChat({
+    const data = await requestNvidiaBuildAiChat({
       apiKey,
       model,
       messages,
@@ -1354,9 +1354,9 @@ async function generateAiResponse({
   priorMessages,
   progressEditor = null,
 }) {
-  const apiKey = getOpenRouterApiKey();
+  const apiKey = getNvidiaApiKey();
   if (!apiKey) {
-    throw new Error('OPENROUTER_API_KEY is not configured.');
+    throw new Error('NVIDIA_API_KEY is not configured.');
   }
 
   const modelDisplayName = getModelDisplayName(model);
@@ -1673,12 +1673,12 @@ module.exports = {
       return;
     }
 
-    const apiKey = getOpenRouterApiKey();
+    const apiKey = getNvidiaApiKey();
     if (!apiKey) {
       await interaction.reply({
         embeds: [
           embeds.error(
-            'OPENROUTER_API_KEY is not configured. Add it to your environment before using `/ai`.',
+            'NVIDIA_API_KEY is not configured. Add it to your environment before using `/ai`.',
             interaction.guild ?? null,
           ),
         ],
