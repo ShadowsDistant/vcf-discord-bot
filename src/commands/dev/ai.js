@@ -17,6 +17,7 @@ const { isDevUser } = require('../../utils/roles');
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 const REQUEST_TIMEOUT_MS = 30000;
 const WEB_SEARCH_TIMEOUT_MS = 10000;
+const MCP_DOCS_TIMEOUT_MS = 12000;
 const REQUEST_TEMPERATURE = 0.1;
 const MAX_TOOL_ROUNDS = 6;
 const MAX_FIELDS = 10;
@@ -28,6 +29,8 @@ const CONVERSATION_STALE_HOURS = 6;
 const WEB_SEARCH_DEFAULT_LIMIT = 5;
 const WEB_SEARCH_MAX_LIMIT = 8;
 const WEB_SEARCH_MAX_FLATTENED_RESULTS = 20;
+const MCP_DOCS_URL = 'https://docs.valleycorrectional.xyz/mcp';
+const MCP_DOCS_SNIPPET_MAX_CHARS = 3000;
 const MAX_CONTEXT_MESSAGES = 24;
 
 const AI_MODELS = Object.freeze([
@@ -261,6 +264,29 @@ function buildToolDefinitions() {
         parameters: {
           type: 'object',
           properties: {},
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_vcf_mcp_docs',
+        description: 'Fetch Valley Correctional MCP docs and return relevant snippets.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: 'Optional keyword query used to filter docs lines.',
+            },
+            max_chars: {
+              type: 'integer',
+              minimum: 300,
+              maximum: 3000,
+              description: 'Maximum characters to return in docs snippet output.',
+            },
+          },
           additionalProperties: false,
         },
       },
@@ -566,9 +592,74 @@ async function runWebSearch(query, limit = WEB_SEARCH_DEFAULT_LIMIT) {
   }
 }
 
+function stripHtmlToText(html) {
+  return asString(html, '')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, '\'')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+async function runMcpDocsTool(query, maxChars) {
+  const limit = Math.min(
+    MCP_DOCS_SNIPPET_MAX_CHARS,
+    Math.max(300, Number(maxChars) || 1200),
+  );
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MCP_DOCS_TIMEOUT_MS);
+  try {
+    const response = await fetch(MCP_DOCS_URL, { signal: controller.signal });
+    if (!response.ok) {
+      return { ok: false, error: `MCP docs request failed with status ${response.status}.` };
+    }
+
+    const html = await response.text();
+    const plainText = stripHtmlToText(html);
+    if (!plainText) return { ok: false, error: 'MCP docs response was empty.' };
+
+    const lines = plainText
+      .split(/(?<=[.!?])\s+/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    const normalizedQuery = asString(query, '').trim().toLowerCase();
+    const relevant = normalizedQuery
+      ? lines.filter((line) => line.toLowerCase().includes(normalizedQuery))
+      : lines;
+
+    const selectedLines = (relevant.length > 0 ? relevant : lines).slice(0, 25);
+    const snippet = truncate(selectedLines.join('\n'), limit);
+
+    return {
+      ok: true,
+      source: MCP_DOCS_URL,
+      query: normalizedQuery || null,
+      snippet,
+      matchedLines: relevant.length,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: `MCP docs request failed: ${truncate(error.message, 300)}`,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function runTool(context, name, args) {
   const guild = context.guild;
   const parsedArgs = typeof args === 'string' ? safeJsonParse(args) ?? {} : args ?? {};
+
+  if (name === 'get_vcf_mcp_docs') {
+    return runMcpDocsTool(parsedArgs.query, parsedArgs.max_chars);
+  }
 
   if (name === 'search_web') {
     const limit = Math.min(WEB_SEARCH_MAX_LIMIT, Math.max(1, Number(parsedArgs.limit) || WEB_SEARCH_DEFAULT_LIMIT));
@@ -816,6 +907,7 @@ function buildSystemPrompt(model) {
     '- Keep responses professional and concise.',
     '- Keep formatting consistent between runs.',
     '- Use search_web only for general public info and cite uncertainty when needed.',
+    '- Use get_vcf_mcp_docs for Valley Correctional MCP docs lookups.',
     '',
     `Model display name: ${getModelDisplayName(model)}.`,
     'Return ONLY valid JSON with this structure:',
