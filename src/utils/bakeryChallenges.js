@@ -4,6 +4,7 @@ const db = require('./database');
 const economy = require('./bakeEconomy');
 
 const CHALLENGE_FILE = 'bake_challenges.json';
+const ORDERED_RANKS = ['cookie_novice', 'dough_scout', 'oven_knight', 'crumb_commander', 'sugar_overlord', 'cosmic_baker', 'stellar_confectioner', 'galactic_patissier', 'void_oven_archon'];
 
 const DAILY_CHALLENGES = [
   { id: 'daily_bakes_25', name: 'Bake 25 cookies', metric: 'totalBakes', target: 25, rewardCookies: 15_000 },
@@ -94,9 +95,8 @@ function getMetricValue(user, metric) {
       .reduce((sum, itemId) => sum + Number(user.inventory?.[itemId] ?? 0), 0);
   }
   if (metric === 'rankIndex') {
-    const orderedRanks = ['cookie_novice', 'dough_scout', 'oven_knight', 'crumb_commander', 'sugar_overlord', 'cosmic_baker', 'stellar_confectioner', 'galactic_patissier', 'void_oven_archon'];
-    const rank = String(user.rankId ?? orderedRanks[0]);
-    return Math.max(0, orderedRanks.indexOf(rank));
+    const rank = String(user.rankId ?? ORDERED_RANKS[0]);
+    return Math.max(0, ORDERED_RANKS.indexOf(rank));
   }
   return Number(user[metric] ?? 0);
 }

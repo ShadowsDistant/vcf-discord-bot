@@ -420,8 +420,8 @@ module.exports = {
           return interaction.reply({ embeds: [embeds.success('Reported message deleted.', interaction.guild)], flags: MessageFlags.Ephemeral });
         }
         if (action === 'warn_author') {
-          const contentReason = (targetMessage?.content ?? '(message unavailable)').slice(0, 700);
-          const reason = `Warning issued from report queue.\nReported content: ${contentReason}`;
+          const reportedContent = (targetMessage?.content ?? '(message unavailable)').slice(0, 700);
+          const reason = `Warning issued from report queue.\nReported content: ${reportedContent}`;
           db.addWarning(interaction.guild.id, authorId, {
             moderatorId: interaction.user.id,
             reason,
