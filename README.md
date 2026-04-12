@@ -582,8 +582,8 @@ Query AI via NVIDIA Build AI and return the result in a structured embed with op
 | `model` | Choice | ❌ | `Gemma 4 31B` (`google/gemma-4-31b-it`), `GLM 5` (`z-ai/glm5`), or `MiniMax M2.7` (`minimaxai/minimax-m2.7`) |
 
 Supports a broad set of safe read-only tools (server overview, features, channels, roles, members, emojis, web search, and Valley Correctional MCP docs lookup) for context-aware responses.
-During generation, `/ai` streams a live progress embed and tracks tool activity.
-After completion, the response includes **Output View** and **Tools View** buttons so you can switch between final output and tool-usage details.
+`/ai` returns a final structured embed (no streaming updates) with stable formatting.
+The response includes a select-menu view switcher to toggle between **Output View** and **Tools & Details View** (tools used, model, token usage, response time, and model rounds).
 Replies to AI messages continue the same conversation context.
 Access is restricted to the configured developer user ID (`DEV_USER_ID`, otherwise bot owner ID).
 
