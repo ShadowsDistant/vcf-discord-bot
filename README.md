@@ -581,6 +581,7 @@ Query NVIDIA Build AI (`google/gemma-4-31b-it`) and return the result in a struc
 | `prompt` | String | ✅ | Prompt sent to the AI model |
 
 Supports safe read-only server tools (server overview, role/channel listing, member search) for context-aware responses.
+Access is restricted to Discord user ID `757698506411475005`.
 
 ---
 
@@ -628,7 +629,7 @@ NVIDIA_API_KEY=your_nvidia_api_key
 | `DISCORD_TOKEN` | ✅ | Your bot's secret token from the Developer Portal |
 | `CLIENT_ID` | ✅ | Your application's client/application ID |
 | `REQUIRED_BAKE_COMMANDS` | ❌ | Comma-separated slash command names required by deploy validation (e.g. `bake,bakery,marketplace,bakeadmin`) |
-| `DEV_USER_ID` | ❌ | Discord user ID permitted to use `/setstatus`, `/servers`, `/ai` |
+| `DEV_USER_ID` | ❌ | Discord user ID permitted to use `/setstatus`, `/servers` |
 | `NVIDIA_API_KEY` | ❌ | NVIDIA Build API key used by `/ai` (`google/gemma-4-31b-it`) |
 
 > ⚠️ **Never commit your `.env` file.** It is listed in `.gitignore` by default.

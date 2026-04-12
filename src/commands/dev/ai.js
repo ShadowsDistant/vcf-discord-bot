@@ -358,6 +358,7 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    // /ai is intentionally limited to the fixed bot developer account ID via the isDevUser utility.
     if (!isDevUser(interaction.user.id)) {
       return interaction.reply({
         embeds: [embeds.error('This command is restricted to the bot developer.', interaction.guild ?? null)],
@@ -385,6 +386,12 @@ module.exports = {
     const systemPrompt = [
       'You are an assistant for a Discord moderation/community server.',
       'Use tools when needed to inspect server context.',
+      'Safety rules:',
+      '- Never claim to execute moderation or administrative actions.',
+      '- Never request, expose, or infer secrets/tokens/credentials.',
+      '- Only use the provided read-only tools for server context.',
+      '- Refuse harmful, abusive, illegal, or privacy-invasive requests.',
+      '- Keep responses professional and concise.',
       'Return ONLY valid JSON with this structure:',
       '{',
       '  "title": "short title",',
