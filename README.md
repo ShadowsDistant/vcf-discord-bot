@@ -33,7 +33,7 @@ A modern, feature-rich Discord bot built with **discord.js v14** featuring advan
 | Category | Highlights |
 |---|---|
 | **Moderation** | Ban, kick, timeout, warn system, purge, lock/unlock channels, slowmode, role management — with optional mod-role permission levels |
-| **Utility** | Ping, userinfo, serverinfo, avatar, botinfo, help, updates |
+| **Utility** | Ping, userinfo, serverinfo, avatar, botinfo, help, updates, analytics, daily, alliance |
 | **Shifts** | Clock-in/out, staff-role gate, shift history, wave period tracking, quota requirements, DMs on start/end, wave-end mass DM |
 | **Setup** | Admin-only server configuration (mod logs, welcome, staff roles, mod permission levels, quota, shift DMs, AutoMod) |
 | **Reasons** | Per-server preset ban/kick/warn reasons with autocomplete in mod commands |
@@ -270,6 +270,46 @@ List all available commands grouped by category, or get detailed info on a speci
 View the latest public release notes and browse previous update logs from an interactive selector.
 
 Shows: current bot version, latest log version/date, and recent public changes.
+
+---
+
+#### `/analytics`
+View server analytics for a selectable period (`24h`, `7d`, `30d`), including joins/leaves, message totals, moderation action counts, top channels, and peak active hour.
+
+> Staff-facing command (runtime moderation checks still apply).
+
+---
+
+#### `/daily`
+View rotating daily/weekly bakery challenges and optionally claim completed rewards.
+
+| Option | Type | Required | Description |
+|---|---|---|---|
+| `claim` | Boolean | ❌ | Claim any currently completed challenge rewards |
+
+---
+
+#### `/alliance`
+Manage bakery alliances and shared progress.
+
+Subcommands:
+- `create <name>`
+- `join <alliance>`
+- `leave`
+- `info`
+- `leaderboard`
+- `challenge`
+
+---
+
+#### Context Menu Commands
+Right-click (Apps) command support includes:
+- **Moderate User** (user context)
+- **View Profile** (user context)
+- **View Bakery** (user context)
+- **Report Message** (message context)
+
+These are designed for quick moderation/profile workflows without typing slash commands.
 
 ---
 
@@ -571,6 +611,7 @@ DEV_USER_ID=your_discord_user_id
 |---|---|---|
 | `DISCORD_TOKEN` | ✅ | Your bot's secret token from the Developer Portal |
 | `CLIENT_ID` | ✅ | Your application's client/application ID |
+| `REQUIRED_BAKE_COMMANDS` | ❌ | Comma-separated slash command names required by deploy validation (e.g. `bake,bakery,marketplace,bakeadmin`) |
 | `DEV_USER_ID` | ❌ | Discord user ID permitted to use `/setstatus`, `/servers` |
 
 > ⚠️ **Never commit your `.env` file.** It is listed in `.gitignore` by default.
@@ -585,6 +626,7 @@ npm run deploy
 
 - Commands are registered globally and may take up to **1 hour** to propagate to all servers.
 - Deployment also clears legacy guild-scoped command registrations to prevent old slash commands from lingering.
+- Optional `REQUIRED_BAKE_COMMANDS` can enforce that specific command names exist before deployment succeeds.
 
 > Re-run `npm run deploy` whenever you add, remove, or modify commands.
 
