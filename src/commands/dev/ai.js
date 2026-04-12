@@ -16,11 +16,18 @@ const { isDevUser } = require('../../utils/roles');
 
 const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
 const REQUEST_TIMEOUT_MS = 30000;
+const WEB_SEARCH_TIMEOUT_MS = 10000;
+const REQUEST_TEMPERATURE = 0.1;
 const MAX_TOOL_ROUNDS = 6;
 const MAX_FIELDS = 10;
 const MAX_COMPONENT_ROWS = 5;
-const AI_COMPONENT_TTL_MS = 10 * 60 * 1000;
+const AI_COMPONENT_TTL_MINUTES = 10;
+const AI_COMPONENT_TTL_MS = AI_COMPONENT_TTL_MINUTES * 60 * 1000;
 const MAX_STORED_CONVERSATIONS = 500;
+const CONVERSATION_STALE_HOURS = 6;
+const WEB_SEARCH_DEFAULT_LIMIT = 5;
+const WEB_SEARCH_MAX_LIMIT = 8;
+const WEB_SEARCH_MAX_FLATTENED_RESULTS = 20;
 const MAX_CONTEXT_MESSAGES = 24;
 
 const AI_MODELS = Object.freeze([
@@ -108,7 +115,7 @@ function pruneConversationStates(now = Date.now()) {
       conversationStates.delete(messageId);
     }
   }
-  const staleCutoff = now - (6 * 60 * 60 * 1000);
+  const staleCutoff = now - (CONVERSATION_STALE_HOURS * 60 * 60 * 1000);
   for (const [messageId, state] of conversationStates.entries()) {
     if ((state?.updatedAt ?? 0) < staleCutoff) conversationStates.delete(messageId);
   }
@@ -254,6 +261,30 @@ function buildToolDefinitions() {
         parameters: {
           type: 'object',
           properties: {},
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'search_web',
+        description: 'Search the web for up-to-date public information and return concise result snippets.',
+        parameters: {
+          type: 'object',
+          properties: {
+            query: {
+              type: 'string',
+              description: 'Search query text.',
+            },
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 8,
+              description: 'Maximum number of web results/snippets to return.',
+            },
+          },
+          required: ['query'],
           additionalProperties: false,
         },
       },
@@ -472,9 +503,77 @@ function formatMember(member) {
   };
 }
 
-function runTool(context, name, args) {
+function flattenDuckDuckGoRelatedTopics(topics = [], results = []) {
+  for (const topic of topics) {
+    if (results.length >= WEB_SEARCH_MAX_FLATTENED_RESULTS) break;
+    if (Array.isArray(topic?.Topics)) {
+      flattenDuckDuckGoRelatedTopics(topic.Topics, results);
+      continue;
+    }
+    const text = truncate(topic?.Text, 280);
+    if (!text) continue;
+    const url = asString(topic?.FirstURL, '').trim();
+    results.push({ text, url });
+  }
+  return results;
+}
+
+async function runWebSearch(query, limit = WEB_SEARCH_DEFAULT_LIMIT) {
+  const normalizedQuery = asString(query, '').trim();
+  if (!normalizedQuery) return { ok: false, error: 'query is required.' };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), WEB_SEARCH_TIMEOUT_MS);
+  try {
+    const url = new URL('https://api.duckduckgo.com/');
+    url.searchParams.set('q', normalizedQuery);
+    url.searchParams.set('format', 'json');
+    url.searchParams.set('no_html', '1');
+    url.searchParams.set('skip_disambig', '1');
+
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) {
+      return { ok: false, error: `Web search failed with status ${response.status}.` };
+    }
+
+    const data = await response.json();
+    const snippets = [];
+
+    const abstractText = truncate(data?.AbstractText, 300);
+    const abstractUrl = asString(data?.AbstractURL, '').trim();
+    if (abstractText) snippets.push({ text: abstractText, url: abstractUrl });
+
+    const related = flattenDuckDuckGoRelatedTopics(data?.RelatedTopics ?? []);
+    for (const item of related) {
+      if (snippets.length >= limit) break;
+      snippets.push(item);
+    }
+
+    return {
+      ok: true,
+      query: normalizedQuery,
+      heading: truncate(data?.Heading, 120),
+      snippets: snippets.slice(0, limit),
+      source: 'DuckDuckGo Instant Answer API',
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: `Web search request failed: ${truncate(error.message, 300)}`,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function runTool(context, name, args) {
   const guild = context.guild;
   const parsedArgs = typeof args === 'string' ? safeJsonParse(args) ?? {} : args ?? {};
+
+  if (name === 'search_web') {
+    const limit = Math.min(WEB_SEARCH_MAX_LIMIT, Math.max(1, Number(parsedArgs.limit) || WEB_SEARCH_DEFAULT_LIMIT));
+    return runWebSearch(parsedArgs.query, limit);
+  }
 
   if (!guild) {
     return { ok: false, error: 'Guild context is required for this tool.' };
@@ -689,7 +788,7 @@ async function requestOpenRouterChat({ apiKey, model, messages, tools }) {
         messages,
         tools,
         tool_choice: 'auto',
-        temperature: 0.1,
+        temperature: REQUEST_TEMPERATURE,
       }),
       signal: controller.signal,
     });
@@ -716,6 +815,7 @@ function buildSystemPrompt(model) {
     '- Refuse harmful, abusive, illegal, or privacy-invasive requests.',
     '- Keep responses professional and concise.',
     '- Keep formatting consistent between runs.',
+    '- Use search_web only for general public info and cite uncertainty when needed.',
     '',
     `Model display name: ${getModelDisplayName(model)}.`,
     'Return ONLY valid JSON with this structure:',
@@ -796,7 +896,7 @@ async function runAiCompletion({ apiKey, model, context, prompt, priorMessages =
       for (const call of toolCalls) {
         const toolName = call?.function?.name;
         const toolArgs = call?.function?.arguments ?? '{}';
-        const result = runTool(context, toolName, toolArgs);
+        const result = await runTool(context, toolName, toolArgs);
         messages.push({
           role: 'tool',
           tool_call_id: call.id,

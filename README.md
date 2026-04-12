@@ -581,7 +581,7 @@ Query AI via OpenRouter and return the result in a structured embed with optiona
 | `prompt` | String | ✅ | Prompt sent to the AI model |
 | `model` | Choice | ❌ | `Gemma 4 31B` (`google/gemma-4-31b-it`), `GLM 5` (`z-ai/glm5`), or `MiniMax M2.7` (`minimaxai/minimax-m2.7`) |
 
-Supports a broad set of safe read-only server tools (server overview, features, channels, roles, members, emojis) for context-aware responses.
+Supports a broad set of safe read-only tools (server overview, features, channels, roles, members, emojis, and web search) for context-aware responses.
 Replies to AI messages continue the same conversation context.
 Access is restricted to Discord user ID `757698506411475005`.
 
