@@ -181,31 +181,31 @@ function buildManageSelects(data, userId) {
   }
 
   if (requestIds.length > 0) {
+    const requestActionOptions = requestIds
+      .slice(0, 12)
+      .flatMap((memberId) => ([
+        {
+          label: `Approve ${memberId}`.slice(0, 100),
+          value: `approve:${memberId}`,
+          description: 'Approve and add this user to the alliance.',
+        },
+        {
+          label: `Deny ${memberId}`.slice(0, 100),
+          value: `deny:${memberId}`,
+          description: 'Deny this join request.',
+        },
+      ]));
     rows.push(
       new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
-          .setCustomId('alliance_request_approve_select')
-          .setPlaceholder('Approve pending join request')
-          .addOptions(requestIds.map((memberId) => ({
-            label: `Request ${memberId}`.slice(0, 100),
-            value: memberId,
-            description: 'Approve and add this user to the alliance.',
-          }))),
-      ),
-      new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId('alliance_request_deny_select')
-          .setPlaceholder('Deny pending join request')
-          .addOptions(requestIds.map((memberId) => ({
-            label: `Request ${memberId}`.slice(0, 100),
-            value: memberId,
-            description: 'Deny this join request.',
-          }))),
+          .setCustomId('alliance_request_action_select')
+          .setPlaceholder('Review pending join requests')
+          .addOptions(requestActionOptions),
       ),
     );
   }
 
-  return rows.slice(0, 5);
+  return rows.slice(0, 3);
 }
 
 function buildCreateAllianceModal() {
@@ -531,21 +531,20 @@ async function handleAllianceSelect(interaction) {
     }
     return respondWithPanelUpdate(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'manage', `Removed <@${memberId}> from the alliance.`));
   }
-  if (interaction.customId === 'alliance_request_approve_select') {
-    const memberId = interaction.values[0];
-    const result = alliances.resolveAllianceJoinRequest(interaction.guild.id, interaction.user.id, memberId, true);
+  if (interaction.customId === 'alliance_request_action_select') {
+    const [action, memberId] = String(interaction.values[0] ?? '').split(':');
+    const approve = action === 'approve';
+    if (!memberId || (action !== 'approve' && action !== 'deny')) {
+      return interaction.reply({ embeds: [embeds.error('Invalid join-request action.', interaction.guild)], flags: MessageFlags.Ephemeral });
+    }
+    const result = alliances.resolveAllianceJoinRequest(interaction.guild.id, interaction.user.id, memberId, approve);
     if (!result.ok) {
       return interaction.reply({ embeds: [embeds.error(result.reason, interaction.guild)], flags: MessageFlags.Ephemeral });
     }
-    return respondWithPanelUpdate(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'manage', `Approved join request for <@${memberId}>.`));
-  }
-  if (interaction.customId === 'alliance_request_deny_select') {
-    const memberId = interaction.values[0];
-    const result = alliances.resolveAllianceJoinRequest(interaction.guild.id, interaction.user.id, memberId, false);
-    if (!result.ok) {
-      return interaction.reply({ embeds: [embeds.error(result.reason, interaction.guild)], flags: MessageFlags.Ephemeral });
-    }
-    return respondWithPanelUpdate(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'manage', `Denied join request for <@${memberId}>.`));
+    const notice = approve
+      ? `Approved join request for <@${memberId}>.`
+      : `Denied join request for <@${memberId}>.`;
+    return respondWithPanelUpdate(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'manage', notice));
   }
   return null;
 }
@@ -619,8 +618,7 @@ module.exports = {
       || value === 'alliance_store_select'
       || value === 'alliance_transfer_select'
       || value === 'alliance_remove_select'
-      || value === 'alliance_request_approve_select'
-      || value === 'alliance_request_deny_select';
+      || value === 'alliance_request_action_select';
   },
 
   isAllianceModalCustomId(customId) {

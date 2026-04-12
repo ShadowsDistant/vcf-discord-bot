@@ -95,6 +95,7 @@ function weekKey(ts = Date.now()) {
 
 function parseWeekNumberFromKey(key) {
   const raw = String(key ?? '');
+  if (!raw.startsWith('wk-')) return 0;
   const num = Number.parseInt(raw.replace('wk-', ''), 10);
   return Number.isFinite(num) ? num : 0;
 }
@@ -114,6 +115,12 @@ function normalizeName(name) {
   return String(name ?? '').trim().slice(0, 40);
 }
 
+function findAllianceByName(alliancesById, name) {
+  const needle = String(name ?? '').toLowerCase();
+  return Object.values(alliancesById ?? {})
+    .find((entry) => String(entry?.name ?? '').toLowerCase() === needle) ?? null;
+}
+
 function hashAllianceId(input) {
   const raw = String(input ?? '');
   let hash = 0;
@@ -124,6 +131,16 @@ function hashAllianceId(input) {
 }
 
 function pickWeeklyChallenge(allianceId, ts = Date.now()) {
+  if (WEEKLY_ALLIANCE_CHALLENGES.length === 0) {
+    return {
+      id: 'fallback',
+      name: 'Fallback Challenge',
+      description: 'Bake cookies as an alliance this week.',
+      target: 1_000_000,
+      rewardCookies: 100_000,
+      rewardAllianceCoins: 1,
+    };
+  }
   const index = (weekNumber(ts) + hashAllianceId(allianceId)) % WEEKLY_ALLIANCE_CHALLENGES.length;
   return WEEKLY_ALLIANCE_CHALLENGES[index];
 }
@@ -273,8 +290,7 @@ function createAlliance(guildId, ownerId, name) {
     const guild = getGuildState(data, guildId);
     if (guild.userAlliance[ownerId]) return { ok: false, reason: 'You are already in an alliance.' };
 
-    const existing = Object.values(guild.alliances)
-      .find((entry) => String(entry.name ?? '').toLowerCase() === allianceName.toLowerCase());
+    const existing = findAllianceByName(guild.alliances, allianceName);
     if (existing) return { ok: false, reason: 'That alliance name is already taken.' };
 
     const allianceId = String(guild.nextAllianceId++);
@@ -315,8 +331,7 @@ function joinAlliance(guildId, userId, allianceIdOrName) {
     const guild = getGuildState(data, guildId);
     if (guild.userAlliance[userId]) return { ok: false, reason: 'You are already in an alliance.' };
 
-    const alliance = guild.alliances[value]
-      || Object.values(guild.alliances).find((entry) => String(entry.name ?? '').toLowerCase() === value.toLowerCase());
+    const alliance = guild.alliances[value] || findAllianceByName(guild.alliances, value);
 
     if (!alliance) return { ok: false, reason: 'Alliance not found.' };
     ensureAllianceShape(alliance);
@@ -381,9 +396,8 @@ function renameAlliance(guildId, actorId, newName) {
     if (!alliance) return { ok: false, reason: 'Alliance no longer exists.' };
     if (alliance.ownerId !== actorId) return { ok: false, reason: 'Only the alliance owner can rename the alliance.' };
 
-    const existing = Object.values(guild.alliances ?? {}).find((entry) =>
-      entry.id !== alliance.id && String(entry.name ?? '').toLowerCase() === allianceName.toLowerCase());
-    if (existing) return { ok: false, reason: 'That alliance name is already taken.' };
+    const existing = findAllianceByName(guild.alliances, allianceName);
+    if (existing && existing.id !== alliance.id) return { ok: false, reason: 'That alliance name is already taken.' };
 
     alliance.name = allianceName;
     return { ok: true, alliance };
