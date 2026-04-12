@@ -67,8 +67,8 @@ module.exports = {
       orange: 0xe67e22,
       teal: 0x1abc9c,
       pink: 0xeb459e,
-      white: 0xffffff,
-      black: 0x000000,
+      white: 0xf0f0f0,
+      black: 0x202020,
     };
 
     const embed = embeds

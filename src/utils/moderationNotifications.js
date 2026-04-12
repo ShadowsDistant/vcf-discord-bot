@@ -28,7 +28,7 @@ async function sendModerationActionDm({
   if (guild) {
     embed.setFooter({
       text: guild.name,
-      iconURL: guild.iconURL({ dynamic: true }) ?? undefined,
+      iconURL: guild.iconURL() ?? undefined,
     });
   }
 

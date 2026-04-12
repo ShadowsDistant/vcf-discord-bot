@@ -18,7 +18,7 @@ module.exports = {
           .setColor(0xed4245)
           .setTitle('Member Left')
           .setDescription(`${member.user} (\`${member.user.tag}\`) left the server.`)
-          .setThumbnail(member.user.displayAvatarURL({ dynamic: true, size: 256 }))
+          .setThumbnail(member.user.displayAvatarURL({ size: 256 }))
           .addFields({ name: 'User ID', value: `\`${member.user.id}\``, inline: true }),
       ],
     }).catch(() => null);

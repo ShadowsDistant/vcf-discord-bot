@@ -38,7 +38,7 @@ function scheduleCookieEventLoop(guild, client) {
             timestamp: new Date().toISOString(),
             footer: {
               text: guild.name,
-              icon_url: guild.iconURL({ dynamic: true }) ?? undefined,
+              icon_url: guild.iconURL() ?? undefined,
             },
           },
         ],

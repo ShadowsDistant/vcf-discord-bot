@@ -1082,7 +1082,7 @@ module.exports = {
                 )
                 .addFields(
                   { name: 'Buyer', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
-                  { name: 'Item', value: `${economy.getItemEmoji(result.listing.itemId, interaction.guild)} ${purchasedItem?.name ?? result.listing.itemId}`, inline: true },
+                  { name: 'Item', value: `${economy.getItemEmoji(purchasedItem ?? result.listing.itemId, interaction.guild)} ${purchasedItem?.name ?? result.listing.itemId}`, inline: true },
                   { name: 'Quantity', value: `${result.listing.quantity}`, inline: true },
                   { name: 'Sale Total', value: economy.toCookieNumber(result.totalPrice), inline: true },
                   { name: 'Marketplace Fee', value: economy.toCookieNumber(result.fee), inline: true },
