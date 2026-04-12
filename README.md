@@ -573,6 +573,18 @@ Shows: server name, ID, member count, total guild count, and total combined memb
 
 ---
 
+#### `/ai`
+Query NVIDIA Build AI (`google/gemma-4-31b-it`) and return the result in a structured embed.
+
+| Option | Type | Required | Description |
+|---|---|---|---|
+| `prompt` | String | ✅ | Prompt sent to the AI model |
+
+Supports safe read-only server tools (server overview, role/channel listing, member search) for context-aware responses.
+Access is restricted to Discord user ID `757698506411475005`.
+
+---
+
 ## Getting Started
 
 ### Prerequisites
@@ -607,6 +619,9 @@ CLIENT_ID=your_application_client_id_here
 # Optional — Discord user ID allowed to use developer commands
 # Defaults to the bot owner ID if not set
 DEV_USER_ID=your_discord_user_id
+
+# Optional — NVIDIA Build API key used by /ai
+NVIDIA_API_KEY=your_nvidia_api_key
 ```
 
 | Variable | Required | Description |
@@ -615,6 +630,7 @@ DEV_USER_ID=your_discord_user_id
 | `CLIENT_ID` | ✅ | Your application's client/application ID |
 | `REQUIRED_BAKE_COMMANDS` | ❌ | Comma-separated slash command names required by deploy validation (e.g. `bake,bakery,marketplace,bakeadmin`) |
 | `DEV_USER_ID` | ❌ | Discord user ID permitted to use `/setstatus`, `/servers` |
+| `NVIDIA_API_KEY` | ❌ | NVIDIA Build API key used by `/ai` (`google/gemma-4-31b-it`) |
 
 > ⚠️ **Never commit your `.env` file.** It is listed in `.gitignore` by default.
 

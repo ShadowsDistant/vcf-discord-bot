@@ -22,9 +22,12 @@ const { hasModLevel, MOD_LEVEL } = require('../utils/permissions');
 const { UPDATE_LOGS, createUpdateEmbed } = require('../utils/updateLogs');
 const economy = require('../utils/bakeEconomy');
 const alliances = require('../utils/bakeAlliances');
-const { patchInteractionDisplayComponents } = require('../utils/displayComponents');
 const bakeCommand = require('../commands/utility/bake');
 const allianceCommand = require('../commands/utility/alliance');
+const helpCommand = require('../commands/utility/help');
+const shiftCommand = require('../commands/shifts/shift');
+const automodCommand = require('../commands/setup/automod');
+const staffInfractionCommand = require('../commands/moderation/staffinfraction');
 const { sendModerationActionDm, sendReporterStatusDm } = require('../utils/moderationNotifications');
 const { version: botVersion } = require('../../package.json');
 
@@ -340,8 +343,6 @@ function parseMentionUserId(value) {
 module.exports = {
   name: Events.InteractionCreate,
   async execute(interaction) {
-    patchInteractionDisplayComponents(interaction);
-
     if (interaction.isButton()) {
       if (isComponentExpired(interaction)) {
         return interaction.reply({
@@ -1004,6 +1005,18 @@ module.exports = {
       if (allianceCommand.isAllianceSelectCustomId(interaction.customId)) {
         return allianceCommand.handleAllianceSelect(interaction);
       }
+      if (helpCommand.isHelpCategorySelect(interaction.customId)) {
+        return helpCommand.handleHelpCategorySelect(interaction);
+      }
+      if (shiftCommand.isShiftPanelSelect(interaction.customId)) {
+        return shiftCommand.handleShiftPanelSelect(interaction);
+      }
+      if (automodCommand.isAutomodPanelSelect(interaction.customId)) {
+        return automodCommand.handleAutomodPanelSelect(interaction);
+      }
+      if (staffInfractionCommand.isStaffInfractionPanelSelect(interaction.customId)) {
+        return staffInfractionCommand.handleStaffInfractionPanelSelect(interaction);
+      }
       if (interaction.customId.startsWith('rmr:')) {
         const [, sourceChannelId, messageId, authorId] = interaction.customId.split(':');
         const remainingMs = getReportCooldownRemainingMs(interaction.guild.id, interaction.user.id, Date.now());
@@ -1603,6 +1616,15 @@ module.exports = {
     if (interaction.isModalSubmit()) {
       if (allianceCommand.isAllianceModalCustomId(interaction.customId)) {
         return allianceCommand.handleAllianceModal(interaction);
+      }
+      if (shiftCommand.isShiftPanelModal(interaction.customId)) {
+        return shiftCommand.handleShiftPanelModal(interaction);
+      }
+      if (automodCommand.isAutomodPanelModal(interaction.customId)) {
+        return automodCommand.handleAutomodPanelModal(interaction);
+      }
+      if (staffInfractionCommand.isStaffInfractionPanelModal(interaction.customId)) {
+        return staffInfractionCommand.handleStaffInfractionPanelModal(interaction);
       }
       if (interaction.customId.startsWith('ctx_report_message:')) {
         const [, sourceChannelId, messageId, authorId] = interaction.customId.split(':');
