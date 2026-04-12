@@ -32,10 +32,11 @@ module.exports = {
       : [];
 
     const status = challenges.getChallengeStatus(interaction.guild.id, interaction.user.id, Date.now());
+    const cookieEmoji = economy.getCookieEmoji(interaction.guild);
 
     const embed = new EmbedBuilder()
       .setColor(0xf1c40f)
-      .setTitle('🍪 Daily & Weekly Challenges')
+      .setTitle(`${cookieEmoji} Daily & Weekly Challenges`)
       .addFields(
         {
           name: `Daily: ${status.daily.name}`,

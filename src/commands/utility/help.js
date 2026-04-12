@@ -13,7 +13,7 @@ const {
 const { hasModLevel, hasSidRole, MOD_LEVEL } = require('../../utils/permissions');
 
 const SENIOR_MOD_COMMANDS = new Set(['ban', 'unban']);
-const MANAGEMENT_COMMANDS = new Set(['shiftmanage', 'shiftwave', 'announce', 'say']);
+const MANAGEMENT_COMMANDS = new Set(['shiftmanage', 'announce', 'say']);
 const SHIFT_COMMANDS = new Set([
   'shift-start',
   'endshift',

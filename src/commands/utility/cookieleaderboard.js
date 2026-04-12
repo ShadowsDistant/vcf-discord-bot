@@ -13,12 +13,13 @@ module.exports = {
 
   async execute(interaction) {
     const leaderboard = economy.getSpecialCookieLeaderboard(interaction.guild.id);
+    const cookieEmoji = economy.getCookieEmoji(interaction.guild);
 
     if (leaderboard.length === 0) {
       return interaction.reply({
         embeds: [
           embeds.info(
-            '🍪  Special Cookie Leaderboard',
+            `${cookieEmoji}  Special Cookie Leaderboard`,
             'No special cookies have been baked yet.',
             interaction.guild,
           ),
@@ -35,7 +36,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setColor(embeds.PALETTE.primary)
-      .setTitle('🍪  Special Cookie Leaderboard')
+      .setTitle(`${cookieEmoji}  Special Cookie Leaderboard`)
       .setDescription(lines.join('\n\n'))
       .setTimestamp()
       .setFooter({

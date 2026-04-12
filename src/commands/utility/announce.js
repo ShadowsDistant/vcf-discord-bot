@@ -32,7 +32,17 @@ module.exports = {
           { name: 'Red', value: 'red' },
           { name: 'Yellow', value: 'yellow' },
           { name: 'Purple', value: 'purple' },
-        )),
+          { name: 'Orange', value: 'orange' },
+          { name: 'Teal', value: 'teal' },
+          { name: 'Pink', value: 'pink' },
+          { name: 'White', value: 'white' },
+          { name: 'Black', value: 'black' },
+        ))
+    .addRoleOption((o) =>
+      o
+        .setName('ping_role')
+        .setDescription('Optional role to ping with the announcement.')
+        .setRequired(false)),
 
   async execute(interaction) {
     if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.management)) {
@@ -46,6 +56,7 @@ module.exports = {
     const title = interaction.options.getString('title');
     const message = interaction.options.getString('message');
     const colorChoice = interaction.options.getString('color') ?? 'blue';
+    const pingRole = interaction.options.getRole('ping_role');
 
     const colorMap = {
       blue: 0x5865f2,
@@ -53,6 +64,11 @@ module.exports = {
       red: 0xed4245,
       yellow: 0xfee75c,
       purple: 0x9b59b6,
+      orange: 0xe67e22,
+      teal: 0x1abc9c,
+      pink: 0xeb459e,
+      white: 0xffffff,
+      black: 0x000000,
     };
 
     const embed = embeds
@@ -66,7 +82,10 @@ module.exports = {
       });
 
     try {
-      await channel.send({ embeds: [embed] });
+      await channel.send({
+        content: pingRole ? `${pingRole}` : undefined,
+        embeds: [embed],
+      });
       return interaction.reply({
         embeds: [embeds.success(`Announcement sent to ${channel}.`, interaction.guild ?? null)],
         flags: MessageFlags.Ephemeral,

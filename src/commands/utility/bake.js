@@ -13,7 +13,7 @@ const bakeCooldowns = new Map();
 const COOLDOWN_PRUNE_INTERVAL_MS = BAKE_COOLDOWN_MS;
 const MAX_BAKE_COOLDOWN_ENTRIES = 10_000;
 let lastCooldownPruneAt = 0;
-const SPECIAL_EVENT_CHANNEL_ID = '1492310367869862089';
+const COOKIE_LOG_CHANNEL_ID = '1492706903938043904';
 const SPECIAL_COOKIE_EVENT_DETAILS = {
   perfectcookie: {
     title: '✨ Perfect Cookie Event',
@@ -179,8 +179,8 @@ function buildBakeOutcome(guild, userId) {
   }
 
   const components = [
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('bake_again').setLabel('Bake Again').setStyle(ButtonStyle.Primary).setEmoji(economy.getButtonEmoji(guild, ['cookie', 'plain_cookie', 'plain_cookies'], '🍪')),
+      new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId('bake_again').setLabel('Bake Again').setStyle(ButtonStyle.Primary).setEmoji(economy.getButtonEmoji(guild, ['cookie', 'plain_cookie', 'plain_cookies'])),
       new ButtonBuilder().setCustomId('bakery_nav:buildings').setLabel('Store').setStyle(ButtonStyle.Success).setEmoji(economy.getButtonEmoji(guild, ['Builder', 'building'], '🏪')),
       new ButtonBuilder().setCustomId('bakery_nav:inventory').setLabel('Inventory').setStyle(ButtonStyle.Secondary).setEmoji(economy.getButtonEmoji(guild, ['Cookie_dough', 'inventory'], '🎒')),
       new ButtonBuilder().setCustomId('bakery_nav:stats').setLabel('Stats').setStyle(ButtonStyle.Secondary).setEmoji(economy.getButtonEmoji(guild, ['CookieProduction10', 'stats'], '📊')),
@@ -222,7 +222,7 @@ function buildBakeOutcome(guild, userId) {
 
 async function postSpecialCookieEvent(guild, bakerUser, event) {
   if (!guild || !bakerUser || !event) return;
-  const channel = await guild.channels.fetch(SPECIAL_EVENT_CHANNEL_ID).catch(() => null);
+  const channel = await guild.channels.fetch(COOKIE_LOG_CHANNEL_ID).catch(() => null);
   if (!channel || !channel.isTextBased()) return;
   const eventEmbed = new EmbedBuilder()
     .setColor(event.details.color)

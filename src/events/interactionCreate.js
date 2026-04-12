@@ -32,7 +32,7 @@ const MAX_SELECT_MENU_OPTIONS = 25;
 const DEFAULT_GUIDE_SECTION = 'info';
 const BAKERY_RENAME_TTL_MS = 10 * 60 * 1000;
 const GUIDE_STATE_TTL_MS = 60 * 60 * 1000;
-const SPECIAL_COOKIE_EVENT_CHANNEL_ID = '1492310367869862089';
+const SPECIAL_COOKIE_EVENT_CHANNEL_ID = '1492690923333746790';
 const REPORTS_CHANNEL_ID = '1492689950540435637';
 const REPORTS_PING_ROLE_ID = '1425569078596337745';
 const REPORT_COOLDOWN_MS = 15 * 60 * 1000;
@@ -460,7 +460,7 @@ module.exports = {
         }
         if (action === 'dismiss') {
           const modal = new ModalBuilder()
-            .setCustomId(`report_dismiss_reason:${sourceChannelId}:${messageId}:${authorId}:${reporterId ?? ''}`)
+            .setCustomId(`report_dismiss_reason:${interaction.message.id}:${reporterId ?? ''}`)
             .setTitle('Dismiss Report')
             .addComponents(
               new ActionRowBuilder().addComponents(
@@ -1070,6 +1070,27 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+        const seller = await interaction.client.users.fetch(result.listing.sellerId).catch(() => null);
+        if (seller) {
+          const purchasedItem = economy.ITEM_MAP.get(result.listing.itemId);
+          await seller.send({
+            embeds: [
+              embeds
+                .success(
+                  `Your marketplace listing was purchased in **${interaction.guild.name}**.`,
+                  interaction.guild,
+                )
+                .addFields(
+                  { name: 'Buyer', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
+                  { name: 'Item', value: `${economy.getItemEmoji(result.listing.itemId, interaction.guild)} ${purchasedItem?.name ?? result.listing.itemId}`, inline: true },
+                  { name: 'Quantity', value: `${result.listing.quantity}`, inline: true },
+                  { name: 'Sale Total', value: economy.toCookieNumber(result.totalPrice), inline: true },
+                  { name: 'Marketplace Fee', value: economy.toCookieNumber(result.fee), inline: true },
+                  { name: 'You Received', value: economy.toCookieNumber(result.payout), inline: true },
+                ),
+            ],
+          }).catch(() => null);
+        }
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const market = economy.getMarketplaceEmbed(interaction.guild, snapshot.guildState, snapshot.user, 0, 'all');
         const components = economy.getMarketplaceComponents(snapshot.guildState, 0, 'all');
@@ -1464,7 +1485,7 @@ module.exports = {
       }
 
       if (interaction.customId.startsWith('report_dismiss_reason:')) {
-        const [, sourceChannelId, messageId, authorId, reporterId] = interaction.customId.split(':');
+        const [, reportMessageId, reporterId] = interaction.customId.split(':');
         const dismissReason = interaction.fields.getTextInputValue('reason').trim();
         if (!dismissReason) {
           return interaction.reply({
@@ -1472,16 +1493,12 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
-        const components = [
-          new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`report_action:delete_message:${sourceChannelId}:${messageId}:${authorId}:${reporterId ?? ''}`).setLabel('Delete Message').setStyle(ButtonStyle.Danger).setDisabled(true),
-            new ButtonBuilder().setCustomId(`report_action:warn_author:${sourceChannelId}:${messageId}:${authorId}:${reporterId ?? ''}`).setLabel('Warn Author').setStyle(ButtonStyle.Secondary).setDisabled(true),
-            new ButtonBuilder().setCustomId(`report_action:timeout_author:${sourceChannelId}:${messageId}:${authorId}:${reporterId ?? ''}`).setLabel('Timeout Author').setStyle(ButtonStyle.Primary).setDisabled(true),
-            new ButtonBuilder().setCustomId(`report_action:dismiss:${sourceChannelId}:${messageId}:${authorId}:${reporterId ?? ''}`).setLabel('Dismissed').setStyle(ButtonStyle.Success).setDisabled(true),
-          ),
-        ];
-        const existingEmbed = interaction.message?.embeds?.[0]
-          ? EmbedBuilder.from(interaction.message.embeds[0])
+        const reportChannel = await interaction.guild.channels.fetch(REPORTS_CHANNEL_ID).catch(() => null);
+        const reportMessage = reportChannel?.isTextBased()
+          ? await reportChannel.messages.fetch(reportMessageId).catch(() => null)
+          : null;
+        const existingEmbed = reportMessage?.embeds?.[0]
+          ? EmbedBuilder.from(reportMessage.embeds[0])
           : embeds.info('Message Report', 'Report dismissed.', interaction.guild);
         existingEmbed.addFields({
           name: 'Dismissed By',
@@ -1493,7 +1510,13 @@ module.exports = {
           inline: false,
         });
 
-        await interaction.update({ embeds: [existingEmbed], components });
+        if (reportMessage) {
+          await reportMessage.edit({ embeds: [existingEmbed], components: [] }).catch(() => null);
+        }
+        await interaction.reply({
+          embeds: [embeds.success('Report dismissed with a recorded reason.', interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
         if (reporterId) {
           const reporter = await interaction.client.users.fetch(reporterId).catch(() => null);
           await sendReporterStatusDm({

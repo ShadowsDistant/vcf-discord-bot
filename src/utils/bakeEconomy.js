@@ -24,12 +24,42 @@ const MAX_DISPLAYED_GIFT_BOXES = 6;
 const GIFT_BOX_OPTION_PREFIX = 'gift:';
 const BAKE_ADMIN_ROLE_ID = '1492510387579654205';
 const DEFAULT_COOKIE_IMAGE = null;
+const DEFAULT_COOKIE_EMOJI_STRING = '<:Plain_cookies:1492472701909205063>';
 const SPECIAL_COOKIE_IDS = ['perfectcookie', 'goldcookie', 'spoopiercookie'];
 const BAKE_EVENT_SPECIAL_COOKIE_HUNT = 'special_cookie_hunt';
+const BAKE_EVENT_GOLDEN_FEVER = 'golden_fever';
+const BAKE_EVENT_SUGAR_RUSH = 'sugar_rush';
+const BAKE_EVENT_STEADY_HEAT = 'steady_heat';
 const SPECIAL_COOKIE_EVENT_BOOST_CHANCE = 0.2;
+const COOKIE_EVENT_DEFINITIONS = [
+  {
+    id: BAKE_EVENT_SPECIAL_COOKIE_HUNT,
+    name: 'Special Cookie Hunt',
+    description: 'Special cookie drops are boosted.',
+    weight: 5,
+  },
+  {
+    id: BAKE_EVENT_GOLDEN_FEVER,
+    name: 'Golden Fever',
+    description: 'Golden Cookie appearance chance is increased.',
+    weight: 4,
+  },
+  {
+    id: BAKE_EVENT_SUGAR_RUSH,
+    name: 'Sugar Rush',
+    description: 'Manual bake cookie gains are boosted.',
+    weight: 4,
+  },
+  {
+    id: BAKE_EVENT_STEADY_HEAT,
+    name: 'Steady Heat',
+    description: 'Burnt cookie chance is reduced.',
+    weight: 3,
+  },
+];
 
 const RARITY = {
-  common: { id: 'common', name: 'Common', weight: 50, valueMultiplier: 1, color: 0xa3a3a3, emoji: '🍪' },
+  common: { id: 'common', name: 'Common', weight: 50, valueMultiplier: 1, color: 0xa3a3a3, emoji: DEFAULT_COOKIE_EMOJI_STRING },
   uncommon: { id: 'uncommon', name: 'Uncommon', weight: 25, valueMultiplier: 3, color: 0x57f287, emoji: '🟩' },
   rare: { id: 'rare', name: 'Rare', weight: 13, valueMultiplier: 10, color: 0x5865f2, emoji: '🟦' },
   epic: { id: 'epic', name: 'Epic', weight: 7, valueMultiplier: 30, color: 0x9b59b6, emoji: '🟪' },
@@ -710,7 +740,7 @@ function getDefaultUserState(userId) {
     userId,
     bakeryName: 'Unnamed Bakery',
     bakeryTheme: 'classic',
-    bakeryEmoji: '🍪',
+    bakeryEmoji: DEFAULT_COOKIE_EMOJI_STRING,
     title: RANKS[0].name,
     cookies: 0,
     cookiesBakedAllTime: 0,
@@ -860,7 +890,11 @@ function getCustomGuildEmoji(guild, candidates = []) {
 }
 
 function getCookieFallbackEmoji(guild) {
-  return getCustomGuildEmoji(guild, ['plain_cookie', 'plain_cookies', 'cookie', 'cookies', 'cc_cookie']) ?? '🍪';
+  return getCustomGuildEmoji(guild, ['plain_cookie', 'plain_cookies', 'cookie', 'cookies', 'cc_cookie']) ?? DEFAULT_COOKIE_EMOJI_STRING;
+}
+
+function getCookieEmoji(guild) {
+  return getCookieFallbackEmoji(guild);
 }
 
 function getRarityEmoji(rarityId, guild) {
@@ -1036,12 +1070,16 @@ function getRewardBoxEmoji(rewardBoxOrId, guild) {
   return getCustomGuildEmoji(guild, [rewardBox.id, rewardBox.name, ...(rewardBox.emojiAliases ?? [])]) ?? '🎁';
 }
 
-function getButtonEmoji(guild, candidates = [], fallback = '🍪') {
+function getButtonEmoji(guild, candidates = [], fallback = DEFAULT_COOKIE_EMOJI_STRING) {
   const resolved = getCustomGuildEmoji(guild, candidates);
-  if (resolved) {
-    const match = /^<(a?):([^:>]+):(\d+)>$/.exec(resolved);
+  const toButtonEmoji = (value) => {
+    const match = /^<(a?):([^:>]+):(\d+)>$/.exec(value);
     if (match) return { animated: Boolean(match[1]), name: match[2], id: match[3] };
-  }
+    return { name: value };
+  };
+  if (resolved) return toButtonEmoji(resolved);
+  const cookieFallback = getCookieFallbackEmoji(guild);
+  if (fallback === DEFAULT_COOKIE_EMOJI_STRING) return toButtonEmoji(cookieFallback);
   return { name: fallback };
 }
 
@@ -1243,8 +1281,12 @@ function bake(guildId, userId) {
 
     if (user.pendingGoldenCookie?.expiresAt <= nowTs) user.pendingGoldenCookie = null;
 
-    const burnt = Math.random() < BURNT_BAKE_CHANCE;
-    const yieldAmount = burnt ? 0 : getManualBakeYield(user, nowTs);
+    const burntChance = activeEvent?.id === BAKE_EVENT_STEADY_HEAT ? BURNT_BAKE_CHANCE * 0.4 : BURNT_BAKE_CHANCE;
+    const burnt = Math.random() < burntChance;
+    const boostedYield = activeEvent?.id === BAKE_EVENT_SUGAR_RUSH
+      ? Math.floor(getManualBakeYield(user, nowTs) * 1.4)
+      : getManualBakeYield(user, nowTs);
+    const yieldAmount = burnt ? 0 : boostedYield;
     user.cookies += yieldAmount;
     user.cookiesBakedAllTime += yieldAmount;
     user.totalBakes += 1;
@@ -1266,7 +1308,8 @@ function bake(guildId, userId) {
     let golden = null;
     const forceGolden = user.forceGoldenCookieOnNextBake;
     user.forceGoldenCookieOnNextBake = false;
-    if (forceGolden || Math.random() < getGoldenChance(user)) {
+    const goldenChanceMultiplier = activeEvent?.id === BAKE_EVENT_GOLDEN_FEVER ? 1.8 : 1;
+    if (forceGolden || Math.random() < Math.min(1, getGoldenChance(user) * goldenChanceMultiplier)) {
       golden = createGoldenCookieState(user, guildState.settings, nowTs);
     }
 
@@ -1328,7 +1371,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
   const cps = computeCps(user, nowTs);
   const totalItems = ITEMS.length;
   const discovered = user.uniqueItemsDiscovered.length;
-  const titlePrefix = `${user.bakeryEmoji ?? '🍪'} ${user.bakeryName ?? 'Unnamed Bakery'}`;
+  const titlePrefix = `${user.bakeryEmoji ?? DEFAULT_COOKIE_EMOJI_STRING} ${user.bakeryName ?? 'Unnamed Bakery'}`;
   const cookieEmoji = getCookieFallbackEmoji(guild);
   const cpsEmoji = getCustomGuildEmoji(guild, ['CookieProduction10', 'CookieProduction5']) ?? '⚙️';
   const collectionEmoji = getCustomGuildEmoji(guild, ['Polymath', 'Cookie_Clicker']) ?? '📚';
@@ -1877,7 +1920,7 @@ function claimGoldenCookie(guildId, userId, token) {
 
 function getListingDisplay(listing, guild) {
   const item = ITEM_MAP.get(listing.itemId);
-  return `${item ? getItemEmoji(item, guild) : '🍪'} **${item?.name ?? listing.itemId}** x${listing.quantity} • ${toCookieNumber(listing.pricePerUnit)} each • Seller: <@${listing.sellerId}>`;
+  return `${item ? getItemEmoji(item, guild) : DEFAULT_COOKIE_EMOJI_STRING} **${item?.name ?? listing.itemId}** x${listing.quantity} • ${toCookieNumber(listing.pricePerUnit)} each • Seller: <@${listing.sellerId}>`;
 }
 
 function getMarketplaceEmbed(guild, guildState, user, page = 0, rarityFilter = 'all') {
@@ -2242,6 +2285,30 @@ function adminStartEvent(guildId, durationMinutes) {
   return guildState.settings.bakeEvent;
 }
 
+function weightedPickCookieEventDefinition() {
+  const totalWeight = COOKIE_EVENT_DEFINITIONS.reduce((sum, event) => sum + event.weight, 0);
+  let roll = Math.random() * totalWeight;
+  for (const event of COOKIE_EVENT_DEFINITIONS) {
+    roll -= event.weight;
+    if (roll <= 0) return event;
+  }
+  return COOKIE_EVENT_DEFINITIONS[0];
+}
+
+function startRandomCookieEvent(guildId, durationMinutes) {
+  const event = weightedPickCookieEventDefinition();
+  db.update(ECONOMY_FILE, {}, (data) => {
+    const guildState = getGuildState(data, guildId);
+    const now = Date.now();
+    guildState.settings.bakeEvent = {
+      id: event.id,
+      startedAt: now,
+      endsAt: now + (durationMinutes * 60_000),
+    };
+  });
+  return event;
+}
+
 function adminGrantRewardBox(guildId, targetUserId, rewardBoxId, quantity) {
   const { data, target } = adminEnsureTarget(guildId, targetUserId);
   if (!REWARD_BOX_MAP.has(rewardBoxId)) return false;
@@ -2440,7 +2507,7 @@ function setBakeryIdentity(guildId, userId, bakeryName, bakeryEmoji) {
   if (bakeryEmoji) user.bakeryEmoji = bakeryEmoji;
   evaluateAchievements(user);
   writeState(data);
-  return { ok: true, bakeryName: sanitized.value, bakeryEmoji: user.bakeryEmoji ?? '🍪' };
+  return { ok: true, bakeryName: sanitized.value, bakeryEmoji: user.bakeryEmoji ?? DEFAULT_COOKIE_EMOJI_STRING };
 }
 
 function inspectItem(guildId, userId, itemId) {
@@ -2580,6 +2647,7 @@ module.exports = {
   computeCps,
   getBuildingPrice,
   getRarityEmoji,
+  getCookieEmoji,
   getItemEmoji,
   getRankEmoji,
   getRewardBoxEmoji,
@@ -2590,5 +2658,7 @@ module.exports = {
   getItemDropChance,
   getSpecialCookieLeaderboard,
   SPECIAL_COOKIE_IDS,
+  COOKIE_EVENT_DEFINITIONS,
+  startRandomCookieEvent,
   GIFT_BOX_OPTION_PREFIX,
 };
