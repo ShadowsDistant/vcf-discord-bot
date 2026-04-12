@@ -34,9 +34,11 @@ function parseMentionUserId(value) {
 }
 
 function isConfiguredStaffMember(member) {
-  const roleIds = [...ALL_STAFF_ROLE_IDS];
-  if (!roleIds.length) return false;
-  return roleIds.some((roleId) => member.roles.cache.has(roleId));
+  if (!ALL_STAFF_ROLE_IDS.size) return false;
+  for (const roleId of ALL_STAFF_ROLE_IDS) {
+    if (member.roles.cache.has(roleId)) return true;
+  }
+  return false;
 }
 
 function hasAccess(interaction) {

@@ -461,8 +461,8 @@ async function runLeaderboard(interaction) {
 
   const top = leaderboard.slice(0, 10);
   const rows = top.map((entry, i) => {
-    const rankLabel = MEDALS[i] ?? `**${i + 1}.**`;
-    return `${rankLabel} <@${entry.userId}> — **${formatDuration(entry.totalMs)}** (${entry.shiftCount} shift${entry.shiftCount !== 1 ? 's' : ''})`;
+    const rankDisplay = MEDALS[i] ?? `**${i + 1}.**`;
+    return `${rankDisplay} <@${entry.userId}> — **${formatDuration(entry.totalMs)}** (${entry.shiftCount} shift${entry.shiftCount !== 1 ? 's' : ''})`;
   });
 
   const embed = new EmbedBuilder()
