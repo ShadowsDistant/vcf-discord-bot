@@ -121,6 +121,12 @@ function findAllianceByName(alliancesById, name) {
     .find((entry) => String(entry?.name ?? '').toLowerCase() === needle) ?? null;
 }
 
+function findAllianceByIdOrName(alliances, allianceIdOrName) {
+  const value = String(allianceIdOrName ?? '').trim();
+  if (!value) return null;
+  return alliances?.[value] ?? findAllianceByName(alliances, value);
+}
+
 function hashAllianceId(input) {
   const raw = String(input ?? '');
   let hash = 0;
@@ -595,6 +601,36 @@ function buyAllianceUpgrade(guildId, actorId, upgradeId) {
   });
 }
 
+function adminGrantAllianceUpgrade(guildId, allianceIdOrName, upgradeId) {
+  const upgrade = STORE_UPGRADE_MAP.get(upgradeId);
+  if (!upgrade) return { ok: false, reason: 'Unknown alliance store upgrade.' };
+
+  return db.update(ALLIANCES_FILE, {}, (data) => {
+    const guild = getGuildState(data, guildId);
+    const alliance = findAllianceByIdOrName(guild.alliances, allianceIdOrName);
+    if (!alliance) return { ok: false, reason: 'Alliance not found.' };
+    ensureAllianceShape(alliance);
+    if (alliance.upgrades.includes(upgradeId)) return { ok: false, reason: 'That alliance already has this upgrade.' };
+    alliance.upgrades.push(upgradeId);
+    alliance.upgrades = [...new Set(alliance.upgrades)];
+    return { ok: true, alliance, upgrade };
+  });
+}
+
+function adminDeleteAlliance(guildId, allianceIdOrName) {
+  return db.update(ALLIANCES_FILE, {}, (data) => {
+    const guild = getGuildState(data, guildId);
+    const alliance = findAllianceByIdOrName(guild.alliances, allianceIdOrName);
+    if (!alliance) return { ok: false, reason: 'Alliance not found.' };
+    ensureAllianceShape(alliance);
+    for (const memberId of alliance.members ?? []) {
+      delete guild.userAlliance[memberId];
+    }
+    delete guild.alliances[alliance.id];
+    return { ok: true, allianceId: alliance.id, allianceName: alliance.name, memberCount: alliance.members?.length ?? 0 };
+  });
+}
+
 module.exports = {
   MAX_ALLIANCE_MEMBERS,
   WEEKLY_ALLIANCE_CHALLENGES,
@@ -612,4 +648,6 @@ module.exports = {
   buyAllianceUpgrade,
   setAllianceJoinApproval,
   resolveAllianceJoinRequest,
+  adminGrantAllianceUpgrade,
+  adminDeleteAlliance,
 };

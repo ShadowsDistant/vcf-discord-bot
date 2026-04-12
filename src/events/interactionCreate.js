@@ -21,6 +21,8 @@ const { ROLE_IDS } = require('../utils/roles');
 const { hasModLevel, MOD_LEVEL } = require('../utils/permissions');
 const { UPDATE_LOGS, createUpdateEmbed } = require('../utils/updateLogs');
 const economy = require('../utils/bakeEconomy');
+const alliances = require('../utils/bakeAlliances');
+const { patchInteractionDisplayComponents } = require('../utils/displayComponents');
 const bakeCommand = require('../commands/utility/bake');
 const allianceCommand = require('../commands/utility/alliance');
 const { sendModerationActionDm, sendReporterStatusDm } = require('../utils/moderationNotifications');
@@ -247,6 +249,18 @@ function resolveBuildingId(input) {
   return found?.id ?? null;
 }
 
+function resolveAllianceUpgradeId(input) {
+  const raw = String(input ?? '').trim();
+  const byId = raw.toLowerCase();
+  const direct = alliances.ALLIANCE_STORE_UPGRADES.find((upgrade) => upgrade.id === byId);
+  if (direct) return direct.id;
+  const normalized = normalizeLookupValue(raw);
+  if (!normalized) return null;
+  const found = alliances.ALLIANCE_STORE_UPGRADES.find((upgrade) =>
+    normalizeLookupValue(upgrade.id) === normalized || normalizeLookupValue(upgrade.name) === normalized);
+  return found?.id ?? null;
+}
+
 function parseMentionOrId(input, type) {
   const raw = String(input ?? '').trim();
   if (!raw) return null;
@@ -326,6 +340,8 @@ function parseMentionUserId(value) {
 module.exports = {
   name: Events.InteractionCreate,
   async execute(interaction) {
+    patchInteractionDisplayComponents(interaction);
+
     if (interaction.isButton()) {
       if (isComponentExpired(interaction)) {
         return interaction.reply({
@@ -1276,7 +1292,7 @@ module.exports = {
           });
         }
         const action = interaction.values[0];
-        if (['give_cookies', 'remove_cookies', 'give_item', 'set_building', 'start_event'].includes(action)) {
+        if (['give_cookies', 'remove_cookies', 'give_item', 'set_building', 'start_event', 'alliance_add_upgrade', 'alliance_delete'].includes(action)) {
           const modal = economy.modalForAdminAction(actorId, targetId, action);
           return interaction.showModal(modal);
         }
@@ -1915,6 +1931,57 @@ module.exports = {
           await sendSpecialCookieHuntStartLog(interaction, durationMinutes, event.endsAt);
           return interaction.reply({
             embeds: [embeds.success(`Started **Special Cookie Hunt** for **${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}**.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'alliance_add_upgrade') {
+          const allianceValue = interaction.fields.getTextInputValue('alliance').trim();
+          const upgradeId = resolveAllianceUpgradeId(interaction.fields.getTextInputValue('upgrade'));
+          if (!allianceValue) {
+            return interaction.reply({
+              embeds: [embeds.error('Alliance ID or name is required.', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          if (!upgradeId) {
+            return interaction.reply({
+              embeds: [embeds.error('Unknown alliance upgrade. Use a valid upgrade ID or name.', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          const result = alliances.adminGrantAllianceUpgrade(interaction.guild.id, allianceValue, upgradeId);
+          if (!result.ok) {
+            return interaction.reply({
+              embeds: [embeds.error(result.reason, interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          const upgrade = result.upgrade;
+          await sendBakeAdminLog(interaction, targetId, 'Alliance: Grant Upgrade', `${result.alliance.name} (${result.alliance.id}) -> ${upgrade?.name ?? upgradeId}`);
+          return interaction.reply({
+            embeds: [embeds.success(`Granted alliance upgrade **${upgrade?.name ?? upgradeId}** to **${result.alliance.name}** (\`${result.alliance.id}\`).`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'alliance_delete') {
+          const allianceValue = interaction.fields.getTextInputValue('alliance').trim();
+          const confirm = interaction.fields.getTextInputValue('confirm').trim();
+          if (confirm !== 'DELETE') {
+            return interaction.reply({
+              embeds: [embeds.warning('Delete cancelled. Type `DELETE` exactly to confirm.', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          const result = alliances.adminDeleteAlliance(interaction.guild.id, allianceValue);
+          if (!result.ok) {
+            return interaction.reply({
+              embeds: [embeds.error(result.reason, interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          await sendBakeAdminLog(interaction, targetId, 'Alliance: Delete', `${result.allianceName} (${result.allianceId}), members removed: ${result.memberCount}`);
+          return interaction.reply({
+            embeds: [embeds.success(`Deleted alliance **${result.allianceName}** (\`${result.allianceId}\`).`, interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }

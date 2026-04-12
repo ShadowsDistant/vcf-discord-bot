@@ -2353,6 +2353,8 @@ function buildBakeAdminEmbed(guild, actorId, targetId) {
         '• Trigger Golden Cookie',
         '• Start Special Cookie Event',
         '• Ban/Unban Bake Commands',
+        '• Alliance: Grant Upgrade',
+        '• Alliance: Delete Alliance',
         '• Reset User',
         '• View User Data',
       ].join('\n'),
@@ -2381,6 +2383,8 @@ function buildBakeAdminComponents(actorId, targetId) {
       { label: 'Start Event', value: 'start_event' },
       { label: 'Ban Bake Commands', value: 'ban_bake' },
       { label: 'Unban Bake Commands', value: 'unban_bake' },
+      { label: 'Alliance: Grant Upgrade', value: 'alliance_add_upgrade' },
+      { label: 'Alliance: Delete Alliance', value: 'alliance_delete' },
       { label: 'Reset User', value: 'reset_user' },
       { label: 'View User Data', value: 'view_user' },
       { label: 'Set Admin Log Channel', value: 'set_log_channel' },
@@ -2442,6 +2446,41 @@ function modalForAdminAction(actorId, targetId, action) {
         .setCustomId('durationMinutes')
         .setLabel('Event duration (minutes)')
         .setPlaceholder('e.g. 30')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)),
+    );
+    return modal;
+  }
+  if (action === 'alliance_add_upgrade') {
+    modal.setTitle('Alliance: Grant Upgrade');
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(new TextInputBuilder()
+        .setCustomId('alliance')
+        .setLabel('Alliance ID or name')
+        .setPlaceholder('e.g. 1 or Dough Dynasty')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)),
+      new ActionRowBuilder().addComponents(new TextInputBuilder()
+        .setCustomId('upgrade')
+        .setLabel('Upgrade ID or name')
+        .setPlaceholder('e.g. council_oven_aura')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)),
+    );
+    return modal;
+  }
+  if (action === 'alliance_delete') {
+    modal.setTitle('Alliance: Delete');
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(new TextInputBuilder()
+        .setCustomId('alliance')
+        .setLabel('Alliance ID or name')
+        .setPlaceholder('e.g. 1 or Dough Dynasty')
+        .setStyle(TextInputStyle.Short)
+        .setRequired(true)),
+      new ActionRowBuilder().addComponents(new TextInputBuilder()
+        .setCustomId('confirm')
+        .setLabel('Type DELETE to confirm')
         .setStyle(TextInputStyle.Short)
         .setRequired(true)),
     );
