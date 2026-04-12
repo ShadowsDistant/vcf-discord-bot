@@ -85,9 +85,9 @@ function buildStatusEmbed(interaction, config) {
     );
 }
 
-function requireAccess(interaction) {
+async function ensureAccess(interaction) {
   if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.seniorMod)) {
-    return interaction.reply({
+    await interaction.reply({
       embeds: [
         embeds.error(
           'You need the **Senior Moderator** permission level (or higher) to configure automod.',
@@ -96,8 +96,9 @@ function requireAccess(interaction) {
       ],
       flags: MessageFlags.Ephemeral,
     });
+    return false;
   }
-  return null;
+  return true;
 }
 
 function buildActionMenu() {
@@ -446,8 +447,7 @@ module.exports = {
   },
 
   async handleAutomodPanelSelect(interaction) {
-    const accessDenied = await requireAccess(interaction);
-    if (accessDenied) return;
+    if (!(await ensureAccess(interaction))) return;
 
     const action = interaction.values?.[0];
     if (action === 'status') {
@@ -469,8 +469,7 @@ module.exports = {
   },
 
   async handleAutomodPanelModal(interaction) {
-    const accessDenied = await requireAccess(interaction);
-    if (accessDenied) return;
+    if (!(await ensureAccess(interaction))) return;
 
     const action = interaction.customId.slice(MODAL_PREFIX.length);
     const config = db.getAutomodConfig(interaction.guild.id);
@@ -488,8 +487,7 @@ module.exports = {
   },
 
   async execute(interaction) {
-    const accessDenied = await requireAccess(interaction);
-    if (accessDenied) return;
+    if (!(await ensureAccess(interaction))) return;
 
     return interaction.reply({
       embeds: [

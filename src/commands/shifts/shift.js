@@ -42,9 +42,9 @@ async function resolveOptionalTargetUser(interaction, rawInput, defaultUser) {
   return interaction.client.users.fetch(parsed).catch(() => defaultUser);
 }
 
-function denyIfNoShiftAccess(interaction) {
+async function ensureShiftAccess(interaction) {
   if (!hasShiftAccessRole(interaction.member)) {
-    return interaction.reply({
+    await interaction.reply({
       embeds: [
         embeds.error(
           'You do not have the required role access to use shift commands.',
@@ -53,18 +53,20 @@ function denyIfNoShiftAccess(interaction) {
       ],
       flags: MessageFlags.Ephemeral,
     });
+    return false;
   }
-  return null;
+  return true;
 }
 
-function denyIfNoManagementAccess(interaction) {
+async function ensureManagementAccess(interaction) {
   if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.management)) {
-    return interaction.reply({
+    await interaction.reply({
       embeds: [embeds.error('You need management-level access for this shift action.', interaction.guild)],
       flags: MessageFlags.Ephemeral,
     });
+    return false;
   }
-  return null;
+  return true;
 }
 
 function buildPanelMenu() {
@@ -503,8 +505,7 @@ async function runRoles(interaction) {
 }
 
 async function runManageList(interaction, targetUser) {
-  const accessDenied = await denyIfNoManagementAccess(interaction);
-  if (accessDenied) return;
+  if (!(await ensureManagementAccess(interaction))) return;
 
   const rows = (targetUser
     ? db.getUserShiftHistory(interaction.guild.id, targetUser.id)
@@ -535,8 +536,7 @@ async function runManageList(interaction, targetUser) {
 }
 
 async function runManageEdit(interaction) {
-  const accessDenied = await denyIfNoManagementAccess(interaction);
-  if (accessDenied) return;
+  if (!(await ensureManagementAccess(interaction))) return;
 
   const id = parseInt(interaction.fields.getTextInputValue('id').trim(), 10);
   const minutes = parseInt(interaction.fields.getTextInputValue('minutes').trim(), 10);
@@ -569,8 +569,7 @@ async function runManageEdit(interaction) {
 }
 
 async function runManageDelete(interaction) {
-  const accessDenied = await denyIfNoManagementAccess(interaction);
-  if (accessDenied) return;
+  if (!(await ensureManagementAccess(interaction))) return;
 
   const id = parseInt(interaction.fields.getTextInputValue('id').trim(), 10);
   if (Number.isNaN(id)) {
@@ -609,8 +608,7 @@ module.exports = {
   },
 
   async handleShiftPanelSelect(interaction) {
-    const accessDenied = await denyIfNoShiftAccess(interaction);
-    if (accessDenied) return;
+    if (!(await ensureShiftAccess(interaction))) return;
 
     const action = interaction.values?.[0];
     if (action === 'start') return runStart(interaction);
@@ -631,8 +629,7 @@ module.exports = {
   },
 
   async handleShiftPanelModal(interaction) {
-    const accessDenied = await denyIfNoShiftAccess(interaction);
-    if (accessDenied) return;
+    if (!(await ensureShiftAccess(interaction))) return;
 
     const action = interaction.customId.slice(MODAL_PREFIX.length);
 
@@ -669,8 +666,7 @@ module.exports = {
   },
 
   async execute(interaction) {
-    const accessDenied = await denyIfNoShiftAccess(interaction);
-    if (accessDenied) return;
+    if (!(await ensureShiftAccess(interaction))) return;
 
     return interaction.reply({
       embeds: [
