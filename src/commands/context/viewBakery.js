@@ -18,6 +18,7 @@ module.exports = {
     const target = interaction.targetUser;
     const snapshot = economy.getUserSnapshot(interaction.guild.id, target.id);
     const user = snapshot.user;
+    const cookieEmoji = economy.getCookieEmoji(interaction.guild);
     const rarestItemId = Object.entries(user.inventory ?? {})
       .filter(([, qty]) => qty > 0)
       .sort((a, b) => {
@@ -28,7 +29,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setColor(0xf1c40f)
-      .setTitle(`🍪 ${user.bakeryEmoji ?? '🍪'} ${user.bakeryName ?? 'My Bakery'}`)
+      .setTitle(`${cookieEmoji} ${user.bakeryEmoji ?? cookieEmoji} ${user.bakeryName ?? 'My Bakery'}`)
       .setDescription(`Public bakery stats for ${target}.`)
       .addFields(
         { name: 'Rank', value: user.rankId ?? 'rookie', inline: true },

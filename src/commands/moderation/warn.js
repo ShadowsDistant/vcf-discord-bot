@@ -5,6 +5,7 @@ const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
 const analytics = require('../../utils/analytics');
+const { sendModerationActionDm } = require('../../utils/moderationNotifications');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -45,6 +46,13 @@ module.exports = {
     const warnings = db.addWarning(interaction.guild.id, target.id, {
       moderatorId: interaction.user.id,
       reason,
+    });
+    await sendModerationActionDm({
+      user: target,
+      guild: interaction.guild,
+      action: 'Warning',
+      reason,
+      moderatorTag: interaction.user.tag,
     });
     analytics.recordModAction(interaction.guild.id, 'warn', Date.now());
 

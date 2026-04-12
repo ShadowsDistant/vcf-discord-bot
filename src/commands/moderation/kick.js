@@ -4,6 +4,7 @@ const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('disc
 const embeds = require('../../utils/embeds');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
 const analytics = require('../../utils/analytics');
+const { sendModerationActionDm } = require('../../utils/moderationNotifications');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -57,6 +58,13 @@ module.exports = {
     }
 
     try {
+      await sendModerationActionDm({
+        user: target,
+        guild: interaction.guild,
+        action: 'Kick',
+        reason,
+        moderatorTag: interaction.user.tag,
+      });
       await member.kick(`${interaction.user.tag}: ${reason}`);
       analytics.recordModAction(interaction.guild.id, 'kick', Date.now());
       return interaction.reply({

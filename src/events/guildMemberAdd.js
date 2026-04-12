@@ -4,20 +4,17 @@ const { Events } = require('discord.js');
 const embeds = require('../utils/embeds');
 const db = require('../utils/database');
 const analytics = require('../utils/analytics');
+const { fetchLogChannel } = require('../utils/logChannels');
 
 module.exports = {
   name: Events.GuildMemberAdd,
   async execute(member) {
     analytics.recordMemberJoin(member.guild.id, Date.now());
-    const config = db.getConfig(member.guild.id);
-    if (!config.welcomeChannelId) return;
-
-    const channel = member.guild.channels.cache.get(config.welcomeChannelId);
+    const channel = await fetchLogChannel(member.guild, 'join');
     if (!channel) return;
 
-    const messageTemplate =
-      config.welcomeMessage ??
-      'Welcome to **{server}**, {user}! Please review the server rules.';
+    const config = db.getConfig(member.guild.id);
+    const messageTemplate = config.welcomeMessage ?? 'Welcome to **{server}**, {user}! Please review the server rules.';
 
     const welcomeText = messageTemplate
       .replace('{user}', `${member}`)
