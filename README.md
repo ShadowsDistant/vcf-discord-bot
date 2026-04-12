@@ -274,7 +274,7 @@ Shows: current bot version, latest log version/date, and recent public changes.
 ---
 
 #### `/analytics`
-View server analytics for a selectable period (`24h`, `7d`, `30d`), including joins/leaves, message totals, moderation action counts, top channels, and peak active hour.
+View server analytics for a selectable period (`24h`, `7d`, `30d`), including joins/leaves, message totals, moderation action counts, top channels, peak active hour, active-day coverage, averages, top message days, and busiest hours.
 
 > Staff-facing command (runtime moderation checks still apply).
 
@@ -290,15 +290,16 @@ View rotating daily/weekly bakery challenges and optionally claim completed rewa
 ---
 
 #### `/alliance`
-Manage bakery alliances and shared progress.
+Open a unified alliance panel with select-menu navigation and action buttons.
 
-Subcommands:
-- `create <name>`
-- `join <alliance>`
-- `leave`
-- `info`
-- `leaderboard`
-- `challenge`
+Panel features include:
+- Create/join/leave alliances
+- Weekly rotating challenge tracking with progress bars and top contributors
+- Completion rewards distributed to all alliance members
+- Alliance management (rename, transfer ownership, remove members)
+- Approval-to-join mode with pending request review
+- Alliance store upgrades that affect all members
+- Alliance leaderboard view
 
 ---
 
@@ -310,6 +311,7 @@ Right-click (Apps) command support includes:
 - **Report Message** (message context)
 
 These are designed for quick moderation/profile workflows without typing slash commands.
+`Report Message` includes a clear warning that false reports can lead to punishment and enforces a 15-minute cooldown between submissions.
 
 ---
 

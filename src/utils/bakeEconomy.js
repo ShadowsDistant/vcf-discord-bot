@@ -442,14 +442,14 @@ const RANKS = [
 
 const RANK_INDEX = new Map(RANKS.map((rank, index) => [rank.id, index]));
 const GUIDE_SECTIONS = [
-  { id: 'info', label: 'Game Info' },
-  { id: 'gifts', label: 'Gift Codex' },
-  { id: 'cookies', label: 'Cookie Codex' },
-  { id: 'achievements', label: 'Achievements Codex' },
-  { id: 'buildings', label: 'Building Codex' },
-  { id: 'milk', label: 'Milk Codex' },
-  { id: 'upgrades', label: 'Upgrade Codex' },
-  { id: 'ranks', label: 'Rank Codex' },
+  { id: 'info', label: 'Game Info', description: 'Core gameplay loops, systems, and progression overview.' },
+  { id: 'gifts', label: 'Gift Codex', description: 'Reward gift box types and potential drops.' },
+  { id: 'cookies', label: 'Cookie Codex', description: 'Cookie item rarities, values, and drop rates.' },
+  { id: 'achievements', label: 'Achievements Codex', description: 'Achievement unlocks and milestone goals.' },
+  { id: 'buildings', label: 'Building Codex', description: 'Building stats, costs, and CPS baselines.' },
+  { id: 'milk', label: 'Milk Codex', description: 'Milk tiers and their scaling bonuses.' },
+  { id: 'upgrades', label: 'Upgrade Codex', description: 'Upgrade catalog with effects and categories.' },
+  { id: 'ranks', label: 'Rank Codex', description: 'Rank requirements and reward tracks.' },
 ];
 
 const TIER_UNLOCKS = {
@@ -1547,6 +1547,11 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
         '• Sell items for liquid cookies, or consume them for temporary CPS boosts.',
         '• Use marketplace listings to convert collection value into direct cookie profit.',
         '',
+        '**Alliances**',
+        '• Open `/alliance` to access a unified panel for challenges, management, and alliance-wide upgrades.',
+        '• Weekly alliance challenges include progress bars, top-contributor tracking, and rewards for all members.',
+        '• Alliance owners can enable approval-to-join and review join requests directly from the panel.',
+        '',
         '**Optimization tips**',
         '• Keep your bake cadence steady to stack passive and active gains.',
         '• Rotate spending between buildings and upgrades instead of overcommitting one side.',
@@ -1798,13 +1803,18 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
     const pageCount = getGuidePageCount(section);
     const page = Math.max(0, Math.min(Number.isFinite(options.page) ? options.page : 0, pageCount - 1));
     rows.push(
-      new ActionRowBuilder().addComponents(
-        new StringSelectMenuBuilder()
-          .setCustomId(`bakery_guide_section:${page}`)
-          .setPlaceholder('Select a guide section')
-          .addOptions(GUIDE_SECTIONS.map((entry) => ({ label: entry.label, value: entry.id, default: entry.id === section }))),
-      ),
-    );
+        new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId(`bakery_guide_section:${page}`)
+            .setPlaceholder('Select a guide section')
+            .addOptions(GUIDE_SECTIONS.map((entry) => ({
+              label: entry.label,
+              value: entry.id,
+              description: entry.description.slice(0, 100),
+              default: entry.id === section,
+            }))),
+        ),
+      );
     rows.push(
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()

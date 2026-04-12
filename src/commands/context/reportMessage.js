@@ -49,7 +49,12 @@ module.exports = {
     const promptEmbed = new EmbedBuilder()
       .setColor(0xed4245)
       .setTitle('Report Message')
-      .setDescription('Select the reason for this report.');
+      .setDescription([
+        'Select the reason for this report.',
+        '',
+        '⚠️ False reports may result in punishment.',
+        '⏱️ You can submit one report every 15 minutes.',
+      ].join('\n'));
 
     const reasonSelect = new StringSelectMenuBuilder()
       .setCustomId(`rmr:${interaction.targetMessage.channel.id}:${interaction.targetMessage.id}:${interaction.targetMessage.author.id}`)

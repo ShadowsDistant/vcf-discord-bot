@@ -6,6 +6,7 @@ const economy = require('./bakeEconomy');
 const ALLIANCES_FILE = 'bake_alliances.json';
 const MAX_ALLIANCE_MEMBERS = 10;
 const MAX_WEEKLY_STATE_ENTRIES = 12;
+const MAX_TARGET_REDUCTION = 0.45;
 
 const CHALLENGE_THEMES = [
   { id: 'flour-rush', name: 'Flour Rush' },
@@ -117,7 +118,7 @@ function hashAllianceId(input) {
   const raw = String(input ?? '');
   let hash = 0;
   for (let idx = 0; idx < raw.length; idx += 1) {
-    hash = (hash * 31 + raw.charCodeAt(idx)) % 2_147_483_647;
+    hash = (((hash * 31) >>> 0) + raw.charCodeAt(idx)) >>> 0;
   }
   return hash;
 }
@@ -151,6 +152,14 @@ function ensureAllianceShape(alliance) {
   if (!alliance.challengeWeekly || typeof alliance.challengeWeekly !== 'object') alliance.challengeWeekly = {};
   if (!Array.isArray(alliance.upgrades)) alliance.upgrades = [];
   alliance.upgrades = [...new Set(alliance.upgrades.filter((id) => STORE_UPGRADE_MAP.has(id)))];
+  alliance.joinApprovalEnabled = Boolean(alliance.joinApprovalEnabled);
+  if (!Array.isArray(alliance.joinRequests)) alliance.joinRequests = [];
+  alliance.joinRequests = alliance.joinRequests
+    .map((entry) => ({
+      userId: String(entry?.userId ?? ''),
+      requestedAt: Number(entry?.requestedAt ?? Date.now()),
+    }))
+    .filter((entry) => entry.userId);
   alliance.storeCredits = Math.max(0, Number(alliance.storeCredits ?? 0));
   pruneOldWeeklyState(alliance);
 }
@@ -170,7 +179,7 @@ function getAllianceEffectTotals(alliance) {
     totals.bonusAllianceCoins += Number(upgrade.effects?.bonusAllianceCoins ?? 0);
     totals.targetMultiplierReduction += Number(upgrade.effects?.targetMultiplierReduction ?? 0);
   }
-  totals.targetMultiplierReduction = Math.min(0.45, Math.max(0, totals.targetMultiplierReduction));
+  totals.targetMultiplierReduction = Math.min(MAX_TARGET_REDUCTION, Math.max(0, totals.targetMultiplierReduction));
   return totals;
 }
 
@@ -278,6 +287,8 @@ function createAlliance(guildId, ownerId, name) {
       challengeWeekly: {},
       upgrades: [],
       storeCredits: 0,
+      joinApprovalEnabled: false,
+      joinRequests: [],
     };
     guild.userAlliance[ownerId] = allianceId;
     return { ok: true, alliance: guild.alliances[allianceId] };
@@ -313,6 +324,13 @@ function joinAlliance(guildId, userId, allianceIdOrName) {
       return { ok: false, reason: `Alliance is full (max ${MAX_ALLIANCE_MEMBERS} members).` };
     }
 
+    if (alliance.joinApprovalEnabled) {
+      const existingRequest = alliance.joinRequests.find((entry) => entry.userId === userId);
+      if (existingRequest) return { ok: false, reason: 'You already have a pending join request for this alliance.' };
+      alliance.joinRequests.push({ userId, requestedAt: Date.now() });
+      return { ok: true, pendingApproval: true, alliance };
+    }
+
     alliance.members.push(userId);
     alliance.members = [...new Set(alliance.members)];
     guild.userAlliance[userId] = alliance.id;
@@ -333,6 +351,7 @@ function leaveAlliance(guildId, userId) {
 
     ensureAllianceShape(alliance);
     alliance.members = (alliance.members ?? []).filter((memberId) => memberId !== userId);
+    alliance.joinRequests = (alliance.joinRequests ?? []).filter((entry) => entry.userId !== userId);
     delete guild.userAlliance[userId];
 
     if (alliance.ownerId === userId && alliance.members.length > 0) {
@@ -401,8 +420,50 @@ function removeAllianceMember(guildId, actorId, targetUserId) {
     if (!alliance.members.includes(targetUserId)) return { ok: false, reason: 'That user is not in your alliance.' };
 
     alliance.members = alliance.members.filter((memberId) => memberId !== targetUserId);
+    alliance.joinRequests = (alliance.joinRequests ?? []).filter((entry) => entry.userId !== targetUserId);
     delete guild.userAlliance[targetUserId];
     return { ok: true, alliance };
+  });
+}
+
+function setAllianceJoinApproval(guildId, actorId, enabled) {
+  return db.update(ALLIANCES_FILE, {}, (data) => {
+    const guild = getGuildState(data, guildId);
+    const allianceId = guild.userAlliance?.[actorId];
+    if (!allianceId) return { ok: false, reason: 'You are not in an alliance.' };
+    const alliance = guild.alliances?.[allianceId];
+    if (!alliance) return { ok: false, reason: 'Alliance no longer exists.' };
+    ensureAllianceShape(alliance);
+    if (alliance.ownerId !== actorId) return { ok: false, reason: 'Only the alliance owner can change join approval settings.' };
+    alliance.joinApprovalEnabled = Boolean(enabled);
+    return { ok: true, alliance };
+  });
+}
+
+function resolveAllianceJoinRequest(guildId, actorId, targetUserId, approve) {
+  return db.update(ALLIANCES_FILE, {}, (data) => {
+    const guild = getGuildState(data, guildId);
+    const allianceId = guild.userAlliance?.[actorId];
+    if (!allianceId) return { ok: false, reason: 'You are not in an alliance.' };
+    const alliance = guild.alliances?.[allianceId];
+    if (!alliance) return { ok: false, reason: 'Alliance no longer exists.' };
+    ensureAllianceShape(alliance);
+    if (alliance.ownerId !== actorId) return { ok: false, reason: 'Only the alliance owner can review join requests.' };
+    const requestIdx = alliance.joinRequests.findIndex((entry) => entry.userId === targetUserId);
+    if (requestIdx < 0) return { ok: false, reason: 'That join request is no longer pending.' };
+
+    alliance.joinRequests.splice(requestIdx, 1);
+    if (approve) {
+      if (guild.userAlliance[targetUserId]) return { ok: false, reason: 'That user is already in an alliance.' };
+      if ((alliance.members ?? []).length >= MAX_ALLIANCE_MEMBERS) {
+        return { ok: false, reason: `Alliance is full (max ${MAX_ALLIANCE_MEMBERS} members).` };
+      }
+      alliance.members.push(targetUserId);
+      alliance.members = [...new Set(alliance.members)];
+      guild.userAlliance[targetUserId] = alliance.id;
+      return { ok: true, approved: true, alliance };
+    }
+    return { ok: true, approved: false, alliance };
   });
 }
 
@@ -472,6 +533,8 @@ function getAllianceWithChallenge(guildId, userId) {
         ...alliance,
         members: [...alliance.members],
         upgrades: [...alliance.upgrades],
+        joinRequests: [...(alliance.joinRequests ?? [])],
+        joinApprovalEnabled: Boolean(alliance.joinApprovalEnabled),
       },
       challenge: challengeState,
       store,
@@ -484,8 +547,11 @@ function getAllianceWithChallenge(guildId, userId) {
     }
     result.challenge.rewardGrantedNow = {
       membersRewarded: rewardGrant.members.length,
+      memberIds: [...rewardGrant.members],
       rewardCookiesPerMember: rewardGrant.rewardCookiesPerMember,
       rewardAllianceCoins: rewardGrant.rewardAllianceCoins,
+      allianceName: result.alliance?.name ?? 'Alliance',
+      challengeName: result.challenge?.challenge?.name ?? 'Weekly Challenge',
     };
   }
 
@@ -530,4 +596,6 @@ module.exports = {
   getAllianceLeaderboard,
   getAllianceWithChallenge,
   buyAllianceUpgrade,
+  setAllianceJoinApproval,
+  resolveAllianceJoinRequest,
 };
