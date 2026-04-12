@@ -5,7 +5,6 @@ require('dotenv').config();
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
-const { patchInteractionDisplayComponents } = require('./src/utils/displayComponents');
 
 // ─── Validate environment ─────────────────────────────────────────────────────
 function normalizeEnvValue(value) {
@@ -96,12 +95,10 @@ for (const file of fs.readdirSync(eventsPath).filter((f) => f.endsWith('.js'))) 
   const event = require(path.join(eventsPath, file));
   if (event.once) {
     client.once(event.name, (...args) => {
-      if (event.name === 'interactionCreate' && args[0]) patchInteractionDisplayComponents(args[0]);
       return event.execute(...args);
     });
   } else {
     client.on(event.name, (...args) => {
-      if (event.name === 'interactionCreate' && args[0]) patchInteractionDisplayComponents(args[0]);
       return event.execute(...args);
     });
   }

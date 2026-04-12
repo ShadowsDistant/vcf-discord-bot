@@ -22,7 +22,6 @@ const { hasModLevel, MOD_LEVEL } = require('../utils/permissions');
 const { UPDATE_LOGS, createUpdateEmbed } = require('../utils/updateLogs');
 const economy = require('../utils/bakeEconomy');
 const alliances = require('../utils/bakeAlliances');
-const { patchInteractionDisplayComponents } = require('../utils/displayComponents');
 const bakeCommand = require('../commands/utility/bake');
 const allianceCommand = require('../commands/utility/alliance');
 const helpCommand = require('../commands/utility/help');
@@ -344,8 +343,6 @@ function parseMentionUserId(value) {
 module.exports = {
   name: Events.InteractionCreate,
   async execute(interaction) {
-    patchInteractionDisplayComponents(interaction);
-
     if (interaction.isButton()) {
       if (isComponentExpired(interaction)) {
         return interaction.reply({
