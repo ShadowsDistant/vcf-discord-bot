@@ -48,7 +48,7 @@ function buildEmbedText(embedData) {
       chunks.push(`## ${embedData.title}`);
     }
   } else if (embedData.url) {
-    chunks.push(`Link: ${embedData.url}`);
+    chunks.push(`Embed Link: ${embedData.url}`);
   }
   if (embedData.description) chunks.push(embedData.description);
 
