@@ -1,6 +1,11 @@
 'use strict';
 
-const { SlashCommandBuilder, ChannelType, MessageFlags } = require('discord.js');
+const {
+  SlashCommandBuilder,
+  ChannelType,
+  MessageFlags,
+  PermissionFlagsBits,
+} = require('discord.js');
 const embeds = require('../../utils/embeds');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
 
@@ -8,6 +13,8 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('move')
     .setDescription('Move a member to another voice channel.')
+    .setDMPermission(false)
+    .setDefaultMemberPermissions(PermissionFlagsBits.MoveMembers)
     .addUserOption((o) =>
       o.setName('user').setDescription('Member to move.').setRequired(true),
     )

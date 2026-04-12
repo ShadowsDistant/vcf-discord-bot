@@ -1,6 +1,6 @@
 'use strict';
 
-const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const { parseDuration, formatDuration } = require('../../utils/helpers');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
@@ -12,6 +12,8 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('timeout')
     .setDescription('Timeout (mute) a member for a specified duration.')
+    .setDMPermission(false)
+    .setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
     .addUserOption((o) =>
       o.setName('user').setDescription('The member to timeout.').setRequired(true),
     )

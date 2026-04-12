@@ -1,6 +1,6 @@
 'use strict';
 
-const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { hasModLevel, hasSidRole, MOD_LEVEL } = require('../../utils/permissions');
@@ -26,6 +26,8 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('staffinfraction')
     .setDescription('Manage staff infractions for the team.')
+    .setDMPermission(false)
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
 
     // ── Issue an infraction ───────────────────────────────────────────────────
     .addSubcommand((sub) =>

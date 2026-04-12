@@ -7,7 +7,20 @@ const fs = require('fs');
 const path = require('path');
 
 // ─── Validate environment ─────────────────────────────────────────────────────
-const { DISCORD_TOKEN, CLIENT_ID } = process.env;
+function normalizeEnvValue(value) {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"'))
+    || (trimmed.startsWith('\'') && trimmed.endsWith('\''))
+  ) {
+    return trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
+const DISCORD_TOKEN = normalizeEnvValue(process.env.DISCORD_TOKEN);
+const CLIENT_ID = normalizeEnvValue(process.env.CLIENT_ID);
 if (!DISCORD_TOKEN || !CLIENT_ID) {
   console.error('❌  Missing required environment variables: DISCORD_TOKEN, CLIENT_ID');
   process.exit(1);
@@ -89,4 +102,7 @@ for (const file of fs.readdirSync(eventsPath).filter((f) => f.endsWith('.js'))) 
 }
 
 // ─── Login ────────────────────────────────────────────────────────────────────
-client.login(DISCORD_TOKEN);
+client.login(DISCORD_TOKEN).catch((err) => {
+  console.error('❌  Failed to login to Discord:', err);
+  process.exit(1);
+});

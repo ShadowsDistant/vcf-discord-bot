@@ -1,6 +1,6 @@
 'use strict';
 
-const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
 
@@ -8,6 +8,8 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('purge')
     .setDescription('Bulk-delete messages from the current channel.')
+    .setDMPermission(false)
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
     .addIntegerOption((o) =>
       o
         .setName('amount')
@@ -34,7 +36,8 @@ module.exports = {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     // Fetch messages (Discord only bulk-deletes messages <14 days old)
-    const fetched = await interaction.channel.messages.fetch({ limit: 100 });
+    const fetchLimit = filterUser ? 100 : Math.min(100, amount);
+    const fetched = await interaction.channel.messages.fetch({ limit: fetchLimit });
 
     let toDelete = [...fetched.values()];
 

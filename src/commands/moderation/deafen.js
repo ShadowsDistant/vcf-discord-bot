@@ -1,6 +1,6 @@
 'use strict';
 
-const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
 
@@ -8,6 +8,8 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('deafen')
     .setDescription('Server deafen a member in voice.')
+    .setDMPermission(false)
+    .setDefaultMemberPermissions(PermissionFlagsBits.DeafenMembers)
     .addUserOption((o) =>
       o.setName('user').setDescription('Member to deafen.').setRequired(true),
     ),

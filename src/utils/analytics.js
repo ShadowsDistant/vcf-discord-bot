@@ -1,0 +1,163 @@
+'use strict';
+
+const db = require('./database');
+
+const ANALYTICS_FILE = 'server_analytics.json';
+
+function toDayKey(ts = Date.now()) {
+  return new Date(ts).toISOString().slice(0, 10);
+}
+
+function toHourKey(ts = Date.now()) {
+  return new Date(ts).getUTCHours().toString().padStart(2, '0');
+}
+
+function getDefaultDay() {
+  return {
+    joins: 0,
+    leaves: 0,
+    messages: 0,
+    channels: {},
+    hours: {},
+    modActions: {
+      warn: 0,
+      kick: 0,
+      ban: 0,
+    },
+  };
+}
+
+function getGuildStore(data, guildId) {
+  if (!data[guildId]) {
+    data[guildId] = {
+      days: {},
+    };
+  }
+  return data[guildId];
+}
+
+function getDayStore(guildStore, dayKey) {
+  if (!guildStore.days[dayKey]) guildStore.days[dayKey] = getDefaultDay();
+  return guildStore.days[dayKey];
+}
+
+function pruneOldDays(guildStore, keepDays = 120) {
+  const keys = Object.keys(guildStore.days).sort();
+  const overflow = Math.max(0, keys.length - keepDays);
+  for (const key of keys.slice(0, overflow)) {
+    delete guildStore.days[key];
+  }
+}
+
+function recordMessage(guildId, channelId, ts = Date.now()) {
+  db.update(ANALYTICS_FILE, {}, (data) => {
+    const guildStore = getGuildStore(data, guildId);
+    const day = getDayStore(guildStore, toDayKey(ts));
+    day.messages += 1;
+    day.channels[channelId] = (day.channels[channelId] ?? 0) + 1;
+    const hourKey = toHourKey(ts);
+    day.hours[hourKey] = (day.hours[hourKey] ?? 0) + 1;
+    pruneOldDays(guildStore);
+  });
+}
+
+function recordMemberJoin(guildId, ts = Date.now()) {
+  db.update(ANALYTICS_FILE, {}, (data) => {
+    const guildStore = getGuildStore(data, guildId);
+    const day = getDayStore(guildStore, toDayKey(ts));
+    day.joins += 1;
+    pruneOldDays(guildStore);
+  });
+}
+
+function recordMemberLeave(guildId, ts = Date.now()) {
+  db.update(ANALYTICS_FILE, {}, (data) => {
+    const guildStore = getGuildStore(data, guildId);
+    const day = getDayStore(guildStore, toDayKey(ts));
+    day.leaves += 1;
+    pruneOldDays(guildStore);
+  });
+}
+
+function recordModAction(guildId, action, ts = Date.now()) {
+  if (!['warn', 'kick', 'ban'].includes(action)) return;
+  db.update(ANALYTICS_FILE, {}, (data) => {
+    const guildStore = getGuildStore(data, guildId);
+    const day = getDayStore(guildStore, toDayKey(ts));
+    day.modActions[action] = (day.modActions[action] ?? 0) + 1;
+    pruneOldDays(guildStore);
+  });
+}
+
+function getAnalytics(guildId, periodDays = 7) {
+  const data = db.read(ANALYTICS_FILE, {});
+  const guildStore = data[guildId] ?? { days: {} };
+  const allDayKeys = Object.keys(guildStore.days).sort();
+  if (allDayKeys.length === 0) {
+    return {
+      dayKeys: [],
+      joins: 0,
+      leaves: 0,
+      messages: 0,
+      modActions: { warn: 0, kick: 0, ban: 0 },
+      channelTotals: [],
+      peakHour: null,
+    };
+  }
+
+  const dayKeys = allDayKeys.slice(-Math.max(1, periodDays));
+  const summary = {
+    dayKeys,
+    joins: 0,
+    leaves: 0,
+    messages: 0,
+    modActions: { warn: 0, kick: 0, ban: 0 },
+    channelTotals: {},
+    hourTotals: {},
+  };
+
+  for (const dayKey of dayKeys) {
+    const day = guildStore.days[dayKey] ?? getDefaultDay();
+    summary.joins += Number(day.joins ?? 0);
+    summary.leaves += Number(day.leaves ?? 0);
+    summary.messages += Number(day.messages ?? 0);
+
+    for (const action of ['warn', 'kick', 'ban']) {
+      summary.modActions[action] += Number(day.modActions?.[action] ?? 0);
+    }
+
+    for (const [channelId, count] of Object.entries(day.channels ?? {})) {
+      summary.channelTotals[channelId] = (summary.channelTotals[channelId] ?? 0) + Number(count ?? 0);
+    }
+
+    for (const [hour, count] of Object.entries(day.hours ?? {})) {
+      summary.hourTotals[hour] = (summary.hourTotals[hour] ?? 0) + Number(count ?? 0);
+    }
+  }
+
+  const channelTotals = Object.entries(summary.channelTotals)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([channelId, count]) => ({ channelId, count }));
+
+  const peakHourEntry = Object.entries(summary.hourTotals)
+    .sort((a, b) => b[1] - a[1])[0] ?? null;
+
+  return {
+    dayKeys: summary.dayKeys,
+    joins: summary.joins,
+    leaves: summary.leaves,
+    messages: summary.messages,
+    modActions: summary.modActions,
+    channelTotals,
+    peakHour: peakHourEntry ? { hour: peakHourEntry[0], count: peakHourEntry[1] } : null,
+  };
+}
+
+module.exports = {
+  recordMessage,
+  recordMemberJoin,
+  recordMemberLeave,
+  recordModAction,
+  getAnalytics,
+};

@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
+const SHIFT_ID_MIN = 1;
 
 /** Ensure a JSON data file exists, seeding it with `defaultValue` if not. */
 function ensureFile(filename, defaultValue = {}) {
@@ -25,10 +26,46 @@ function read(filename, defaultValue = {}) {
   }
 }
 
+function writeAtomic(filepath, content) {
+  const dir = path.dirname(filepath);
+  const tempPath = path.join(
+    dir,
+    `.${path.basename(filepath)}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`,
+  );
+  fs.writeFileSync(tempPath, content, 'utf8');
+  fs.renameSync(tempPath, filepath);
+}
+
 /** Write a value to a JSON data file. */
 function write(filename, value) {
   const filepath = ensureFile(filename);
-  fs.writeFileSync(filepath, JSON.stringify(value, null, 2), 'utf8');
+  writeAtomic(filepath, JSON.stringify(value, null, 2));
+}
+
+/**
+ * Atomically update a JSON data file in one read-modify-write pass.
+ * @param {string} filename
+ * @param {*} defaultValue
+ * @param {(data:any)=>any} updater
+ * @returns {*}
+ */
+function update(filename, defaultValue = {}, updater) {
+  const filepath = ensureFile(filename, defaultValue);
+  let originalContent = '';
+  let data;
+  try {
+    originalContent = fs.readFileSync(filepath, 'utf8');
+    data = JSON.parse(originalContent);
+  } catch {
+    data = defaultValue;
+    originalContent = JSON.stringify(defaultValue, null, 2);
+  }
+  const result = updater(data);
+  const nextContent = JSON.stringify(data, null, 2);
+  if (nextContent !== originalContent) {
+    writeAtomic(filepath, nextContent);
+  }
+  return result;
 }
 
 // ─── Warnings ────────────────────────────────────────────────────────────────
@@ -40,17 +77,17 @@ const WARNINGS_FILE = 'warnings.json';
  * @returns {object[]} The user's updated warnings array.
  */
 function addWarning(guildId, userId, { moderatorId, reason }) {
-  const data = read(WARNINGS_FILE, {});
-  if (!data[guildId]) data[guildId] = {};
-  if (!data[guildId][userId]) data[guildId][userId] = [];
-  data[guildId][userId].push({
-    id: Date.now(),
-    moderatorId,
-    reason,
-    timestamp: new Date().toISOString(),
+  return update(WARNINGS_FILE, {}, (data) => {
+    if (!data[guildId]) data[guildId] = {};
+    if (!data[guildId][userId]) data[guildId][userId] = [];
+    data[guildId][userId].push({
+      id: Date.now(),
+      moderatorId,
+      reason,
+      timestamp: new Date().toISOString(),
+    });
+    return data[guildId][userId];
   });
-  write(WARNINGS_FILE, data);
-  return data[guildId][userId];
 }
 
 /** Get all warnings for a user in a guild. */
@@ -61,19 +98,15 @@ function getWarnings(guildId, userId) {
 
 /** Clear all warnings for a user in a guild. */
 function clearWarnings(guildId, userId) {
-  const data = read(WARNINGS_FILE, {});
-  if (data?.[guildId]) {
-    data[guildId][userId] = [];
-    write(WARNINGS_FILE, data);
-  }
+  update(WARNINGS_FILE, {}, (data) => {
+    if (data?.[guildId]) data[guildId][userId] = [];
+  });
 }
 
 // ─── Shifts ──────────────────────────────────────────────────────────────────
 
 const SHIFTS_FILE = 'shifts.json';
 const MIN_SHIFT_DURATION_MS = 1000;
-const lastShiftRecordIds = {};
-
 /**
  * Generate a unique numeric shift record id within a guild history.
  * @param {object} data
@@ -81,11 +114,13 @@ const lastShiftRecordIds = {};
  * @returns {number}
  */
 function generateUniqueShiftId(data, guildId) {
-  const used = new Set((data?.[guildId]?.history ?? []).map((s) => s.id).filter((id) => typeof id === 'number'));
-  const lastId = lastShiftRecordIds[guildId] ?? 0;
-  let id = Math.max(Date.now(), lastId + 1);
-  while (used.has(id)) id++;
-  lastShiftRecordIds[guildId] = id;
+  const guild = data?.[guildId];
+  const used = new Set((guild?.history ?? []).map((s) => s.id).filter((id) => Number.isInteger(id) && id >= SHIFT_ID_MIN));
+  let id = Number.isInteger(guild?.nextShiftId) && guild.nextShiftId >= SHIFT_ID_MIN
+    ? guild.nextShiftId
+    : SHIFT_ID_MIN;
+  while (used.has(id)) id += 1;
+  if (guild) guild.nextShiftId = id + 1;
   return id;
 }
 
@@ -93,9 +128,16 @@ function generateUniqueShiftId(data, guildId) {
 function ensureShiftHistoryIds(data, guildId) {
   if (!data?.[guildId]?.history) return;
   let changed = false;
+  if (!Number.isInteger(data[guildId].nextShiftId) || data[guildId].nextShiftId < SHIFT_ID_MIN) {
+    data[guildId].nextShiftId = SHIFT_ID_MIN;
+    changed = true;
+  }
   for (const s of data[guildId].history) {
-    if (typeof s.id !== 'number') {
+    if (!Number.isInteger(s.id) || s.id < SHIFT_ID_MIN) {
       s.id = generateUniqueShiftId(data, guildId);
+      changed = true;
+    } else if (s.id >= data[guildId].nextShiftId) {
+      data[guildId].nextShiftId = s.id + 1;
       changed = true;
     }
   }
@@ -105,7 +147,7 @@ function ensureShiftHistoryIds(data, guildId) {
 /** Start a shift for a user. Returns null if already on shift. */
 function startShift(guildId, userId, username) {
   const data = read(SHIFTS_FILE, {});
-  if (!data[guildId]) data[guildId] = { active: {}, history: [] };
+  if (!data[guildId]) data[guildId] = { active: {}, history: [], nextShiftId: SHIFT_ID_MIN };
   ensureShiftHistoryIds(data, guildId);
 
   if (data[guildId].active[userId]) return null; // already on shift
@@ -209,13 +251,13 @@ function getPresetReasons(guildId, type) {
  * @param {string} reason
  */
 function addPresetReason(guildId, type, reason) {
-  const data = read(REASONS_FILE, {});
-  if (!data[guildId]) data[guildId] = {};
-  if (!data[guildId][type]) data[guildId][type] = [];
-  const entry = { id: Date.now(), reason };
-  data[guildId][type].push(entry);
-  write(REASONS_FILE, data);
-  return entry;
+  return update(REASONS_FILE, {}, (data) => {
+    if (!data[guildId]) data[guildId] = {};
+    if (!data[guildId][type]) data[guildId][type] = [];
+    const entry = { id: Date.now(), reason };
+    data[guildId][type].push(entry);
+    return entry;
+  });
 }
 
 /**
@@ -225,12 +267,12 @@ function addPresetReason(guildId, type, reason) {
  * @param {number} id
  */
 function removePresetReason(guildId, type, id) {
-  const data = read(REASONS_FILE, {});
-  if (!data?.[guildId]?.[type]) return false;
-  const before = data[guildId][type].length;
-  data[guildId][type] = data[guildId][type].filter((r) => r.id !== id);
-  write(REASONS_FILE, data);
-  return data[guildId][type].length < before;
+  return update(REASONS_FILE, {}, (data) => {
+    if (!data?.[guildId]?.[type]) return false;
+    const before = data[guildId][type].length;
+    data[guildId][type] = data[guildId][type].filter((r) => r.id !== id);
+    return data[guildId][type].length < before;
+  });
 }
 
 // ─── Wave Tracking ───────────────────────────────────────────────────────────
@@ -253,11 +295,11 @@ function getCurrentWave(guildId) {
  * @param {string} startedBy  userId of the admin who started the wave
  */
 function startWave(guildId, startedBy) {
-  const data = read(WAVES_FILE, {});
-  const waveNumber = (data[guildId]?.waveNumber ?? 0) + 1;
-  data[guildId] = { waveNumber, startedAt: new Date().toISOString(), startedBy };
-  write(WAVES_FILE, data);
-  return data[guildId];
+  return update(WAVES_FILE, {}, (data) => {
+    const waveNumber = (data[guildId]?.waveNumber ?? 0) + 1;
+    data[guildId] = { waveNumber, startedAt: new Date().toISOString(), startedBy };
+    return data[guildId];
+  });
 }
 
 /**
@@ -296,25 +338,25 @@ function getUserShiftTimeInWave(guildId, userId) {
  * @returns {object|null}
  */
 function updateShiftRecord(guildId, recordId, updates) {
-  const data = read(SHIFTS_FILE, {});
-  ensureShiftHistoryIds(data, guildId);
-  const history = data?.[guildId]?.history;
-  if (!history) return null;
+  return update(SHIFTS_FILE, {}, (data) => {
+    ensureShiftHistoryIds(data, guildId);
+    const history = data?.[guildId]?.history;
+    if (!history) return null;
 
-  const idx = history.findIndex((s) => s.id === recordId);
-  if (idx === -1) return null;
+    const idx = history.findIndex((s) => s.id === recordId);
+    if (idx === -1) return null;
 
-  const existing = history[idx];
-  if (typeof updates.durationMs === 'number') {
-    const durationMs = Math.max(MIN_SHIFT_DURATION_MS, Math.floor(updates.durationMs));
-    const endedAt = new Date(new Date(existing.startedAt).getTime() + durationMs).toISOString();
-    existing.durationMs = durationMs;
-    existing.endedAt = endedAt;
-  }
+    const existing = history[idx];
+    if (typeof updates.durationMs === 'number') {
+      const durationMs = Math.max(MIN_SHIFT_DURATION_MS, Math.floor(updates.durationMs));
+      const endedAt = new Date(new Date(existing.startedAt).getTime() + durationMs).toISOString();
+      existing.durationMs = durationMs;
+      existing.endedAt = endedAt;
+    }
 
-  history[idx] = existing;
-  write(SHIFTS_FILE, data);
-  return existing;
+    history[idx] = existing;
+    return existing;
+  });
 }
 
 /**
@@ -324,15 +366,15 @@ function updateShiftRecord(guildId, recordId, updates) {
  * @returns {boolean}
  */
 function deleteShiftRecord(guildId, recordId) {
-  const data = read(SHIFTS_FILE, {});
-  ensureShiftHistoryIds(data, guildId);
-  const history = data?.[guildId]?.history;
-  if (!history) return false;
+  return update(SHIFTS_FILE, {}, (data) => {
+    ensureShiftHistoryIds(data, guildId);
+    const history = data?.[guildId]?.history;
+    if (!history) return false;
 
-  const before = history.length;
-  data[guildId].history = history.filter((s) => s.id !== recordId);
-  write(SHIFTS_FILE, data);
-  return data[guildId].history.length < before;
+    const before = history.length;
+    data[guildId].history = history.filter((s) => s.id !== recordId);
+    return data[guildId].history.length < before;
+  });
 }
 
 // ─── Server Config ───────────────────────────────────────────────────────────
@@ -356,10 +398,10 @@ function getConfig(guildId) {
  * @param {*} value
  */
 function setConfig(guildId, key, value) {
-  const data = read(CONFIG_FILE, {});
-  if (!data[guildId]) data[guildId] = {};
-  data[guildId][key] = value;
-  write(CONFIG_FILE, data);
+  update(CONFIG_FILE, {}, (data) => {
+    if (!data[guildId]) data[guildId] = {};
+    data[guildId][key] = value;
+  });
 }
 
 /**
@@ -368,11 +410,9 @@ function setConfig(guildId, key, value) {
  * @param {string} key
  */
 function deleteConfig(guildId, key) {
-  const data = read(CONFIG_FILE, {});
-  if (data[guildId]) {
-    delete data[guildId][key];
-    write(CONFIG_FILE, data);
-  }
+  update(CONFIG_FILE, {}, (data) => {
+    if (data[guildId]) delete data[guildId][key];
+  });
 }
 
 // ─── Automod Config ───────────────────────────────────────────────────────────
@@ -404,9 +444,9 @@ function getAutomodConfig(guildId) {
  * @param {object} config
  */
 function setAutomodConfig(guildId, config) {
-  const data = read(AUTOMOD_FILE, {});
-  data[guildId] = config;
-  write(AUTOMOD_FILE, data);
+  update(AUTOMOD_FILE, {}, (data) => {
+    data[guildId] = config;
+  });
 }
 
 /**
@@ -438,21 +478,21 @@ const INFRACTIONS_FILE = 'staff_infractions.json';
  * @returns {object} The created infraction record
  */
 function addStaffInfraction(guildId, staffUserId, { issuedById, reason, severity, action }) {
-  const data = read(INFRACTIONS_FILE, {});
-  if (!data[guildId]) data[guildId] = {};
-  if (!data[guildId][staffUserId]) data[guildId][staffUserId] = [];
-  const record = {
-    id: Date.now(),
-    issuedById,
-    reason,
-    severity: severity ?? 'minor',
-    action: action ?? null,
-    timestamp: new Date().toISOString(),
-    active: true,
-  };
-  data[guildId][staffUserId].push(record);
-  write(INFRACTIONS_FILE, data);
-  return record;
+  return update(INFRACTIONS_FILE, {}, (data) => {
+    if (!data[guildId]) data[guildId] = {};
+    if (!data[guildId][staffUserId]) data[guildId][staffUserId] = [];
+    const record = {
+      id: Date.now(),
+      issuedById,
+      reason,
+      severity: severity ?? 'minor',
+      action: action ?? null,
+      timestamp: new Date().toISOString(),
+      active: true,
+    };
+    data[guildId][staffUserId].push(record);
+    return record;
+  });
 }
 
 /**
@@ -474,12 +514,12 @@ function getStaffInfractions(guildId, staffUserId) {
  * @returns {boolean} true if removed
  */
 function removeStaffInfraction(guildId, staffUserId, infractionId) {
-  const data = read(INFRACTIONS_FILE, {});
-  if (!data?.[guildId]?.[staffUserId]) return false;
-  const before = data[guildId][staffUserId].length;
-  data[guildId][staffUserId] = data[guildId][staffUserId].filter((i) => i.id !== infractionId);
-  write(INFRACTIONS_FILE, data);
-  return data[guildId][staffUserId].length < before;
+  return update(INFRACTIONS_FILE, {}, (data) => {
+    if (!data?.[guildId]?.[staffUserId]) return false;
+    const before = data[guildId][staffUserId].length;
+    data[guildId][staffUserId] = data[guildId][staffUserId].filter((i) => i.id !== infractionId);
+    return data[guildId][staffUserId].length < before;
+  });
 }
 
 /**
@@ -496,6 +536,7 @@ function getAllStaffInfractions(guildId) {
 module.exports = {
   read,
   write,
+  update,
   addWarning,
   getWarnings,
   clearWarnings,

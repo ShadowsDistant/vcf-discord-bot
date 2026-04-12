@@ -26,7 +26,10 @@ function normalizeEnvValue(value) {
 const DISCORD_TOKEN = normalizeEnvValue(process.env.DISCORD_TOKEN);
 const CLIENT_ID = normalizeEnvValue(process.env.CLIENT_ID);
 const SNOWFLAKE_REGEX = /^\d{17,20}$/;
-const REQUIRED_BAKE_COMMANDS = ['bake', 'bakery', 'marketplace', 'bakeadmin'];
+const REQUIRED_BAKE_COMMANDS = normalizeEnvValue(process.env.REQUIRED_BAKE_COMMANDS)
+  .split(',')
+  .map((v) => v.trim().toLowerCase())
+  .filter(Boolean);
 
 if (!DISCORD_TOKEN || !CLIENT_ID) {
   console.error('❌  Missing required environment variables: DISCORD_TOKEN, CLIENT_ID');
@@ -89,12 +92,14 @@ if (commandLoadErrors.length > 0) {
 }
 
 const registeredCommandNames = new Set(commands.map((command) => command.name));
-const missingBakeCommands = REQUIRED_BAKE_COMMANDS.filter((name) => !registeredCommandNames.has(name));
-if (missingBakeCommands.length > 0) {
-  console.error(
-    `❌  Missing required bake command(s): ${missingBakeCommands.map((name) => `/${name}`).join(', ')}`,
-  );
-  process.exit(1);
+if (REQUIRED_BAKE_COMMANDS.length > 0) {
+  const missingBakeCommands = REQUIRED_BAKE_COMMANDS.filter((name) => !registeredCommandNames.has(name));
+  if (missingBakeCommands.length > 0) {
+    console.error(
+      `❌  Missing required bake command(s): ${missingBakeCommands.map((name) => `/${name}`).join(', ')}`,
+    );
+    process.exit(1);
+  }
 }
 
 const rest = new REST().setToken(DISCORD_TOKEN);

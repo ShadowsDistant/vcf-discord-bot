@@ -1,7 +1,7 @@
 'use strict';
 
 const {
-  SlashCommandBuilder, ChannelType, MessageFlags,
+  SlashCommandBuilder, ChannelType, MessageFlags, PermissionFlagsBits,
 } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
@@ -10,6 +10,8 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('announce')
     .setDescription('Send a rich announcement embed to a specified channel.')
+    .setDMPermission(false)
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .addChannelOption((o) =>
       o
         .setName('channel')

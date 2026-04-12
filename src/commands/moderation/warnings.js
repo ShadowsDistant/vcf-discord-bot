@@ -1,6 +1,11 @@
 'use strict';
 
-const { SlashCommandBuilder, EmbedBuilder, MessageFlags } = require('discord.js');
+const {
+  SlashCommandBuilder,
+  EmbedBuilder,
+  MessageFlags,
+  PermissionFlagsBits,
+} = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { truncate } = require('../../utils/helpers');
@@ -10,6 +15,8 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('warnings')
     .setDescription("View a member's warnings.")
+    .setDMPermission(false)
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
     .addUserOption((o) =>
       o.setName('user').setDescription('The member to check.').setRequired(true),
     ),

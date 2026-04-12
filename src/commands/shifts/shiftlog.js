@@ -89,7 +89,11 @@ module.exports = {
         return started.getUTCFullYear() === currentYear && started.getUTCMonth() === currentMonth;
       })
       .reduce((sum, s) => sum + s.durationMs, 0);
-    const progressPct = Math.min(100, (monthTimeMs / MODERATION_MONTHLY_QUOTA_MS) * 100);
+    const config = db.getConfig(interaction.guild.id);
+    const monthlyQuotaMs = Number.isFinite(config.quotaMs) && config.quotaMs > 0
+      ? config.quotaMs
+      : MODERATION_MONTHLY_QUOTA_MS;
+    const progressPct = Math.min(100, (monthTimeMs / monthlyQuotaMs) * 100);
 
     const embed = new EmbedBuilder()
       .setColor(PALETTE.shift)
@@ -124,7 +128,7 @@ module.exports = {
         name: '  Monthly Quota Progress (Moderation)',
         value: [
           `Completed: **${formatDuration(monthTimeMs)}**`,
-          `Required: **${formatDuration(MODERATION_MONTHLY_QUOTA_MS)}**`,
+          `Required: **${formatDuration(monthlyQuotaMs)}**`,
           makeProgressBar(progressPct, 12),
         ].join('\n'),
       });

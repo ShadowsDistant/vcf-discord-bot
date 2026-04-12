@@ -1,6 +1,6 @@
 'use strict';
 
-const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
@@ -9,6 +9,8 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('clearwarnings')
     .setDescription("Clear all warnings for a member.")
+    .setDMPermission(false)
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageMessages)
     .addUserOption((o) =>
       o.setName('user').setDescription('The member to clear warnings for.').setRequired(true),
     ),

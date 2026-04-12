@@ -6,6 +6,7 @@ const { scanMessage, getCategoryLabel, isCategoryEnabledByDefault } = require('.
 const { hasModLevel, MOD_LEVEL } = require('../utils/permissions');
 const embeds = require('../utils/embeds');
 const { hasModerationAccessRole } = require('../utils/roles');
+const analytics = require('../utils/analytics');
 
 /**
  * Returns the list of category IDs that are enabled for a guild's automod config.
@@ -60,6 +61,7 @@ module.exports = {
   async execute(message) {
     // Ignore bots and DMs
     if (message.author.bot || !message.guild) return;
+    analytics.recordMessage(message.guild.id, message.channel.id, Date.now());
 
     const guildId = message.guild.id;
     const automodConfig = db.getAutomodConfig(guildId);
