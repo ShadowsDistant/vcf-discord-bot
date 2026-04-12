@@ -604,13 +604,8 @@ async function runWebSearch(query, limit = WEB_SEARCH_DEFAULT_LIMIT) {
 
 function stripHtmlToText(html) {
   return asString(html, '')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/gi, '\'')
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -1174,7 +1169,7 @@ function resolveButtonStyle(style) {
 }
 
 function newComponentToken() {
-  return randomBytes(8).toString('hex');
+  return randomBytes(16).toString('hex');
 }
 
 function buildAiComponents(payload, ownerId) {
@@ -1341,7 +1336,7 @@ function getConversationState(messageId) {
 }
 
 function hasConversationState(messageId) {
-  return getConversationState(messageId) != null;
+  return getConversationState(messageId) !== null;
 }
 
 function buildInteractionContext(source) {
@@ -1454,6 +1449,8 @@ function parseAiComponentCustomId(customId) {
   if (parts.length !== 4) return null;
   const [kind, ownerId, token, actionIndexRaw] = parts;
   if (kind !== 'ai_btn' && kind !== 'ai_sel') return null;
+  if (actionIndexRaw.length > 6) return null;
+  if (!/^\d+$/.test(actionIndexRaw)) return null;
   const actionIndex = Number.parseInt(actionIndexRaw, 10);
   if (!Number.isInteger(actionIndex) || actionIndex < 0) return null;
   return {
@@ -1673,7 +1670,7 @@ module.exports = {
         embeds: [embeds.error('This command is restricted to the bot developer.', interaction.guild ?? null)],
         flags: MessageFlags.Ephemeral,
       });
-      return null;
+      return;
     }
 
     const apiKey = getOpenRouterApiKey();
@@ -1687,7 +1684,7 @@ module.exports = {
         ],
         flags: MessageFlags.Ephemeral,
       });
-      return null;
+      return;
     }
 
     const userPrompt = interaction.options.getString('prompt', true).trim();
@@ -1724,6 +1721,5 @@ module.exports = {
       return null;
     }
 
-    return null;
   },
 };
