@@ -21,6 +21,7 @@ const { ROLE_IDS } = require('../utils/roles');
 const { hasModLevel, MOD_LEVEL } = require('../utils/permissions');
 const { UPDATE_LOGS, createUpdateEmbed } = require('../utils/updateLogs');
 const economy = require('../utils/bakeEconomy');
+const { patchInteractionDisplayComponents } = require('../utils/displayComponents');
 const bakeCommand = require('../commands/utility/bake');
 const allianceCommand = require('../commands/utility/alliance');
 const { sendModerationActionDm, sendReporterStatusDm } = require('../utils/moderationNotifications');
@@ -326,6 +327,8 @@ function parseMentionUserId(value) {
 module.exports = {
   name: Events.InteractionCreate,
   async execute(interaction) {
+    patchInteractionDisplayComponents(interaction);
+
     if (interaction.isButton()) {
       if (isComponentExpired(interaction)) {
         return interaction.reply({

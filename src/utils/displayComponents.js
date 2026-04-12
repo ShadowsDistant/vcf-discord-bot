@@ -34,8 +34,22 @@ function buildEmbedText(embedData) {
   if (!embedData) return '';
   const chunks = [];
 
-  if (embedData.author?.name) chunks.push(`### ${embedData.author.name}`);
-  if (embedData.title) chunks.push(`## ${embedData.title}`);
+  if (embedData.author?.name) {
+    if (embedData.author.url) {
+      chunks.push(`### [${embedData.author.name}](${embedData.author.url})`);
+    } else {
+      chunks.push(`### ${embedData.author.name}`);
+    }
+  }
+  if (embedData.title) {
+    if (embedData.url) {
+      chunks.push(`## [${embedData.title}](${embedData.url})`);
+    } else {
+      chunks.push(`## ${embedData.title}`);
+    }
+  } else if (embedData.url) {
+    chunks.push(`Link: ${embedData.url}`);
+  }
   if (embedData.description) chunks.push(embedData.description);
 
   if (Array.isArray(embedData.fields) && embedData.fields.length > 0) {
@@ -46,6 +60,9 @@ function buildEmbedText(embedData) {
     }
   }
 
+  if (embedData.image?.url) chunks.push(`Image: ${embedData.image.url}`);
+  if (embedData.thumbnail?.url) chunks.push(`Thumbnail: ${embedData.thumbnail.url}`);
+  if (embedData.timestamp) chunks.push(`Timestamp: ${embedData.timestamp}`);
   if (embedData.footer?.text) chunks.push(`*${embedData.footer.text}*`);
 
   return chunks.filter(Boolean).join('\n\n').trim();
