@@ -446,8 +446,8 @@ module.exports = {
   },
 
   async handleAutomodPanelSelect(interaction) {
-    const deny = await requireAccess(interaction);
-    if (deny) return;
+    const accessDenied = await requireAccess(interaction);
+    if (accessDenied) return;
 
     const action = interaction.values?.[0];
     if (action === 'status') {
@@ -469,8 +469,8 @@ module.exports = {
   },
 
   async handleAutomodPanelModal(interaction) {
-    const deny = await requireAccess(interaction);
-    if (deny) return;
+    const accessDenied = await requireAccess(interaction);
+    if (accessDenied) return;
 
     const action = interaction.customId.slice(MODAL_PREFIX.length);
     const config = db.getAutomodConfig(interaction.guild.id);
@@ -488,8 +488,8 @@ module.exports = {
   },
 
   async execute(interaction) {
-    const deny = await requireAccess(interaction);
-    if (deny) return;
+    const accessDenied = await requireAccess(interaction);
+    if (accessDenied) return;
 
     return interaction.reply({
       embeds: [

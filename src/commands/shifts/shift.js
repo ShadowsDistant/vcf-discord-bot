@@ -42,7 +42,7 @@ async function resolveOptionalTargetUser(interaction, rawInput, defaultUser) {
   return interaction.client.users.fetch(parsed).catch(() => defaultUser);
 }
 
-function requireShiftAccess(interaction) {
+function denyIfNoShiftAccess(interaction) {
   if (!hasShiftAccessRole(interaction.member)) {
     return interaction.reply({
       embeds: [
@@ -57,7 +57,7 @@ function requireShiftAccess(interaction) {
   return null;
 }
 
-function requireManagementAccess(interaction) {
+function denyIfNoManagementAccess(interaction) {
   if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.management)) {
     return interaction.reply({
       embeds: [embeds.error('You need management-level access for this shift action.', interaction.guild)],
@@ -507,8 +507,8 @@ async function runRoles(interaction) {
 }
 
 async function runManageList(interaction, targetUser) {
-  const deny = await requireManagementAccess(interaction);
-  if (deny) return;
+  const accessDenied = await denyIfNoManagementAccess(interaction);
+  if (accessDenied) return;
 
   const rows = (targetUser
     ? db.getUserShiftHistory(interaction.guild.id, targetUser.id)
@@ -539,8 +539,8 @@ async function runManageList(interaction, targetUser) {
 }
 
 async function runManageEdit(interaction) {
-  const deny = await requireManagementAccess(interaction);
-  if (deny) return;
+  const accessDenied = await denyIfNoManagementAccess(interaction);
+  if (accessDenied) return;
 
   const id = parseInt(interaction.fields.getTextInputValue('id').trim(), 10);
   const minutes = parseInt(interaction.fields.getTextInputValue('minutes').trim(), 10);
@@ -573,8 +573,8 @@ async function runManageEdit(interaction) {
 }
 
 async function runManageDelete(interaction) {
-  const deny = await requireManagementAccess(interaction);
-  if (deny) return;
+  const accessDenied = await denyIfNoManagementAccess(interaction);
+  if (accessDenied) return;
 
   const id = parseInt(interaction.fields.getTextInputValue('id').trim(), 10);
   if (Number.isNaN(id)) {
@@ -613,8 +613,8 @@ module.exports = {
   },
 
   async handleShiftPanelSelect(interaction) {
-    const deny = await requireShiftAccess(interaction);
-    if (deny) return;
+    const accessDenied = await denyIfNoShiftAccess(interaction);
+    if (accessDenied) return;
 
     const action = interaction.values?.[0];
     if (action === 'start') return runStart(interaction);
@@ -635,8 +635,8 @@ module.exports = {
   },
 
   async handleShiftPanelModal(interaction) {
-    const deny = await requireShiftAccess(interaction);
-    if (deny) return;
+    const accessDenied = await denyIfNoShiftAccess(interaction);
+    if (accessDenied) return;
 
     const action = interaction.customId.slice(MODAL_PREFIX.length);
 
@@ -673,8 +673,8 @@ module.exports = {
   },
 
   async execute(interaction) {
-    const deny = await requireShiftAccess(interaction);
-    if (deny) return;
+    const accessDenied = await denyIfNoShiftAccess(interaction);
+    if (accessDenied) return;
 
     return interaction.reply({
       embeds: [
