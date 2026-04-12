@@ -224,7 +224,6 @@ function normalizePayload(payload, fallbackText) {
     || truncate(payload?.summary, 4096)
     || truncate(fallbackText, 4096)
     || 'No response.';
-  const summary = truncate(payload?.summary, 4096) || text;
   const answer = truncate(payload?.answer, 1024);
   const footer = truncate(payload?.footer, 2048);
   const color = normalizeColor(payload?.color);
@@ -263,7 +262,6 @@ function normalizePayload(payload, fallbackText) {
 
   return {
     title,
-    summary,
     text,
     answer,
     footer,
@@ -956,6 +954,7 @@ function buildSystemPrompt(model) {
     '}',
     'Guidance for consistency:',
     '- Keep title and text stable and clear across runs.',
+    '- Use color 8421504 (grey) when no specific color is needed.',
     '- Use answer for main output and fields for structured detail.',
     '- Add buttons/select menus only when they provide clear next steps.',
   ].join('\n');
@@ -993,6 +992,7 @@ async function runAiCompletion({
   let promptTokens = 0;
   let completionTokens = 0;
   let totalTokens = 0;
+  let hasTotalTokensFromApi = false;
 
   for (let i = 0; i < MAX_TOOL_ROUNDS; i += 1) {
     const data = await requestNvidiaBuildAiChat({
@@ -1006,10 +1006,14 @@ async function runAiCompletion({
     const usage = data?.usage ?? {};
     const promptDelta = Number(usage.prompt_tokens ?? usage.input_tokens ?? 0);
     const completionDelta = Number(usage.completion_tokens ?? usage.output_tokens ?? 0);
-    const totalDelta = Number(usage.total_tokens ?? 0);
+    const hasTotalFromUsage = usage?.total_tokens != null;
+    const totalDelta = Number(usage.total_tokens);
     if (Number.isFinite(promptDelta) && promptDelta > 0) promptTokens += promptDelta;
     if (Number.isFinite(completionDelta) && completionDelta > 0) completionTokens += completionDelta;
-    if (Number.isFinite(totalDelta) && totalDelta > 0) totalTokens += totalDelta;
+    if (hasTotalFromUsage && Number.isFinite(totalDelta) && totalDelta >= 0) {
+      hasTotalTokensFromApi = true;
+      totalTokens += totalDelta;
+    }
 
     const choice = data?.choices?.[0]?.message;
     if (!choice) throw new Error(`No response choices were returned by the AI provider (${model}).`);
@@ -1047,7 +1051,7 @@ async function runAiCompletion({
     break;
   }
 
-  if (!totalTokens && (promptTokens || completionTokens)) {
+  if (!hasTotalTokensFromApi && (promptTokens || completionTokens)) {
     totalTokens = promptTokens + completionTokens;
   }
 
@@ -1259,7 +1263,7 @@ function buildAiViewSelectorRow(ownerId, token, activeView) {
   const currentView = activeView === 'tools' ? 'tools' : 'output';
   return new ActionRowBuilder().addComponents(new StringSelectMenuBuilder()
     .setCustomId(`ai_viewsel:${ownerId}:${token}`)
-    .setPlaceholder('Choose AI view')
+    .setPlaceholder('Select view type')
     .setMinValues(1)
     .setMaxValues(1)
     .addOptions(
