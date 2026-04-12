@@ -121,10 +121,10 @@ function findAllianceByName(alliancesById, name) {
     .find((entry) => String(entry?.name ?? '').toLowerCase() === needle) ?? null;
 }
 
-function findAllianceByIdOrName(alliancesById, allianceIdOrName) {
+function findAllianceByIdOrName(alliances, allianceIdOrName) {
   const value = String(allianceIdOrName ?? '').trim();
   if (!value) return null;
-  return alliancesById?.[value] ?? findAllianceByName(alliancesById, value);
+  return alliances?.[value] ?? findAllianceByName(alliances, value);
 }
 
 function hashAllianceId(input) {
@@ -625,9 +625,6 @@ function adminDeleteAlliance(guildId, allianceIdOrName) {
     ensureAllianceShape(alliance);
     for (const memberId of alliance.members ?? []) {
       delete guild.userAlliance[memberId];
-    }
-    for (const request of alliance.joinRequests ?? []) {
-      if (request?.userId) delete guild.userAlliance[request.userId];
     }
     delete guild.alliances[alliance.id];
     return { ok: true, allianceId: alliance.id, allianceName: alliance.name, memberCount: alliance.members?.length ?? 0 };

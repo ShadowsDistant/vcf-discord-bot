@@ -604,13 +604,13 @@ module.exports = {
     .setDMPermission(false)
     .addUserOption((option) =>
       option
-        .setName('kick_member')
+        .setName('member')
         .setDescription('Alliance owner only: kick a member from your alliance.')
         .setRequired(false),
     ),
 
   async execute(interaction) {
-    const kickTarget = interaction.options.getUser('kick_member');
+    const kickTarget = interaction.options.getUser('member');
     if (kickTarget) {
       const result = alliances.removeAllianceMember(interaction.guild.id, interaction.user.id, kickTarget.id);
       if (!result.ok) {

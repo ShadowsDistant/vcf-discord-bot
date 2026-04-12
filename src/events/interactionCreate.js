@@ -1956,8 +1956,8 @@ module.exports = {
               flags: MessageFlags.Ephemeral,
             });
           }
-          const upgrade = alliances.ALLIANCE_STORE_UPGRADES.find((entry) => entry.id === upgradeId);
-          await sendBakeAdminLog(interaction, targetId, 'Alliance: Grant Upgrade', `${result.alliance.name} (${result.alliance.id}) -> ${upgradeId}`);
+          const upgrade = result.upgrade;
+          await sendBakeAdminLog(interaction, targetId, 'Alliance: Grant Upgrade', `${result.alliance.name} (${result.alliance.id}) -> ${upgrade?.name ?? upgradeId}`);
           return interaction.reply({
             embeds: [embeds.success(`Granted alliance upgrade **${upgrade?.name ?? upgradeId}** to **${result.alliance.name}** (\`${result.alliance.id}\`).`, interaction.guild)],
             flags: MessageFlags.Ephemeral,
