@@ -36,6 +36,22 @@ const SPECIAL_COOKIE_EVENT_CHANNEL_ID = '1492690923333746790';
 const REPORTS_CHANNEL_ID = '1492689950540435637';
 const REPORTS_PING_ROLE_ID = '1425569078596337745';
 const REPORT_COOLDOWN_MS = 15 * 60 * 1000;
+const REPORT_REASON_LABELS = new Map([
+  ['spam', 'Spam'],
+  ['harassment', 'Harassment'],
+  ['scam', 'Scam / Fraud'],
+  ['nsfw', 'NSFW / Inappropriate'],
+  ['other', 'Other'],
+]);
+const REPORT_ACTION_CODE_BY_ACTION = Object.freeze({
+  delete_message: 'dm',
+  warn_author: 'wa',
+  timeout_author: 'ta',
+  dismiss: 'di',
+});
+const REPORT_ACTION_BY_CODE = Object.freeze(Object.fromEntries(
+  Object.entries(REPORT_ACTION_CODE_BY_ACTION).map(([action, code]) => [code, action]),
+));
 const COMPONENT_EXPIRY_DEFAULT_MS = 10 * 60 * 1000;
 const COMPONENT_EXPIRY_LONG_MS = 30 * 60 * 1000;
 const MAX_PENDING_RENAME_SELECTIONS = 2_000;
@@ -255,6 +271,57 @@ function touchReportCooldown(guildId, userId, now = Date.now()) {
   reportCooldowns.set(getReportCooldownKey(guildId, userId), now);
 }
 
+function buildReportActionCustomId(action, sourceMessageId, reporterId) {
+  const actionCode = REPORT_ACTION_CODE_BY_ACTION[action];
+  if (!actionCode || !sourceMessageId) return null;
+  return `ra:${actionCode}:${sourceMessageId}:${reporterId ?? ''}`;
+}
+
+function parseReportActionCustomId(customId) {
+  if (customId.startsWith('ra:')) {
+    const [, actionCode, messageId, reporterId = ''] = customId.split(':');
+    const action = REPORT_ACTION_BY_CODE[actionCode];
+    if (!action || !messageId) return null;
+    return {
+      action,
+      messageId,
+      reporterId,
+      sourceChannelId: null,
+      authorId: null,
+    };
+  }
+  if (customId.startsWith('report_action:')) {
+    const [, action, sourceChannelId, messageId, authorId, reporterId = ''] = customId.split(':');
+    if (!action || !messageId) return null;
+    return {
+      action,
+      messageId,
+      reporterId,
+      sourceChannelId: sourceChannelId ?? null,
+      authorId: authorId ?? null,
+    };
+  }
+  return null;
+}
+
+function getEmbedFieldValue(embed, fieldName) {
+  return embed?.fields?.find((field) => field?.name === fieldName)?.value ?? '';
+}
+
+function parseSourceContextFromJumpLink(jumpLink) {
+  const match = String(jumpLink ?? '').match(/\/channels\/\d+\/(\d+)\/(\d+)/);
+  if (!match) return null;
+  return {
+    sourceChannelId: match[1],
+    messageId: match[2],
+  };
+}
+
+function parseMentionUserId(value) {
+  const match = String(value ?? '').match(/<@!?(\d+)>/);
+  return match?.[1] ?? null;
+}
+
 module.exports = {
   name: Events.InteractionCreate,
   async execute(interaction) {
@@ -394,14 +461,41 @@ module.exports = {
         }
       }
 
-      if (interaction.customId.startsWith('report_action:')) {
+      if (interaction.customId.startsWith('report_action:') || interaction.customId.startsWith('ra:')) {
         if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.moderator)) {
           return interaction.reply({
             embeds: [embeds.error('Only moderation staff can use report actions.', interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
-        const [, action, sourceChannelId, messageId, authorId, reporterId] = interaction.customId.split(':');
+        const parsedAction = parseReportActionCustomId(interaction.customId);
+        if (!parsedAction) {
+          return interaction.reply({
+            embeds: [embeds.error('Invalid report action payload.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        let {
+          action,
+          sourceChannelId,
+          messageId,
+          authorId,
+          reporterId,
+        } = parsedAction;
+        if (!sourceChannelId || !authorId) {
+          const reportEmbed = interaction.message?.embeds?.[0];
+          const jumpLink = getEmbedFieldValue(reportEmbed, 'Jump Link');
+          const linkContext = parseSourceContextFromJumpLink(jumpLink);
+          sourceChannelId = sourceChannelId ?? linkContext?.sourceChannelId ?? null;
+          messageId = messageId ?? linkContext?.messageId ?? null;
+          authorId = authorId ?? parseMentionUserId(getEmbedFieldValue(reportEmbed, 'Author'));
+        }
+        if (!sourceChannelId || !messageId || !authorId) {
+          return interaction.reply({
+            embeds: [embeds.error('Could not resolve source message details for this report.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
         const targetChannel = await interaction.guild.channels.fetch(sourceChannelId).catch(() => null);
         if (!targetChannel || !targetChannel.isTextBased()) {
           return interaction.reply({
@@ -885,6 +979,75 @@ module.exports = {
         return interaction.reply({
           embeds: [embeds.error('These select menus belong to someone else\'s command.', interaction.guild)],
           flags: MessageFlags.Ephemeral,
+        });
+      }
+      if (interaction.customId.startsWith('rmr:')) {
+        const [, sourceChannelId, messageId, authorId] = interaction.customId.split(':');
+        const remainingMs = getReportCooldownRemainingMs(interaction.guild.id, interaction.user.id, Date.now());
+        if (remainingMs > 0) {
+          return interaction.reply({
+            embeds: [embeds.warning(`You can submit another report in **${Math.ceil(remainingMs / 60_000)} minute(s)**.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const selectedReason = interaction.values?.[0] ?? 'other';
+        const reasonLabel = REPORT_REASON_LABELS.get(selectedReason) ?? 'Other';
+        const reportChannel = await interaction.guild.channels.fetch(REPORTS_CHANNEL_ID).catch(() => null);
+        if (!reportChannel || !reportChannel.isTextBased()) {
+          return interaction.reply({
+            embeds: [embeds.error('Reports channel is not configured correctly.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const sourceChannel = await interaction.guild.channels.fetch(sourceChannelId).catch(() => null);
+        if (!sourceChannel || !sourceChannel.isTextBased()) {
+          return interaction.reply({
+            embeds: [embeds.error('Original channel is no longer available.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const sourceMessage = await sourceChannel.messages.fetch(messageId).catch(() => null);
+        const messageContent = sourceMessage?.content?.slice(0, 1000) || '(message unavailable)';
+        const attachmentSummary = sourceMessage?.attachments?.size
+          ? sourceMessage.attachments
+            .map((attachment) => `• ${(attachment.name ?? 'attachment').slice(0, 120)}`)
+            .slice(0, 3)
+            .join('\n')
+          : 'None';
+        const jumpLink = sourceMessage?.url ?? 'Unavailable';
+
+        const reportEmbed = new EmbedBuilder()
+          .setColor(0xed4245)
+          .setTitle('🚨 Message Report Submitted')
+          .setDescription(`**Reported Content**\n${messageContent}`)
+          .addFields(
+            { name: 'Reason', value: reasonLabel, inline: true },
+            { name: 'Reporter', value: `<@${interaction.user.id}>`, inline: true },
+            { name: 'Author', value: `<@${authorId}>`, inline: true },
+            { name: 'Channel', value: `${sourceChannel}`, inline: true },
+            { name: 'Attachments', value: attachmentSummary.slice(0, 1024), inline: false },
+            { name: 'Jump Link', value: jumpLink, inline: false },
+          )
+          .setTimestamp();
+
+        const actions = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(buildReportActionCustomId('delete_message', messageId, interaction.user.id)).setLabel('Delete Message').setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId(buildReportActionCustomId('warn_author', messageId, interaction.user.id)).setLabel('Warn Author').setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId(buildReportActionCustomId('timeout_author', messageId, interaction.user.id)).setLabel('Timeout Author').setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId(buildReportActionCustomId('dismiss', messageId, interaction.user.id)).setLabel('Dismiss').setStyle(ButtonStyle.Success),
+        );
+
+        await reportChannel.send({
+          content: `<@&${REPORTS_PING_ROLE_ID}>`,
+          embeds: [reportEmbed],
+          components: [actions],
+        }).catch(() => null);
+        touchReportCooldown(interaction.guild.id, interaction.user.id, Date.now());
+        await sendReporterStatusDm({ user: interaction.user, guild: interaction.guild, status: 'submitted' });
+
+        return interaction.update({
+          embeds: [embeds.success('Report submitted to moderators.', interaction.guild)],
+          components: [],
         });
       }
       if (interaction.customId === 'bakery_nav_select') {
@@ -1467,10 +1630,10 @@ module.exports = {
           .setTimestamp();
 
         const actions = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`report_action:delete_message:${sourceChannelId}:${messageId}:${authorId}:${interaction.user.id}`).setLabel('Delete Message').setStyle(ButtonStyle.Danger),
-          new ButtonBuilder().setCustomId(`report_action:warn_author:${sourceChannelId}:${messageId}:${authorId}:${interaction.user.id}`).setLabel('Warn Author').setStyle(ButtonStyle.Secondary),
-          new ButtonBuilder().setCustomId(`report_action:timeout_author:${sourceChannelId}:${messageId}:${authorId}:${interaction.user.id}`).setLabel('Timeout Author').setStyle(ButtonStyle.Primary),
-          new ButtonBuilder().setCustomId(`report_action:dismiss:${sourceChannelId}:${messageId}:${authorId}:${interaction.user.id}`).setLabel('Dismiss').setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId(buildReportActionCustomId('delete_message', messageId, interaction.user.id)).setLabel('Delete Message').setStyle(ButtonStyle.Danger),
+          new ButtonBuilder().setCustomId(buildReportActionCustomId('warn_author', messageId, interaction.user.id)).setLabel('Warn Author').setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId(buildReportActionCustomId('timeout_author', messageId, interaction.user.id)).setLabel('Timeout Author').setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId(buildReportActionCustomId('dismiss', messageId, interaction.user.id)).setLabel('Dismiss').setStyle(ButtonStyle.Success),
         );
 
         await reportChannel.send({

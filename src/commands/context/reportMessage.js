@@ -3,12 +3,40 @@
 const {
   ContextMenuCommandBuilder,
   ApplicationCommandType,
-  ModalBuilder,
+  EmbedBuilder,
   ActionRowBuilder,
-  TextInputBuilder,
-  TextInputStyle,
+  MessageFlags,
+  StringSelectMenuBuilder,
   PermissionFlagsBits,
 } = require('discord.js');
+
+const REPORT_REASON_OPTIONS = [
+  {
+    label: 'Spam',
+    value: 'spam',
+    description: 'Repetitive, unsolicited, or disruptive spam content.',
+  },
+  {
+    label: 'Harassment',
+    value: 'harassment',
+    description: 'Targeted abuse, bullying, or hateful behavior.',
+  },
+  {
+    label: 'Scam / Fraud',
+    value: 'scam',
+    description: 'Phishing, fraud attempts, or suspicious links.',
+  },
+  {
+    label: 'NSFW / Inappropriate',
+    value: 'nsfw',
+    description: 'Sexual, graphic, or otherwise inappropriate content.',
+  },
+  {
+    label: 'Other',
+    value: 'other',
+    description: 'Any other issue that should be reviewed by staff.',
+  },
+];
 
 module.exports = {
   data: new ContextMenuCommandBuilder()
@@ -18,27 +46,20 @@ module.exports = {
     .setDMPermission(false),
 
   async execute(interaction) {
-    const modal = new ModalBuilder()
-      .setCustomId(`ctx_report_message:${interaction.targetMessage.channel.id}:${interaction.targetMessage.id}:${interaction.targetMessage.author.id}`)
+    const promptEmbed = new EmbedBuilder()
+      .setColor(0xed4245)
       .setTitle('Report Message')
-      .addComponents(
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('category')
-            .setLabel('Category (spam/harassment/etc)')
-            .setStyle(TextInputStyle.Short)
-            .setRequired(true),
-        ),
-        new ActionRowBuilder().addComponents(
-          new TextInputBuilder()
-            .setCustomId('reason')
-            .setLabel('Details')
-            .setStyle(TextInputStyle.Paragraph)
-            .setRequired(true)
-            .setMaxLength(500),
-        ),
-      );
+      .setDescription('Select the reason for this report.');
 
-    return interaction.showModal(modal);
+    const reasonSelect = new StringSelectMenuBuilder()
+      .setCustomId(`rmr:${interaction.targetMessage.channel.id}:${interaction.targetMessage.id}:${interaction.targetMessage.author.id}`)
+      .setPlaceholder('Choose a report reason')
+      .addOptions(REPORT_REASON_OPTIONS);
+
+    return interaction.reply({
+      embeds: [promptEmbed],
+      components: [new ActionRowBuilder().addComponents(reasonSelect)],
+      flags: MessageFlags.Ephemeral,
+    });
   },
 };
