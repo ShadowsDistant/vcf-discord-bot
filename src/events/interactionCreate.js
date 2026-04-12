@@ -1445,11 +1445,7 @@ module.exports = {
         const messageContent = sourceMessage?.content?.slice(0, 1000) || '(message unavailable)';
         const attachmentSummary = sourceMessage?.attachments?.size
           ? sourceMessage.attachments
-            .map((attachment) => {
-              const safeName = (attachment.name ?? 'attachment').slice(0, 120);
-              const safeUrl = attachment.url.slice(0, 250);
-              return `[${safeName}](${safeUrl})`;
-            })
+            .map((attachment) => `• ${(attachment.name ?? 'attachment').slice(0, 120)}`)
             .slice(0, 3)
             .join('\n')
           : 'None';
