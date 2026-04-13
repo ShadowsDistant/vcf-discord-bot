@@ -1640,6 +1640,15 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
 
     if (entries.length === 0 && rewardGiftEntries.length === 0) {
       embed.setDescription('Inventory currently empty. Keep baking, crumb warrior.');
+      // Still show gift messages even if inventory is empty
+      const recentMessages = (user.giftMessages ?? []).slice(-3).reverse();
+      if (recentMessages.length > 0) {
+        const msgLines = recentMessages.map((msg) => {
+          const box = REWARD_BOX_MAP.get(msg.rewardBoxId);
+          return `📨 **From ${msg.from}**: ${msg.message.slice(0, 80)}${msg.message.length > 80 ? '…' : ''} *(×${msg.quantity} ${box?.name ?? msg.rewardBoxId})*`;
+        }).join('\n');
+        embed.addFields({ name: '📬 Recent Gift Messages', value: msgLines.slice(0, 1024) });
+      }
     } else {
       const page = Math.max(0, Math.min(options.page ?? 0, Math.floor((entries.length - 1) / 8)));
       const pageEntries = entries.slice(page * 8, page * 8 + 8);
