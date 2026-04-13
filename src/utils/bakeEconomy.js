@@ -786,6 +786,16 @@ function getDefaultUserState(userId) {
     clickFrenzyCharges: 0,
     clickFrenzyExpiresAt: 0,
     forceGoldenCookieOnNextBake: false,
+    isServerBooster: false,
+    boosterCpsBoost: 0,
+    allianceBoostDetails: {
+      rankBoost: 0,
+      upgradeBoost: 0,
+      allianceBoosterCount: 0,
+      allianceBoosterBoost: 0,
+      personalBoosterBoost: 0,
+      totalAllianceBoost: 0,
+    },
     bakeBanned: false,
     rankId: RANKS[0].id,
     rankRewardsClaimed: [RANKS[0].id],
@@ -812,6 +822,18 @@ function getUserState(guildState, userId) {
   if (typeof user.bakeBanned !== 'boolean') user.bakeBanned = false;
   if (!user.rewardGifts || typeof user.rewardGifts !== 'object') user.rewardGifts = {};
   if (!Array.isArray(user.pendingMessages)) user.pendingMessages = [];
+  if (typeof user.isServerBooster !== 'boolean') user.isServerBooster = false;
+  user.boosterCpsBoost = user.isServerBooster ? 0.1 : 0;
+  if (!user.allianceBoostDetails || typeof user.allianceBoostDetails !== 'object') {
+    user.allianceBoostDetails = {
+      rankBoost: 0,
+      upgradeBoost: 0,
+      allianceBoosterCount: 0,
+      allianceBoosterBoost: 0,
+      personalBoosterBoost: user.boosterCpsBoost,
+      totalAllianceBoost: Math.max(0, Number(user.allianceCpsBoost ?? 0)),
+    };
+  }
   if (!RANK_INDEX.has(user.rankId)) {
     const inferredIndex = getHighestUnlockedRankIndex(user);
     user.rankId = RANKS[inferredIndex].id;
@@ -1217,16 +1239,52 @@ function computeCps(user, nowTs = Date.now()) {
   const frenzy = (user.activeBuffs ?? []).find((buff) => buff.type === 'frenzy' && buff.expiresAt > nowTs);
   const frenzyMultiplier = frenzy ? 7 : 1;
 
-  const total = (buildingCps + consumedBonus) * globalMultiplier * (1 + kittenBonus) * frenzyMultiplier * (1 + (user.allianceCpsBoost ?? 0));
+  const allianceBoost = Math.max(0, Number(user.allianceCpsBoost ?? 0));
+  const boosterBoost = Math.max(0, Number(user.boosterCpsBoost ?? 0));
+  const total = (buildingCps + consumedBonus) * globalMultiplier * (1 + kittenBonus) * frenzyMultiplier * (1 + allianceBoost + boosterBoost);
   user.highestCps = Math.max(user.highestCps ?? 0, total);
   return total;
 }
 
-function setUserAllianceCpsBoost(guildId, userId, boost) {
+function setAllianceCpsBoostBatch(guildId, boosts = []) {
+  const data = readState();
+  const guildState = getGuildState(data, guildId);
+  for (const entry of boosts) {
+    const userId = String(entry?.userId ?? '');
+    if (!userId) continue;
+    const user = getUserState(guildState, userId);
+    user.allianceCpsBoost = Math.max(0, Number(entry?.boost) || 0);
+    const details = entry?.details ?? {};
+    user.allianceBoostDetails = {
+      rankBoost: Math.max(0, Number(details.rankBoost) || 0),
+      upgradeBoost: Math.max(0, Number(details.upgradeBoost) || 0),
+      allianceBoosterCount: Math.max(0, Number(details.allianceBoosterCount) || 0),
+      allianceBoosterBoost: Math.max(0, Number(details.allianceBoosterBoost) || 0),
+      personalBoosterBoost: Math.max(0, Number(details.personalBoosterBoost ?? user.boosterCpsBoost) || 0),
+      totalAllianceBoost: Math.max(0, Number(details.totalAllianceBoost ?? entry?.boost) || 0),
+    };
+  }
+  writeState(data);
+}
+
+function setUserAllianceCpsBoost(guildId, userId, boost, details = null) {
+  setAllianceCpsBoostBatch(guildId, [{
+    userId,
+    boost,
+    details: details ?? {},
+  }]);
+}
+
+function setUserBoosterStatus(guildId, userId, isBooster) {
   const data = readState();
   const guildState = getGuildState(data, guildId);
   const user = getUserState(guildState, userId);
-  user.allianceCpsBoost = Math.max(0, Number(boost) || 0);
+  user.isServerBooster = Boolean(isBooster);
+  user.boosterCpsBoost = user.isServerBooster ? 0.1 : 0;
+  if (!user.allianceBoostDetails || typeof user.allianceBoostDetails !== 'object') {
+    user.allianceBoostDetails = {};
+  }
+  user.allianceBoostDetails.personalBoosterBoost = user.boosterCpsBoost;
   writeState(data);
 }
 
@@ -1512,11 +1570,17 @@ function buildCpsBreakdownEmbed(guild, user) {
   const frenzy = (user.activeBuffs ?? []).find((buff) => buff.type === 'frenzy' && buff.expiresAt > nowTs);
   const frenzyMultiplier = frenzy ? 7 : 1;
   const allianceBoost = Math.max(0, Number(user.allianceCpsBoost ?? 0));
+  const boosterBoost = Math.max(0, Number(user.boosterCpsBoost ?? 0));
+  const boostDetails = user.allianceBoostDetails ?? {};
+  const boosterCount = Math.max(0, Number(boostDetails.allianceBoosterCount ?? 0));
+  const boosterAllianceBoost = Math.max(0, Number(boostDetails.allianceBoosterBoost ?? 0));
+  const rankBoost = Math.max(0, Number(boostDetails.rankBoost ?? 0));
+  const upgradeBoost = Math.max(0, Number(boostDetails.upgradeBoost ?? 0));
 
   // ── Totals ────────────────────────────────────────────────────────────────
   const basePlusBoosted = buildingTotal + consumedBonus;
   const totalBeforeAlliance = basePlusBoosted * globalMultiplier * (1 + kittenBonus) * frenzyMultiplier;
-  const totalCps = totalBeforeAlliance * (1 + allianceBoost);
+  const totalCps = totalBeforeAlliance * (1 + allianceBoost + boosterBoost);
 
   const embed = new EmbedBuilder()
     .setColor(0xf1c40f)
@@ -1545,11 +1609,19 @@ function buildCpsBreakdownEmbed(guild, user) {
   if (frenzy) {
     embed.addFields({ name: '🌀 Frenzy Active', value: `×7 multiplier (expires <t:${Math.floor(frenzy.expiresAt / 1000)}:R>)`, inline: true });
   }
-  if (allianceBoost > 0) {
-    embed.addFields({ name: '🤝 Alliance Boost', value: `+${(allianceBoost * 100).toFixed(0)}% (leaderboard rank reward + upgrades)`, inline: true });
+  if (allianceBoost > 0 || boosterBoost > 0) {
+    embed.addFields({ name: '🤝 Alliance Boost', value: `+${(allianceBoost * 100).toFixed(0)}% (rank + alliance upgrades + alliance boosters)`, inline: true });
+    if (rankBoost > 0 || upgradeBoost > 0 || boosterAllianceBoost > 0 || boosterBoost > 0) {
+      const parts = [];
+      if (rankBoost > 0) parts.push(`Rank: +${(rankBoost * 100).toFixed(0)}%`);
+      if (upgradeBoost > 0) parts.push(`Store: +${(upgradeBoost * 100).toFixed(0)}%`);
+      if (boosterAllianceBoost > 0) parts.push(`Alliance boosters (${boosterCount}): +${(boosterAllianceBoost * 100).toFixed(0)}%`);
+      if (boosterBoost > 0) parts.push(`Your booster role: +${(boosterBoost * 100).toFixed(0)}%`);
+      embed.addFields({ name: '💎 Booster Sources', value: parts.join('\n').slice(0, 1024), inline: false });
+    }
   }
   embed.addFields({ name: '✅ Final Total (All Boosters)', value: `${toCookieNumber(totalCps)} CPS`, inline: false });
-  embed.addFields({ name: '📊 Formula', value: `(Buildings + Boosts) × Global Multiplier × (1 + Kitten%) × Frenzy × (1 + Alliance%)`, inline: false });
+  embed.addFields({ name: '📊 Formula', value: `(Buildings + Boosts) × Global Multiplier × (1 + Kitten%) × Frenzy × (1 + Alliance% + Booster%)`, inline: false });
 
   embed.setTimestamp();
   if (guild) {
@@ -3423,7 +3495,9 @@ module.exports = {
   getEarnedAchievementCount,
   getUserSnapshot,
   saveUserSnapshot,
+  setAllianceCpsBoostBatch,
   setUserAllianceCpsBoost,
+  setUserBoosterStatus,
   buildDashboardEmbed,
   buildDashboardComponents,
   buildCpsBreakdownEmbed,

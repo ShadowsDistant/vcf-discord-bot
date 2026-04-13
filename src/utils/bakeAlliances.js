@@ -9,6 +9,8 @@ const MAX_WEEKLY_STATE_ENTRIES = 12;
 const MAX_TARGET_REDUCTION = 0.45;
 const ALLIANCE_CREATE_COST = 100_000;
 const MAX_ALLIANCE_DESCRIPTION_LENGTH = 240;
+const BOOSTER_PERSONAL_CPS_BOOST = 0.10;
+const BOOSTER_ALLIANCE_PER_MEMBER_CPS_BOOST = 0.02;
 
 const AUTOMOD_BLOCKED_WORDS = [
   'nigger', 'nigga', 'faggot', 'retard', 'kike', 'spic', 'chink', 'tranny', 'cunt', 'whore',
@@ -746,12 +748,39 @@ function getAllianceWithChallenge(guildId, userId) {
     };
   }
 
-  // Cache CPS boost (rank boost + sugar_syndicate upgrade boost) onto the user's economy state
+  // Cache CPS boosts for all members (rank + store + alliance booster count scaling).
   if (result.alliance) {
     const rankBoost = getAllianceRankBoosts(guildId, userId);
     const upgradeBoost = result.alliance.upgrades.includes('sugar_syndicate') ? 0.08 : 0;
-    economy.setUserAllianceCpsBoost(guildId, userId, rankBoost.cpsBoostMultiplier + upgradeBoost);
+    const economyUsers = economy.getGuildUserStates(guildId);
+    const boosterCount = (result.alliance.members ?? []).reduce((count, memberId) => {
+      return count + (economyUsers?.[memberId]?.isServerBooster ? 1 : 0);
+    }, 0);
+    const allianceBoosterBoost = boosterCount * BOOSTER_ALLIANCE_PER_MEMBER_CPS_BOOST;
+    const baseAllianceBoost = rankBoost.cpsBoostMultiplier + upgradeBoost + allianceBoosterBoost;
+    const boosts = (result.alliance.members ?? []).map((memberId) => {
+      const memberBoosterBoost = economyUsers?.[memberId]?.isServerBooster ? BOOSTER_PERSONAL_CPS_BOOST : 0;
+      return {
+        userId: memberId,
+        boost: baseAllianceBoost,
+        details: {
+          rankBoost: rankBoost.cpsBoostMultiplier,
+          upgradeBoost,
+          allianceBoosterCount: boosterCount,
+          allianceBoosterBoost,
+          personalBoosterBoost: memberBoosterBoost,
+          totalAllianceBoost: baseAllianceBoost,
+        },
+      };
+    });
+    economy.setAllianceCpsBoostBatch(guildId, boosts);
     result.allianceRankBoost = rankBoost;
+    result.allianceBoosterBoost = {
+      boosterCount,
+      perBoosterBoost: BOOSTER_ALLIANCE_PER_MEMBER_CPS_BOOST,
+      allianceWideBoost: allianceBoosterBoost,
+      personalBoosterBoost: economyUsers?.[userId]?.isServerBooster ? BOOSTER_PERSONAL_CPS_BOOST : 0,
+    };
   } else {
     economy.setUserAllianceCpsBoost(guildId, userId, 0);
   }

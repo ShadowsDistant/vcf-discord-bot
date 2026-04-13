@@ -334,6 +334,17 @@ function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = 
     ? (challenge.rewarded ? '✅ Completed and rewarded' : '✅ Completed (reward pending)')
     : '⏳ In progress';
   const allianceDescription = String(data.alliance.description ?? '').trim() || '_No description set._';
+  const boosterStats = data.allianceBoosterBoost ?? {
+    boosterCount: 0,
+    allianceWideBoost: 0,
+    perBoosterBoost: 0.02,
+    personalBoosterBoost: 0,
+  };
+  const boosterInfo = [
+    `Boosters in alliance: **${boosterStats.boosterCount}**`,
+    `Alliance-wide booster bonus: **+${Math.round(boosterStats.allianceWideBoost * 100)}% CPS** (${Math.round(boosterStats.perBoosterBoost * 100)}% per booster)`,
+    `Your booster role bonus: **+${Math.round(boosterStats.personalBoosterBoost * 100)}% CPS**`,
+  ].join('\n');
 
   const baseEmbed = new EmbedBuilder()
     .setColor(0x57f287)
@@ -358,6 +369,7 @@ function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = 
           value: `Each member: **${economy.toCookieNumber(challenge.rewardCookiesPerMember)}**\nAlliance credits: **${challenge.rewardAllianceCoins}**`,
           inline: false,
         },
+        { name: '💎 Booster CPS Effects', value: boosterInfo.slice(0, 1024), inline: false },
       );
   } else if (view === 'store') {
     const ownedText = store.upgrades
@@ -381,6 +393,7 @@ function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = 
           ].join('\n'),
           inline: false,
         },
+        { name: '💎 Booster CPS Effects', value: boosterInfo.slice(0, 1024), inline: false },
       );
     const storeSelect = buildStoreSelect(guild, store);
     if (storeSelect) components.push(storeSelect);
@@ -409,6 +422,7 @@ function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = 
       { name: 'Progress', value: `${challengeProgressText}\n${challengeBar}`, inline: false },
       { name: 'Top Contributors', value: contributorLines(challenge.contributors), inline: false },
       { name: 'Join Approval', value: data.alliance.joinApprovalEnabled ? 'Enabled' : 'Disabled', inline: true },
+      { name: '💎 Booster CPS Effects', value: boosterInfo.slice(0, 1024), inline: false },
     );
   }
 

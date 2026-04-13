@@ -5,11 +5,15 @@ const embeds = require('../utils/embeds');
 const db = require('../utils/database');
 const analytics = require('../utils/analytics');
 const { fetchLogChannel } = require('../utils/logChannels');
+const economy = require('../utils/bakeEconomy');
+
+const SERVER_BOOSTER_ROLE_ID = '1357082479931949310';
 
 module.exports = {
   name: Events.GuildMemberAdd,
   async execute(member) {
     analytics.recordMemberJoin(member.guild.id, Date.now());
+    economy.setUserBoosterStatus(member.guild.id, member.id, member.roles.cache.has(SERVER_BOOSTER_ROLE_ID));
     const channel = await fetchLogChannel(member.guild, 'join');
     if (!channel) return;
 
