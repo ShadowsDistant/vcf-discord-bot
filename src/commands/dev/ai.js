@@ -1297,7 +1297,7 @@ async function runTool(context, name, args) {
       ? Math.min(40320, Math.max(1, Math.floor(timeoutMinutesRaw)))
       : null;
     const deleteDays = Math.min(7, Math.max(0, Number(parsedArgs.delete_days) || 0));
-    const confirmationToken = randomBytes(3).toString('hex');
+    const confirmationToken = randomBytes(3).toString('hex').toLowerCase();
     const key = buildModerationConfirmationKey(guild.id, context.user.id, confirmationToken);
     pendingModerationConfirmations.set(key, {
       action,
@@ -1335,7 +1335,7 @@ async function runTool(context, name, args) {
     if (latestPrompt !== expectedPhrase) {
       return {
         ok: false,
-        error: `Confirmation phrase mismatch. Received: "${truncate(context.latestPrompt, 80)}". Expected: "CONFIRM MODERATION ${normalizedToken.toUpperCase()}".`,
+        error: `Confirmation phrase mismatch. Send exactly: "CONFIRM MODERATION ${normalizedToken.toUpperCase()}".`,
       };
     }
 
@@ -1393,6 +1393,7 @@ async function runTool(context, name, args) {
 
       if (pending.action === 'ban') {
         const banTarget = target?.user ?? pending.targetId;
+        // Fetch only when target is no longer a guild member so we can still attempt a DM.
         const banDmUser = target?.user ?? await context.client.users.fetch(pending.targetId).catch(() => null);
         // DM delivery may fail (privacy settings/blocks); moderation still proceeds and logs internally.
         await sendModerationActionDm({
