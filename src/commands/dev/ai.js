@@ -1564,7 +1564,7 @@ async function handleAiComponentInteraction(interaction) {
           ),
         ],
         components: [],
-      }).catch(() => null);
+      });
     }
 
     return true;
