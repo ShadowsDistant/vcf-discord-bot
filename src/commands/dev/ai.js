@@ -458,6 +458,22 @@ function formatToolArgs(args) {
 }
 
 /**
+ * Strip all HTML tags from a string, iterating until no tags remain so that
+ * nested/malformed tags such as "<scr<script>ipt>" cannot survive.
+ * @param {string} str
+ * @returns {string}
+ */
+function stripHtmlTags(str) {
+  let result = str;
+  let prev;
+  do {
+    prev = result;
+    result = result.replace(/<[^>]*>/g, '');
+  } while (result !== prev);
+  return result.replace(/\s+/g, ' ').trim();
+}
+
+/**
  * Fetch the top 5 web search results from DuckDuckGo's HTML endpoint.
  * @param {string} query
  * @returns {Promise<Array<{title:string, url:string, snippet:string}>>}
@@ -491,9 +507,9 @@ async function duckDuckGoSearch(query) {
     } catch {
       // keep raw href
     }
-    const title = titleMatches[i][2].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+    const title = stripHtmlTags(titleMatches[i][2]);
     const snippet = snippetMatches[i]
-      ? snippetMatches[i][1].replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim()
+      ? stripHtmlTags(snippetMatches[i][1])
       : '';
     results.push({ title, url: resolvedUrl, snippet });
   }
