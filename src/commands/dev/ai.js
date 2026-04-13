@@ -1324,17 +1324,18 @@ async function runTool(context, name, args) {
 
   if (name === 'confirm_moderation_action') {
     pruneModerationConfirmations();
-    const confirmationToken = asString(parsedArgs.confirmation_token, '').trim().toLowerCase();
-    if (!confirmationToken) return { ok: false, error: 'confirmation_token is required.' };
-    const key = buildModerationConfirmationKey(guild.id, context.user.id, confirmationToken);
+    const confirmationToken = asString(parsedArgs.confirmation_token, '').trim();
+    const normalizedToken = confirmationToken.toLowerCase();
+    if (!normalizedToken) return { ok: false, error: 'confirmation_token is required.' };
+    const key = buildModerationConfirmationKey(guild.id, context.user.id, normalizedToken);
     const pending = pendingModerationConfirmations.get(key);
     if (!pending) return { ok: false, error: 'No pending moderation action found for that token.' };
-    const expectedPhrase = `confirm moderation ${confirmationToken}`;
+    const expectedPhrase = `confirm moderation ${normalizedToken}`;
     const latestPrompt = asString(context.latestPrompt, '').trim().toLowerCase();
     if (latestPrompt !== expectedPhrase) {
       return {
         ok: false,
-        error: `Confirmation phrase mismatch. Received: "${truncate(context.latestPrompt, 80)}". Expected: "CONFIRM MODERATION ${confirmationToken.toUpperCase()}".`,
+        error: `Confirmation phrase mismatch. Received: "${truncate(context.latestPrompt, 80)}". Expected: "CONFIRM MODERATION ${normalizedToken.toUpperCase()}".`,
       };
     }
 
@@ -1393,6 +1394,7 @@ async function runTool(context, name, args) {
       if (pending.action === 'ban') {
         const banTarget = target?.user ?? pending.targetId;
         const banDmUser = target?.user ?? await context.client.users.fetch(pending.targetId).catch(() => null);
+        // DM delivery may fail (privacy settings/blocks); moderation still proceeds and logs internally.
         await sendModerationActionDm({
           user: banDmUser,
           guild,
