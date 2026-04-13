@@ -121,7 +121,12 @@ function hasShiftAccessRole(member) {
 }
 
 function isDevUser(userId) {
-  return userId === '757698506411475005';
+  const configured = String(process.env.DEV_USER_ID ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  const allowed = configured.length ? configured : ['757698506411475005'];
+  return allowed.includes(String(userId));
 }
 
 module.exports = {
