@@ -2504,7 +2504,6 @@ function buildBakeAdminDashboardEmbed(guild, actorId) {
   const now = Date.now();
   const users = Object.values(guildState.users ?? {});
   const totals = users.reduce((acc, user) => {
-    const safeUser = JSON.parse(JSON.stringify(user ?? {}));
     acc.cookies += Number(user?.cookies ?? 0);
     acc.cookiesBakedAllTime += Number(user?.cookiesBakedAllTime ?? 0);
     acc.cookiesSpent += Number(user?.cookiesSpent ?? 0);
@@ -2512,7 +2511,7 @@ function buildBakeAdminDashboardEmbed(guild, actorId) {
     acc.totalBuildings += getTotalBuildingsOwned(user);
     acc.totalUpgrades += Number((user?.upgrades ?? []).length);
     acc.bakeBanned += user?.bakeBanned ? 1 : 0;
-    acc.totalCps += Number(computeCps(safeUser, now) ?? 0);
+    acc.totalCps += Number(computeCps(user, now) ?? 0);
     return acc;
   }, {
     cookies: 0,
