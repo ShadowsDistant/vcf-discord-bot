@@ -1601,36 +1601,47 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     const page = Math.max(0, Math.min(Number.isFinite(options.page) ? options.page : 0, pageCount - 1));
     if (section === 'info') {
       embed.setDescription([
-        'Welcome to the baking economy command system.',
+        '# Bakery Systems Deep Guide',
+        'A progression sandbox built around **active bakes**, **passive production**, and **long-term scaling decisions**.',
         '',
-        'This mode is a long-term progression loop centered around active baking, passive growth, and inventory strategy.',
+        '**1) Core Production Loop**',
+        '• Active income: `/bake` grants manual yield and rolls an item drop each press.',
+        '• Passive income: buildings generate CPS while offline/idle (capped at 24h per claim cycle).',
+        '• Reinvestment: cookies go into buildings/upgrades to increase future output.',
         '',
-        '**Core command loop**',
-        '• Use `/bake` frequently to gain cookies and roll for item drops.',
-        '• Build income with buildings to increase passive CPS over time.',
-        '• Reinvest into upgrades to scale manual gains, CPS, and Golden Cookie power.',
+        '**2) Bake Outcome Math (high-level)**',
+        `• Burnt chance baseline: **${Math.round(BURNT_BAKE_CHANCE * 100)}%** (reduced during Steady Heat).`,
+        '• Manual yield scales with upgrades and temporary buffs (including click-frenzy style effects).',
+        '• Item drops are weighted by unlocked rarity tiers; higher tiers require progression unlocks.',
         '',
-        '**Progression systems**',
-        '• Unlock achievements to raise milk level and improve kitten-scaling potential.',
-        '• Advance through ranks by hitting milestones in total bakes, buildings, achievements, and lifetime output.',
-        '• Trigger and claim Golden Cookies for burst rewards, buffs, and tier shortcuts.',
+        '**3) Golden Cookie + Event Layer**',
+        '• Golden cookies are burst moments: claim quickly for high-value rewards/effects.',
+        '• Timed events alter probabilities and economy pacing (special drops, yield boosts, safer bakes).',
+        '• Event strategy: accelerate active bake cadence when boosts align with your bottleneck.',
         '',
-        '**Inventory and economy**',
-        '• Inventory holds regular items and gift boxes you can open for bundled rewards.',
-        '• Sell items for liquid cookies, or consume them for temporary CPS boosts.',
-        '• Use marketplace listings to convert collection value into direct cookie profit.',
+        '**4) Progression Tracks**',
+        '• **Achievements → Milk %**: more achievements raise milk scaling and synergize with kitten upgrades.',
+        '• **Ranks**: milestone gates tied to bakes, output, structures, and achievements.',
+        '• **Rarity unlocks**: more progression = wider drop pool and higher-value outcomes.',
         '',
-        '**Alliances**',
-        '• Open `/alliance` to access a unified panel for challenges, management, and alliance-wide upgrades.',
-        '• Weekly alliance challenges include progress bars, top-contributor tracking, and rewards for all members.',
-        '• Alliance owners can enable approval-to-join and review join requests directly from the panel.',
+        '**5) Economy Surfaces**',
+        `• Item liquidation: sell inventory for direct liquidity.`,
+        '• Consumables: trade inventory value for temporary power spikes.',
+        `• Marketplace: player-driven pricing with a **${Math.round(MARKET_FEE_RATE * 100)}% fee**.`,
         '',
-        '**Optimization tips**',
-        '• Keep your bake cadence steady to stack passive and active gains.',
-        '• Rotate spending between buildings and upgrades instead of overcommitting one side.',
-        '• Use codex sections to target item tiers, reward boxes, and unlock planning.',
+        '**6) Alliance Layer**',
+        '• Alliances add cooperative scaling: shared challenges, contribution races, and group upgrades.',
+        '• Use alliances to smooth progression plateaus and unlock coordinated reward pacing.',
+        '',
+        '**7) Practical Optimization Pattern**',
+        '• Stabilize base CPS first, then rotate spending into upgrades with immediate multipliers.',
+        '• Use codex pages to plan target rarities, upgrade milestones, and rank breakpoints.',
+        '• During strong events, prioritize active bakes to maximize temporary multipliers.',
       ].join('\n').slice(0, 4096));
-      embed.addFields({ name: 'Overview', value: 'Core mechanics overview' });
+      embed.addFields(
+        { name: 'System Focus', value: 'Production • Progression • Economy • Alliances', inline: true },
+        { name: 'Use This Section For', value: 'Understanding how systems connect before min-maxing.', inline: true },
+      );
     } else if (section === 'gifts') {
       const pageEntries = REWARD_BOXES.slice(page * pageSize, page * pageSize + pageSize);
       embed.setDescription(pageEntries
@@ -1640,11 +1651,19 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
               const item = ITEM_MAP.get(reward.itemId);
               if (!item) return null;
               const quantityLabel = reward.min === reward.max ? `${reward.min}` : `${reward.min}-${reward.max}`;
-              return `• ${getItemEmoji(item, guild)} ${item.name} x${quantityLabel}`;
+              const rarity = RARITY[item.rarity]?.name ?? item.rarity;
+              return `• ${getItemEmoji(item, guild)} ${item.name} x${quantityLabel} (**${rarity}**)`;
             })
             .filter(Boolean)
             .join('\n');
-          return `${getRewardBoxEmoji(rewardBox, guild)} **${rewardBox.name}**\nPossible drops:\n${rewardLines || '• No configured drops.'}`;
+          return [
+            `${getRewardBoxEmoji(rewardBox, guild)} **${rewardBox.name}**`,
+            'Drop table:',
+            rewardLines || '• No configured drops.',
+            'Usage notes:',
+            '• Good for injecting inventory depth and targeting specific rarity bands.',
+            '• Best opened when you need liquid sell value or consume-buff setup items.',
+          ].join('\n');
         })
         .join('\n\n')
         .slice(0, 4096));
@@ -1657,6 +1676,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
           const rarity = RARITY[item.rarity];
           const price = getItemSellValue(item);
           const dropChancePct = getItemDropChance(user, item, chanceDate) * 100;
+          const owned = Number(user.inventory?.[item.id] ?? 0);
           return [
             `${getItemEmoji(item, guild)} **${item.name}**`,
             `\`${item.id}\``,
@@ -1664,6 +1684,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
             `Rarity: **${rarity.name}**`,
             `Drop chance: **${dropChancePct.toFixed(3)}%**`,
             `Sell value: **${toCookieNumber(price)}**`,
+            `Owned: **${toCookieNumber(owned)}**`,
           ].join('\n');
         })
         .join('\n\n')
@@ -1672,17 +1693,26 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     } else if (section === 'achievements') {
       const pageEntries = ACHIEVEMENTS.slice(page * pageSize, page * pageSize + pageSize);
       embed.setDescription(pageEntries
-        .map((achievement) => `${getAchievementEmoji(achievement, guild)} **${achievement.name}**\n${achievement.desc}`)
+        .map((achievement) => `${(user.milestones ?? []).includes(achievement.id) ? '🔓' : '🔒'} ${getAchievementEmoji(achievement, guild)} **${achievement.name}**\n${achievement.desc}`)
         .join('\n\n')
         .slice(0, 4096));
-      embed.addFields({ name: 'Catalog progress', value: `Showing ${page * pageSize + 1}-${Math.min((page + 1) * pageSize, ACHIEVEMENTS.length)} of ${ACHIEVEMENTS.length}` });
+      embed.addFields(
+        { name: 'Catalog progress', value: `Showing ${page * pageSize + 1}-${Math.min((page + 1) * pageSize, ACHIEVEMENTS.length)} of ${ACHIEVEMENTS.length}` },
+        { name: 'System impact', value: 'Achievements increase milk %, unlock rank requirements, and improve scaling pathways.' },
+      );
     } else if (section === 'buildings') {
       const pageEntries = BUILDINGS.slice(page * pageSize, page * pageSize + pageSize);
       embed.setDescription(pageEntries
-        .map((building) => `${getCustomGuildEmoji(guild, [building.id, building.name, `building_${building.id}`, `cc_${building.id}`, ...(BUILDING_EMOJI_ALIASES[building.id] ?? [])]) ?? getCookieFallbackEmoji(guild)} **${building.name}**\nBase cost: **${toCookieNumber(building.baseCost)}**\nBase CPS: **${toCookieNumber(building.baseCps)}**\n${building.description}`)
+        .map((building) => {
+          const owned = Number(user.buildings?.[building.id] ?? 0);
+          return `${getCustomGuildEmoji(guild, [building.id, building.name, `building_${building.id}`, `cc_${building.id}`, ...(BUILDING_EMOJI_ALIASES[building.id] ?? [])]) ?? getCookieFallbackEmoji(guild)} **${building.name}**\nBase cost: **${toCookieNumber(building.baseCost)}**\nBase CPS: **${toCookieNumber(building.baseCps)}**\nOwned: **${toCookieNumber(owned)}**\nNext cost: **${toCookieNumber(getBuildingPrice(building.id, owned, 1))}**\n${building.description}`;
+        })
         .join('\n\n')
         .slice(0, 4096));
-      embed.addFields({ name: 'Catalog progress', value: `Showing ${page * pageSize + 1}-${Math.min((page + 1) * pageSize, BUILDINGS.length)} of ${BUILDINGS.length}` });
+      embed.addFields(
+        { name: 'Catalog progress', value: `Showing ${page * pageSize + 1}-${Math.min((page + 1) * pageSize, BUILDINGS.length)} of ${BUILDINGS.length}` },
+        { name: 'Cost scaling model', value: `Cost growth uses exponential scaling (~x${BUILDING_COST_GROWTH.toFixed(2)} per additional building).` },
+      );
     } else if (section === 'milk') {
       const pageEntries = MILK_TYPES.slice(page * pageSize, page * pageSize + pageSize);
       embed.setDescription(pageEntries
@@ -1693,21 +1723,30 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
         })
         .join('\n\n')
         .slice(0, 4096));
-      embed.addFields({ name: 'Catalog progress', value: `Showing ${page * pageSize + 1}-${Math.min((page + 1) * pageSize, MILK_TYPES.length)} of ${MILK_TYPES.length}` });
+      embed.addFields(
+        { name: 'Catalog progress', value: `Showing ${page * pageSize + 1}-${Math.min((page + 1) * pageSize, MILK_TYPES.length)} of ${MILK_TYPES.length}` },
+        { name: 'System impact', value: 'Milk amplifies kitten-style upgrade scaling; achievement pace directly controls this power curve.' },
+      );
     } else if (section === 'upgrades') {
       const pageEntries = UPGRADES.slice(page * pageSize, page * pageSize + pageSize);
       embed.setDescription(pageEntries
-        .map((upgrade) => `${getCustomGuildEmoji(guild, [upgrade.id, `upgrade_${upgrade.id}`, `cc_${upgrade.id}`]) ?? getCookieFallbackEmoji(guild)} **${upgrade.name}**\nCategory: **${upgrade.category}**\nCost: **${toCookieNumber(upgrade.cost)}**\nEffect: ${upgrade.effect}`)
+        .map((upgrade) => `${getCustomGuildEmoji(guild, [upgrade.id, `upgrade_${upgrade.id}`, `cc_${upgrade.id}`]) ?? getCookieFallbackEmoji(guild)} **${upgrade.name}**\nCategory: **${getUpgradeCategoryLabel(upgrade)}**\nCost: **${toCookieNumber(upgrade.cost)}**\nStatus: **${user.upgrades.includes(upgrade.id) ? 'Purchased' : upgrade.unlockedWhen(user) ? 'Unlocked' : 'Locked'}**\nEffect summary: ${getUpgradeEffectSummary(upgrade)}\nFlavor: ${upgrade.effect}`)
         .join('\n\n')
         .slice(0, 4096));
-      embed.addFields({ name: 'Catalog progress', value: `Showing ${page * pageSize + 1}-${Math.min((page + 1) * pageSize, UPGRADES.length)} of ${UPGRADES.length}` });
+      embed.addFields(
+        { name: 'Catalog progress', value: `Showing ${page * pageSize + 1}-${Math.min((page + 1) * pageSize, UPGRADES.length)} of ${UPGRADES.length}` },
+        { name: 'Priority heuristic', value: 'Prefer upgrades with immediate CPS multiplier impact when they outpace next building ROI.' },
+      );
     } else if (section === 'ranks') {
       const pageEntries = RANKS.slice(page * pageSize, page * pageSize + pageSize);
       embed.setDescription(pageEntries
-        .map((rank) => `${getRankEmoji(rank, guild)} **${rank.name}**\nRequirements:\n${formatRankRequirements(rank)}\nReward:\n${formatRankReward(rank)}`)
+        .map((rank) => `${getRankEmoji(rank, guild)} **${rank.name}** ${user.rankId === rank.id ? '(Current)' : ''}\nRequirements:\n${formatRankRequirements(rank)}\nReward:\n${formatRankReward(rank)}`)
         .join('\n\n')
         .slice(0, 4096));
-      embed.addFields({ name: 'Catalog progress', value: `Showing ${page * pageSize + 1}-${Math.min((page + 1) * pageSize, RANKS.length)} of ${RANKS.length}` });
+      embed.addFields(
+        { name: 'Catalog progress', value: `Showing ${page * pageSize + 1}-${Math.min((page + 1) * pageSize, RANKS.length)} of ${RANKS.length}` },
+        { name: 'Track purpose', value: 'Ranks provide macro milestones and one-time rewards that accelerate future production layers.' },
+      );
     }
     embed.addFields({ name: 'Section', value: GUIDE_SECTIONS.find((entry) => entry.id === section)?.label ?? section, inline: true });
     embed.addFields({ name: 'Page', value: `${page + 1}/${pageCount}`, inline: true });
