@@ -1456,111 +1456,122 @@ function isAiComponentCustomId(customId) {
   return value.startsWith('ai_btn:') || value.startsWith('ai_sel:') || value.startsWith('ai_view:') || value.startsWith('ai_viewsel:');
 }
 
+function isUnknownInteractionError(error) {
+  if (!error || typeof error !== 'object') return false;
+  if (Number(error.code) === 10062) return true;
+  return asString(error.message, '').toLowerCase().includes('unknown interaction');
+}
+
 async function handleAiComponentInteraction(interaction) {
-  const viewToggle = parseAiViewCustomId(interaction.customId);
-  const viewSelect = parseAiViewSelectCustomId(interaction.customId);
-  const parsed = parseAiComponentCustomId(interaction.customId);
-  if (!viewToggle && !viewSelect && !parsed) return false;
-
-  pruneComponentStates();
-
-  const ownerId = viewToggle?.ownerId ?? viewSelect?.ownerId ?? parsed?.ownerId;
-  if (ownerId !== interaction.user.id) {
-    await interaction.reply({
-      embeds: [embeds.error('These AI controls belong to someone else.', interaction.guild)],
-      flags: MessageFlags.Ephemeral,
-    });
-    return true;
-  }
-
-  const token = viewToggle?.token ?? viewSelect?.token ?? parsed?.token;
-  const state = aiComponentStates.get(token);
-  if (!state || state.ownerId !== ownerId) {
-    await interaction.reply({
-      embeds: [embeds.warning('These AI controls have expired. Run `/ai` again.', interaction.guild)],
-      flags: MessageFlags.Ephemeral,
-    });
-    return true;
-  }
-
-  if (viewToggle || viewSelect) {
-    const selectedView = viewToggle?.view
-      ?? (Array.isArray(interaction.values) ? interaction.values[0] : '')
-      ?? '';
-    if (selectedView === 'tools') {
-      await interaction.update(buildAiToolsPayload(state));
-    } else {
-      await interaction.update(buildAiOutputPayload(state));
-    }
-    return true;
-  }
-
-  let followupPrompt = '';
-
-  if (parsed.kind === 'ai_btn') {
-    const action = state.interactiveButtons[parsed.actionIndex];
-    if (!action) {
-      await interaction.reply({
-        embeds: [embeds.warning('That AI button action is no longer available.', interaction.guild)],
-        flags: MessageFlags.Ephemeral,
-      });
-      return true;
-    }
-    followupPrompt = truncate(action.prompt, 1500);
-  }
-
-  if (parsed.kind === 'ai_sel') {
-    const action = state.interactiveSelectMenus[parsed.actionIndex];
-    const selectedValues = Array.isArray(interaction.values) ? interaction.values : [];
-    followupPrompt = truncate(
-      selectedValues
-        .map((value) => action?.optionPrompts?.[value])
-        .filter(Boolean)
-        .join('\n'),
-      1500,
-    );
-    if (!followupPrompt) {
-      await interaction.reply({
-        embeds: [embeds.warning('That AI menu option has no continuation prompt.', interaction.guild)],
-        flags: MessageFlags.Ephemeral,
-      });
-      return true;
-    }
-  }
-
-  const previous = getConversationState(interaction.message.id);
-  const model = previous?.model ?? DEFAULT_MODEL;
-
-  await interaction.deferReply();
-
   try {
-    const response = await generateAiResponse({
-      source: interaction,
-      prompt: followupPrompt,
-      model,
-      priorMessages: previous?.messages ?? [],
-    });
+    const viewToggle = parseAiViewCustomId(interaction.customId);
+    const viewSelect = parseAiViewSelectCustomId(interaction.customId);
+    const parsed = parseAiComponentCustomId(interaction.customId);
+    if (!viewToggle && !viewSelect && !parsed) return false;
 
-    const sentMessage = await interaction.editReply(response.outputPayload);
+    pruneComponentStates();
 
-    storeConversationState(sentMessage.id, {
-      userId: interaction.user.id,
-      model: response.model,
-      messages: response.completionMessages,
-    });
+    const ownerId = viewToggle?.ownerId ?? viewSelect?.ownerId ?? parsed?.ownerId;
+    if (ownerId !== interaction.user.id) {
+      await interaction.reply({
+        embeds: [embeds.error('These AI controls belong to someone else.', interaction.guild)],
+        flags: MessageFlags.Ephemeral,
+      });
+      return true;
+    }
+
+    const token = viewToggle?.token ?? viewSelect?.token ?? parsed?.token;
+    const state = aiComponentStates.get(token);
+    if (!state || state.ownerId !== ownerId) {
+      await interaction.reply({
+        embeds: [embeds.warning('These AI controls have expired. Run `/ai` again.', interaction.guild)],
+        flags: MessageFlags.Ephemeral,
+      });
+      return true;
+    }
+
+    if (viewToggle || viewSelect) {
+      const selectedView = viewToggle?.view
+        ?? (Array.isArray(interaction.values) ? interaction.values[0] : '')
+        ?? '';
+      if (selectedView === 'tools') {
+        await interaction.update(buildAiToolsPayload(state));
+      } else {
+        await interaction.update(buildAiOutputPayload(state));
+      }
+      return true;
+    }
+
+    let followupPrompt = '';
+
+    if (parsed.kind === 'ai_btn') {
+      const action = state.interactiveButtons[parsed.actionIndex];
+      if (!action) {
+        await interaction.reply({
+          embeds: [embeds.warning('That AI button action is no longer available.', interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+        return true;
+      }
+      followupPrompt = truncate(action.prompt, 1500);
+    }
+
+    if (parsed.kind === 'ai_sel') {
+      const action = state.interactiveSelectMenus[parsed.actionIndex];
+      const selectedValues = Array.isArray(interaction.values) ? interaction.values : [];
+      followupPrompt = truncate(
+        selectedValues
+          .map((value) => action?.optionPrompts?.[value])
+          .filter(Boolean)
+          .join('\n'),
+        1500,
+      );
+      if (!followupPrompt) {
+        await interaction.reply({
+          embeds: [embeds.warning('That AI menu option has no continuation prompt.', interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+        return true;
+      }
+    }
+
+    const previous = getConversationState(interaction.message.id);
+    const model = previous?.model ?? DEFAULT_MODEL;
+
+    await interaction.deferReply();
+
+    try {
+      const response = await generateAiResponse({
+        source: interaction,
+        prompt: followupPrompt,
+        model,
+        priorMessages: previous?.messages ?? [],
+      });
+
+      const sentMessage = await interaction.editReply(response.outputPayload);
+
+      storeConversationState(sentMessage.id, {
+        userId: interaction.user.id,
+        model: response.model,
+        messages: response.completionMessages,
+      });
+    } catch (error) {
+      await interaction.editReply({
+        embeds: [
+          embeds.error(
+            `AI request failed: ${truncate(error.message, 500)}`,
+            interaction.guild ?? null,
+          ),
+        ],
+        components: [],
+      }).catch(() => null);
+    }
+
+    return true;
   } catch (error) {
-    await interaction.editReply({
-      embeds: [
-        embeds.error(
-          `AI request failed: ${truncate(error.message, 500)}`,
-          interaction.guild ?? null,
-        ),
-      ],
-      components: [],
-    });
+    if (isUnknownInteractionError(error)) return true;
+    throw error;
   }
-
-  return true;
 }
 
 async function handleAiReplyMessage(message) {
