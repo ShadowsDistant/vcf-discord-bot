@@ -142,6 +142,47 @@ function clearPendingStaffMessageSelection(guildId, actorId) {
   pendingStaffMessageSelections.delete(`${guildId}:${actorId}`);
 }
 
+function encodeBroadcastAudience(audience) {
+  return encodeURIComponent(String(audience ?? ''));
+}
+
+function decodeBroadcastAudience(encodedAudience) {
+  try {
+    return decodeURIComponent(String(encodedAudience ?? ''));
+  } catch {
+    return String(encodedAudience ?? '');
+  }
+}
+
+function getBroadcastAudienceLabel(audienceValue) {
+  const option = (broadcastMessageCommand.AUDIENCE_OPTIONS ?? []).find((entry) => entry.value === audienceValue);
+  return option?.label ?? audienceValue;
+}
+
+async function notifyInboxRecipientsByDm(guild, actorTag, recipientIds, title) {
+  if (!guild || !Array.isArray(recipientIds) || recipientIds.length === 0) return { notified: 0 };
+  const uniqueRecipients = [...new Set(recipientIds)];
+  let notified = 0;
+  await Promise.all(uniqueRecipients.map(async (userId) => {
+    const user = await guild.client.users.fetch(userId).catch(() => null);
+    if (!user || user.bot) return;
+    const dmEmbed = new EmbedBuilder()
+      .setColor(0x5865f2)
+      .setTitle('📬 You have an unread inbox message')
+      .setDescription([
+        `Server: **${guild.name}**`,
+        `From: **${actorTag}**`,
+        title ? `Title: **${title.slice(0, 100)}**` : null,
+        '',
+        'Run `/messages` in the server to view your inbox.',
+      ].filter(Boolean).join('\n'))
+      .setTimestamp();
+    const sent = await user.send({ embeds: [dmEmbed] }).catch(() => null);
+    if (sent) notified += 1;
+  }));
+  return { notified };
+}
+
 function getGuideState(guildId, userId) {
   pruneGuideStateSelections();
   const entry = guideViewSelections.get(`${guildId}:${userId}`);
@@ -1241,17 +1282,18 @@ module.exports = {
           return interaction.reply({ embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)], flags: MessageFlags.Ephemeral });
         }
         const audience = interaction.values[0];
+        const audienceLabel = getBroadcastAudienceLabel(audience);
         return interaction.reply({
           embeds: [{
             color: 0x5865f2,
             title: '📢 Broadcast — Select Type',
-            description: `Audience: **${audience}**\n\nChoose the message type:`,
+            description: `Audience: **${audienceLabel}**\n\nChoose the message type:`,
             timestamp: new Date().toISOString(),
           }],
           components: [
             new ActionRowBuilder().addComponents(
               new StringSelectMenuBuilder()
-                .setCustomId(`broadcastmsg_type_select:${actorId}:${audience}`)
+                .setCustomId(`broadcastmsg_type_select:${actorId}:${encodeBroadcastAudience(audience)}`)
                 .setPlaceholder('Select message type...')
                 .addOptions(staffMessageCommand.MESSAGE_TYPES),
             ),
@@ -1262,13 +1304,13 @@ module.exports = {
       if (interaction.customId.startsWith('broadcastmsg_type_select:')) {
         const parts = interaction.customId.split(':');
         const actorId = parts[1];
-        const audience = parts[2];
+        const audience = decodeBroadcastAudience(parts.slice(2).join(':'));
         if (actorId !== interaction.user.id) {
           return interaction.reply({ embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)], flags: MessageFlags.Ephemeral });
         }
         const messageType = interaction.values[0];
         const modal = new ModalBuilder()
-          .setCustomId(`broadcastmsg_modal:${actorId}:${messageType}:${audience}`)
+          .setCustomId(`broadcastmsg_modal:${actorId}:${messageType}:${encodeBroadcastAudience(audience)}`)
           .setTitle('Broadcast Message')
           .addComponents(
             new ActionRowBuilder().addComponents(
@@ -2876,9 +2918,10 @@ module.exports = {
             title,
             content,
             from: interaction.user.tag,
-            claimed: true,
+            claimed: false,
           });
         }
+        await notifyInboxRecipientsByDm(interaction.guild, interaction.user.tag, finalRecipientIds, title);
         clearPendingStaffMessageSelection(interaction.guild.id, actorId);
         const recipientMentions = finalRecipientIds.map((id) => `<@${id}>`).join(', ');
         return interaction.reply({
@@ -2892,7 +2935,7 @@ module.exports = {
         const parts = interaction.customId.split(':');
         const actorId = parts[1];
         const messageType = parts[2];
-        const audience = parts[3];
+        const audience = decodeBroadcastAudience(parts.slice(3).join(':'));
         if (actorId !== interaction.user.id) {
           return interaction.reply({ embeds: [embeds.error('This modal is not assigned to you.', interaction.guild)], flags: MessageFlags.Ephemeral });
         }
@@ -2904,7 +2947,10 @@ module.exports = {
 
         let targetUserIds = [];
         if (audience === 'everyone') {
-          targetUserIds = economy.getAllTrackedUserIds(interaction.guild.id);
+          await interaction.guild.members.fetch().catch(() => null);
+          targetUserIds = interaction.guild.members.cache
+            .filter((member) => !member.user.bot)
+            .map((member) => member.id);
         } else if (audience.startsWith('role:')) {
           const roleKey = audience.slice(5);
           let roleSet;
@@ -2922,6 +2968,7 @@ module.exports = {
             }
           }
         }
+        targetUserIds = [...new Set(targetUserIds)];
 
         if (targetUserIds.length === 0) {
           return interaction.reply({
@@ -2937,12 +2984,16 @@ module.exports = {
             title,
             content,
             from: interaction.user.tag,
-            claimed: true,
+            claimed: false,
           });
         }
+        if (audience !== 'everyone') {
+          await notifyInboxRecipientsByDm(interaction.guild, interaction.user.tag, targetUserIds, title);
+        }
+        const audienceLabel = getBroadcastAudienceLabel(audience);
 
         return interaction.reply({
-          embeds: [embeds.success(`Broadcast sent to **${targetUserIds.length}** user(s) (audience: *${audience}*).`, interaction.guild)],
+          embeds: [embeds.success(`Broadcast sent to **${targetUserIds.length}** user(s) (audience: *${audienceLabel}*).`, interaction.guild)],
           flags: MessageFlags.Ephemeral,
         });
       }

@@ -569,18 +569,17 @@ Shows: server name, ID, member count, total guild count, and total combined memb
 ---
 
 #### `/ai`
-Query AI via NVIDIA Build AI and return the result in a structured embed with optional buttons/select menus.
+Query AI via NVIDIA Build API (`openai/gpt-oss-120b`) and return the result in a structured embed.
 
 | Option | Type | Required | Description |
 |---|---|---|---|
 | `prompt` | String | ✅ | Prompt sent to the AI model |
-| `model` | Choice | ❌ | `Gemma 4 31B` (`google/gemma-4-31b-it`), `GLM 5` (`z-ai/glm5`), or `MiniMax M2.7` (`minimaxai/minimax-m2.7`) |
 
 Supports a broad set of safe read-only tools (server overview, features, channels, roles, members, emojis, web search, and Valley Correctional MCP docs lookup) for context-aware responses.
 `/ai` returns a final structured embed (no streaming updates) with stable formatting.
-The response includes a select-menu view switcher to toggle between **Output View** and **Tools & Details View** (tools used, model, token usage, response time, and model rounds).
+The response includes an always-available **Review** button that opens diagnostics (tools used, TTFT, token usage, timing, and rounds), and the AI can add link buttons to the embed when useful.
 Replies to AI messages continue the same conversation context.
-Access is restricted to the configured developer user ID (`DEV_USER_ID`, otherwise bot owner ID).
+Access is restricted to the configured developer user IDs plus hardcoded allow-list users.
 
 ---
 
@@ -628,8 +627,8 @@ NVIDIA_API_KEY=your_nvidia_api_key
 | `DISCORD_TOKEN` | ✅ | Your bot's secret token from the Developer Portal |
 | `CLIENT_ID` | ✅ | Your application's client/application ID |
 | `REQUIRED_BAKE_COMMANDS` | ❌ | Comma-separated slash command names required by deploy validation (e.g. `bake,bakery,marketplace,bakeadmin`) |
-| `DEV_USER_ID` | ❌ | Discord user ID permitted to use `/setstatus`, `/servers` |
-| `NVIDIA_API_KEY` | ❌ | NVIDIA Build AI API key used by `/ai` via `https://integrate.api.nvidia.com/v1` |
+| `DEV_USER_ID` | ❌ | Discord user ID(s) permitted to use dev commands (comma-separated supported) |
+| `NVIDIA_API_KEY` | ❌ | NVIDIA Build API key used by `/ai` via `https://integrate.api.nvidia.com/v1` |
 
 > ⚠️ **Never commit your `.env` file.** It is listed in `.gitignore` by default.
 

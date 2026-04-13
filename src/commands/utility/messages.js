@@ -10,6 +10,7 @@ module.exports = {
     .setDMPermission(false),
 
   async execute(interaction) {
+    economy.markInboxMessagesRead(interaction.guild.id, interaction.user.id);
     const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
     const embed = economy.buildMessagesEmbed(interaction.guild, snapshot.user, 0);
     const components = economy.buildMessagesComponents(snapshot.user, 0);

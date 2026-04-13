@@ -2900,6 +2900,21 @@ function addPendingMessage(guildId, userId, messageData) {
   writeState(data);
 }
 
+function markInboxMessagesRead(guildId, userId) {
+  const data = readState();
+  const guildState = getGuildState(data, guildId);
+  const user = getUserState(guildState, userId);
+  let updated = false;
+  for (const msg of user.pendingMessages) {
+    if (msg.claimed) continue;
+    if (msg.type === 'gift_box' || msg.type === 'gift_cookies') continue;
+    msg.claimed = true;
+    updated = true;
+  }
+  if (updated) writeState(data);
+  return updated;
+}
+
 function getAllTrackedUserIds(guildId) {
   const data = readState();
   const guildState = data[guildId];
@@ -2970,25 +2985,34 @@ function deletePendingMessage(guildId, userId, messageId) {
 
 function buildMessagesEmbed(guild, user, page) {
   const pending = user.pendingMessages ?? [];
+  const unreadCount = pending.filter((msg) => !msg.claimed).length;
   const unclaimedRewards = pending.filter((msg) => (msg.type === 'gift_box' || msg.type === 'gift_cookies') && !msg.claimed).length;
   const totalPages = Math.max(1, Math.ceil(pending.length / MESSAGES_PER_PAGE));
   const safePage = Math.max(0, Math.min(page, totalPages - 1));
-  const pageMsgs = pending.slice(safePage * MESSAGES_PER_PAGE, safePage * MESSAGES_PER_PAGE + MESSAGES_PER_PAGE);
+  const newestFirst = [...pending].reverse();
+  const pageMsgs = newestFirst.slice(safePage * MESSAGES_PER_PAGE, safePage * MESSAGES_PER_PAGE + MESSAGES_PER_PAGE);
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
-    .setTitle('📬 Messages & Notifications')
-    .setDescription(`Total: **${pending.length}** • Unclaimed rewards: **${unclaimedRewards}**`)
-    .setFooter({ text: `Page ${safePage + 1}/${totalPages} • ${pending.length} message(s) total` });
+    .setTitle('📬 Inbox')
+    .setDescription([
+      `**Unread:** ${unreadCount}`,
+      `**Unclaimed Rewards:** ${unclaimedRewards}`,
+      `**Total Messages:** ${pending.length}`,
+      '',
+      'Use the buttons below to claim rewards or dismiss messages.',
+    ].join('\n'))
+    .setFooter({ text: `Page ${safePage + 1}/${totalPages} • newest first` });
 
   if (pending.length === 0) {
-    embed.setDescription('Your inbox is empty. Gift notifications, cookies, and alliance updates will appear here.');
+    embed.setDescription('Your inbox is empty right now.\n\nGift notifications, staff updates, and alliance alerts will appear here.');
     return embed;
   }
 
-  const lines = pageMsgs.map((msg, idx) => {
-    const num = safePage * MESSAGES_PER_PAGE + idx + 1;
+  const fields = pageMsgs.map((msg, idx) => {
+    const globalIndex = pending.length - (safePage * MESSAGES_PER_PAGE + idx);
     const ts = msg.createdAt ? `<t:${Math.floor(new Date(msg.createdAt).getTime() / 1000)}:R>` : '';
-    let icon, category, summary;
+    const unreadPrefix = msg.claimed ? '✅' : '🆕';
+    let icon; let category; let summary;
     if (msg.type === 'gift_box') {
       const box = REWARD_BOX_MAP.get(msg.rewardBoxId);
       icon = msg.claimed ? '✅' : '🎁';
@@ -3008,17 +3032,18 @@ function buildMessagesEmbed(guild, user, page) {
       const typeIcon = msg.messageType === 'moderation' ? '⚠️' : msg.messageType === 'bakery' ? '🍪' : '🔔';
       icon = typeIcon;
       category = 'Staff';
-      const titlePart = msg.title ? `**${msg.title}**: ` : '';
-      summary = `${titlePart}${(msg.content ?? '').slice(0, 200)} *(from ${msg.from ?? 'Staff'})*`;
+      const titlePart = msg.title ? `**${msg.title}**\n` : '';
+      summary = `${titlePart}${(msg.content ?? '').slice(0, 400)}\n*From ${msg.from ?? 'Staff'}*`;
     } else {
       icon = '📢';
       category = 'Notification';
       summary = msg.content ?? msg.message ?? '(notification)';
     }
-    return `**#${num} • ${icon} ${category}**\n${summary}${ts ? `\n${ts}` : ''}`;
+    const name = `#${globalIndex} • ${unreadPrefix} ${icon} ${category}${ts ? ` • ${ts}` : ''}`.slice(0, 256);
+    return { name, value: summary.slice(0, 1024), inline: false };
   });
 
-  embed.addFields({ name: 'Inbox', value: lines.join('\n\n').slice(0, 1024) });
+  embed.addFields(fields);
   return embed;
 }
 
@@ -3026,7 +3051,8 @@ function buildMessagesComponents(user, page) {
   const pending = user.pendingMessages ?? [];
   const totalPages = Math.max(1, Math.ceil(pending.length / MESSAGES_PER_PAGE));
   const safePage = Math.max(0, Math.min(page, totalPages - 1));
-  const pageMsgs = pending.slice(safePage * MESSAGES_PER_PAGE, safePage * MESSAGES_PER_PAGE + MESSAGES_PER_PAGE);
+  const newestFirst = [...pending].reverse();
+  const pageMsgs = newestFirst.slice(safePage * MESSAGES_PER_PAGE, safePage * MESSAGES_PER_PAGE + MESSAGES_PER_PAGE);
 
   const rows = [];
   // Pair messages 2 per action row: [Claim N] [Dismiss N] [Claim N+1] [Dismiss N+1]
@@ -3034,7 +3060,7 @@ function buildMessagesComponents(user, page) {
     const btns = [];
     for (let j = i; j < Math.min(i + 2, pageMsgs.length); j++) {
       const msg = pageMsgs[j];
-      const label = `#${safePage * MESSAGES_PER_PAGE + j + 1}`;
+      const label = `#${pending.length - (safePage * MESSAGES_PER_PAGE + j)}`;
       const isClaimable = (msg.type === 'gift_box' || msg.type === 'gift_cookies') && !msg.claimed;
       if (isClaimable) {
         btns.push(
@@ -3568,6 +3594,7 @@ module.exports = {
   startRandomCookieEvent,
   GIFT_BOX_OPTION_PREFIX,
   addPendingMessage,
+  markInboxMessagesRead,
   getAllTrackedUserIds,
   claimPendingMessage,
   claimAllPendingMessages,

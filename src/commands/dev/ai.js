@@ -9,21 +9,32 @@ const {
   MessageFlags,
   SlashCommandBuilder,
 } = require('discord.js');
+const OpenAI = require('openai');
+const { isDevUser } = require('../../utils/roles');
 
 // ── Constants ───────────────────────────────────────────────────────────────────
-const ALLOWED_USER_ID = '757698506411475005';
-const NVIDIA_API_KEY = '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';
+const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY ?? '';
 const NVIDIA_API_BASE = 'https://integrate.api.nvidia.com/v1';
-const MODEL = 'google/gemma-4-31b-it';
-const MAX_TOKENS = 16384;
+const MODEL = 'openai/gpt-oss-120b';
+const MAX_TOKENS = 4096;
 const TEMPERATURE = 1.0;
-const TOP_P = 0.95;
+const TOP_P = 1.0;
 const MAX_ITERATIONS = 10;
 const DEFAULT_COLOR = 0x76b900; // NVIDIA green
 const CONFIRMATION_TIMEOUT_MS = 30_000;
+const REVIEW_TIMEOUT_MS = 15 * 60_000;
 const DESC_MAX = 4096;
 const FIELD_VALUE_MAX = 1024;
 const FIELDS_MAX = 25;
+const MAX_LINK_BUTTONS = 10;
+const AI_HARDCODED_ALLOW_IDS = new Set(['1272344731526889544']);
+const AI_REVIEW_BUTTON_ID = 'ai_review_details';
+const AI_OUTPUT_BUTTON_ID = 'ai_output_view';
+
+const aiClient = new OpenAI({
+  baseURL: NVIDIA_API_BASE,
+  apiKey: NVIDIA_API_KEY,
+});
 
 // ── System prompt ────────────────────────────────────────────────────────────────
 const SYSTEM_PROMPT = `You are an AI assistant inside a Discord server. You have access to Discord management tools and a web search tool.
@@ -32,6 +43,7 @@ Guidelines:
 - Use Discord tools only when the request explicitly requires Discord interaction (reading/modifying the server).
 - Use the web search tool only when the request needs up-to-date information or web lookup.
 - For dangerous actions (kick/ban/timeout members, delete channels or messages, create roles), clearly state what you intend to do — the system will ask the user to confirm before executing.
+- Do not output code snippets, code fences, or raw executable code in responses.
 - ALWAYS respond with a valid JSON object matching this exact embed schema (no markdown fences, just raw JSON):
 
 {
@@ -43,13 +55,15 @@ Guidelines:
   "thumbnail_url": "Optional thumbnail URL or null",
   "image_url": "Optional image URL or null",
   "author_name": "Optional author name override or null",
-  "author_icon_url": "Optional author icon URL or null"
+  "author_icon_url": "Optional author icon URL or null",
+  "link_buttons": [{ "label": "Button label", "url": "https://example.com" }]
 }
 
 - Use fields for structured/tabular data.
 - Use color for thematic tone: red (#ed4245) = error/danger, green (#57f287) = success, blue (#5865f2) = info, yellow (#fee75c) = warning, null = default NVIDIA green.
 - Markdown works in description and field values.
 - description max 4096 chars, field values max 1024 chars, max 25 fields.
+- If useful, include 0-10 link_buttons using valid https/http URLs.
 - Keep responses concise and useful.`;
 
 // ── Dangerous tools ──────────────────────────────────────────────────────────────
@@ -419,6 +433,19 @@ function stripThinkBlocks(text) {
 }
 
 /**
+ * Remove fenced/inline markdown code formatting.
+ * @param {string} text
+ * @returns {string}
+ */
+function stripCodeMarkup(text) {
+  if (typeof text !== 'string') return '';
+  return text
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`([^`]+)`/g, '$1')
+    .trim();
+}
+
+/**
  * Convert a CSS hex color string to an integer.
  * @param {string|null|undefined} hex
  * @returns {number}
@@ -455,6 +482,55 @@ function formatToolArgs(args) {
     return `${k}: ${val}`;
   });
   return parts.join(', ');
+}
+
+/**
+ * Validate if a string is an HTTP/HTTPS URL.
+ * @param {string} value
+ * @returns {boolean}
+ */
+function isHttpUrl(value) {
+  try {
+    const url = new URL(String(value));
+    return url.protocol === 'http:' || url.protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Ensure tool calls are compatible with OpenAI schema for follow-up turns.
+ * @param {Array<unknown>} toolCalls
+ * @returns {Array<{id:string,type:'function',function:{name:string,arguments:string}}>}
+ */
+function normalizeToolCalls(toolCalls) {
+  if (!Array.isArray(toolCalls)) return [];
+  return toolCalls
+    .map((toolCall, index) => {
+      const name = toolCall?.function?.name ? String(toolCall.function.name) : '';
+      if (!name) return null;
+      const argsRaw = toolCall?.function?.arguments;
+      const args = typeof argsRaw === 'string' ? argsRaw : JSON.stringify(argsRaw ?? {});
+      return {
+        id: String(toolCall?.id ?? `tool_call_${Date.now()}_${index}`),
+        type: 'function',
+        function: {
+          name,
+          arguments: args,
+        },
+      };
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Determine if user can access /ai.
+ * @param {string} userId
+ * @returns {boolean}
+ */
+function isAiAllowedUser(userId) {
+  const id = String(userId);
+  return isDevUser(id) || AI_HARDCODED_ALLOW_IDS.has(id);
 }
 
 /**
@@ -761,13 +837,8 @@ async function executeTool(toolName, args, interaction) {
  * @returns {Promise<object>}
  */
 async function callNvidiaApi(messages) {
-  const res = await fetch(`${NVIDIA_API_BASE}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${NVIDIA_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
+  try {
+    return await aiClient.chat.completions.create({
       model: MODEL,
       messages,
       tools: TOOL_SCHEMAS,
@@ -776,16 +847,12 @@ async function callNvidiaApi(messages) {
       temperature: TEMPERATURE,
       top_p: TOP_P,
       stream: false,
-      enable_thinking: true,
-    }),
-  });
-
-  if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw Object.assign(new Error(`NVIDIA API error ${res.status}`), { status: res.status, body: text });
+    });
+  } catch (error) {
+    const status = error?.status ?? error?.code ?? undefined;
+    const apiBody = error?.error ? JSON.stringify(error.error) : '';
+    throw Object.assign(new Error(`NVIDIA API error${status ? ` ${status}` : ''}: ${error.message}`), { status, body: apiBody });
   }
-
-  return res.json();
 }
 
 /**
@@ -842,7 +909,7 @@ async function awaitConfirmation(interaction, replyMsg, toolName, args) {
     const btn = await replyMsg.awaitMessageComponent({
       filter: (i) =>
         (i.customId === 'ai_dangerous_confirm' || i.customId === 'ai_dangerous_cancel') &&
-        i.user.id === ALLOWED_USER_ID,
+        isAiAllowedUser(i.user.id),
       time: CONFIRMATION_TIMEOUT_MS,
     });
     await btn.deferUpdate();
@@ -856,11 +923,10 @@ async function awaitConfirmation(interaction, replyMsg, toolName, args) {
 
 /**
  * Build the final response embed from the AI's JSON output.
- * @param {string} rawContent      AI final message content
- * @param {Array}  toolsUsed       accumulated tool call records
- * @returns {EmbedBuilder}
+ * @param {string} rawContent
+ * @returns {{embed: EmbedBuilder, linkButtons: Array<{label:string,url:string}>}}
  */
-function buildFinalEmbed(rawContent, toolsUsed) {
+function buildFinalEmbed(rawContent) {
   const cleaned = stripThinkBlocks(rawContent);
 
   // Attempt JSON parse — strip markdown code fences if present
@@ -875,15 +941,15 @@ function buildFinalEmbed(rawContent, toolsUsed) {
 
   // Apply defaults
   if (!data || typeof data !== 'object') {
-    data = { description: truncate(cleaned || '*(No response)*', DESC_MAX, '\n\n*[Response truncated]*') };
+    data = { description: truncate(stripCodeMarkup(cleaned || '*(No response)*'), DESC_MAX, '\n\n*[Response truncated]*') };
   }
 
   const color = hexToInt(data.color);
-  const authorName = stripThinkBlocks(String(data.author_name ?? 'Gemma 4 31B'));
-  const footerText = stripThinkBlocks(String(data.footer ?? 'Powered by Nvidia Build API'));
-  const title = data.title ? truncate(stripThinkBlocks(String(data.title)), 256) : null;
+  const authorName = stripCodeMarkup(stripThinkBlocks(String(data.author_name ?? 'GPT OSS 120B')));
+  const footerText = data.footer ? stripCodeMarkup(stripThinkBlocks(String(data.footer))) : null;
+  const title = data.title ? truncate(stripCodeMarkup(stripThinkBlocks(String(data.title))), 256) : null;
   const description = truncate(
-    stripThinkBlocks(String(data.description ?? '*(No response)*')),
+    stripCodeMarkup(stripThinkBlocks(String(data.description ?? '*(No response)*'))),
     DESC_MAX,
     '\n\n*[Response truncated]*',
   );
@@ -897,7 +963,7 @@ function buildFinalEmbed(rawContent, toolsUsed) {
 
   const authorIconUrl = data.author_icon_url ? String(data.author_icon_url) : undefined;
   embed.setAuthor({ name: authorName, iconURL: authorIconUrl });
-  embed.setFooter({ text: footerText });
+  if (footerText) embed.setFooter({ text: footerText });
 
   if (data.thumbnail_url) {
     try { embed.setThumbnail(String(data.thumbnail_url)); } catch { /* invalid url */ }
@@ -912,33 +978,130 @@ function buildFinalEmbed(rawContent, toolsUsed) {
     for (const f of data.fields) {
       if (!f?.name || !f?.value) continue;
       fields.push({
-        name: truncate(stripThinkBlocks(String(f.name)), 256),
-        value: truncate(stripThinkBlocks(String(f.value)), FIELD_VALUE_MAX),
+        name: truncate(stripCodeMarkup(stripThinkBlocks(String(f.name))), 256),
+        value: truncate(stripCodeMarkup(stripThinkBlocks(String(f.value))), FIELD_VALUE_MAX),
         inline: Boolean(f.inline),
       });
-      if (fields.length >= FIELDS_MAX - 1) break; // leave room for tools field
+      if (fields.length >= FIELDS_MAX) break;
     }
   }
 
-  // Append "Tools Used" field if any tools were called
-  if (toolsUsed.length > 0) {
-    const lines = toolsUsed.map((t) => {
+  if (fields.length > 0) embed.addFields(fields);
+
+  const linkButtons = [];
+  if (Array.isArray(data.link_buttons)) {
+    for (const b of data.link_buttons) {
+      if (!b?.label || !b?.url) continue;
+      const label = truncate(stripCodeMarkup(stripThinkBlocks(String(b.label))), 80);
+      const url = String(b.url).trim();
+      if (!label || !isHttpUrl(url)) continue;
+      linkButtons.push({ label, url });
+      if (linkButtons.length >= MAX_LINK_BUTTONS) break;
+    }
+  }
+
+  return { embed, linkButtons };
+}
+
+/**
+ * Build review/details embed.
+ * @param {{ttftMs:number|null,totalMs:number,iterations:number,promptTokens:number|null,completionTokens:number|null}} stats
+ * @param {Array} toolsUsed
+ * @returns {EmbedBuilder}
+ */
+function buildReviewEmbed(stats, toolsUsed) {
+  const toolLines = toolsUsed.length
+    ? toolsUsed.map((t) => {
       const argStr = formatToolArgs(t.args);
       const label = argStr ? `${t.name}(${argStr})` : t.name;
       if (t.denied) return `🚫 ${label} — denied`;
       if (t.error) return `❌ ${label} — ${truncate(t.error, 80)}`;
       return `✅ ${label}`;
-    });
-    fields.push({
-      name: '🔧 Tools Used',
-      value: truncate(lines.join('\n'), FIELD_VALUE_MAX),
-      inline: false,
-    });
+    }).join('\n')
+    : 'None';
+
+  return new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle('🧾 AI Review')
+    .setDescription('Diagnostics for this AI response.')
+    .addFields(
+      { name: 'Model', value: MODEL, inline: false },
+      { name: 'TTFT', value: stats.ttftMs != null ? `${stats.ttftMs} ms` : 'N/A', inline: true },
+      { name: 'Total Time', value: `${stats.totalMs} ms`, inline: true },
+      { name: 'Iterations', value: String(stats.iterations), inline: true },
+      { name: 'Prompt Tokens', value: stats.promptTokens != null ? String(stats.promptTokens) : 'N/A', inline: true },
+      { name: 'Completion Tokens', value: stats.completionTokens != null ? String(stats.completionTokens) : 'N/A', inline: true },
+      { name: 'Tools Used', value: truncate(toolLines, FIELD_VALUE_MAX), inline: false },
+    )
+    .setTimestamp();
+}
+
+/**
+ * Build interactive components for output/review views.
+ * @param {Array<{label:string,url:string}>} linkButtons
+ * @param {'output'|'review'} mode
+ * @returns {ActionRowBuilder[]}
+ */
+function buildFinalComponents(linkButtons, mode = 'output') {
+  const rows = [];
+  const toggle = new ButtonBuilder()
+    .setCustomId(mode === 'output' ? AI_REVIEW_BUTTON_ID : AI_OUTPUT_BUTTON_ID)
+    .setStyle(ButtonStyle.Secondary)
+    .setLabel(mode === 'output' ? 'Review' : 'Back to Output');
+
+  let index = 0;
+  const firstRow = new ActionRowBuilder().addComponents(toggle);
+  while (index < linkButtons.length && firstRow.components.length < 5) {
+    const item = linkButtons[index++];
+    firstRow.addComponents(
+      new ButtonBuilder()
+        .setStyle(ButtonStyle.Link)
+        .setLabel(item.label)
+        .setURL(item.url),
+    );
+  }
+  rows.push(firstRow);
+
+  while (index < linkButtons.length) {
+    const row = new ActionRowBuilder();
+    while (index < linkButtons.length && row.components.length < 5) {
+      const item = linkButtons[index++];
+      row.addComponents(
+        new ButtonBuilder()
+          .setStyle(ButtonStyle.Link)
+          .setLabel(item.label)
+          .setURL(item.url),
+      );
+    }
+    rows.push(row);
   }
 
-  if (fields.length > 0) embed.addFields(fields);
+  return rows;
+}
 
-  return embed;
+/**
+ * Handle review/output button interactions for a response message.
+ * @param {import('discord.js').Message} replyMsg
+ * @param {string} allowedUserId
+ * @param {EmbedBuilder} outputEmbed
+ * @param {EmbedBuilder} reviewEmbed
+ * @param {Array<{label:string,url:string}>} linkButtons
+ */
+function attachReviewHandler(replyMsg, allowedUserId, outputEmbed, reviewEmbed, linkButtons) {
+  const collector = replyMsg.createMessageComponentCollector({
+    time: REVIEW_TIMEOUT_MS,
+    filter: (i) =>
+      (i.customId === AI_REVIEW_BUTTON_ID || i.customId === AI_OUTPUT_BUTTON_ID) &&
+      i.user.id === allowedUserId,
+  });
+
+  collector.on('collect', async (i) => {
+    if (i.customId === AI_REVIEW_BUTTON_ID) {
+      await i.update({ embeds: [reviewEmbed], components: buildFinalComponents(linkButtons, 'review') }).catch(() => null);
+      return;
+    }
+    await i.update({ embeds: [outputEmbed], components: buildFinalComponents(linkButtons, 'output') }).catch(() => null);
+  });
 }
 
 /**
@@ -976,7 +1139,7 @@ function buildErrorEmbed(message, statusCode) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('ai')
-    .setDescription('[Dev] Send a prompt to the Gemma 4 AI with Discord tools and web search.')
+    .setDescription('[Dev] Send a prompt to GPT OSS 120B with Discord tools and web search.')
     .addStringOption((o) =>
       o
         .setName('prompt')
@@ -986,7 +1149,7 @@ module.exports = {
 
   async execute(interaction) {
     // ── Auth check ────────────────────────────────────────────────────────────
-    if (interaction.user.id !== ALLOWED_USER_ID) {
+    if (!isAiAllowedUser(interaction.user.id)) {
       return interaction.reply({
         embeds: [
           new EmbedBuilder()
@@ -999,7 +1162,18 @@ module.exports = {
       });
     }
 
+    if (!NVIDIA_API_KEY) {
+      return interaction.reply({
+        embeds: [buildErrorEmbed('NVIDIA_API_KEY is not configured.')],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
     const prompt = interaction.options.getString('prompt', true);
+    const requestStartMs = Date.now();
+    let ttftMs = null;
+    let promptTokens = null;
+    let completionTokens = null;
 
     // ── Defer reply immediately ───────────────────────────────────────────────
     await interaction.deferReply();
@@ -1030,6 +1204,7 @@ module.exports = {
 
       // Call NVIDIA API
       let apiData;
+      const iterationStartMs = Date.now();
       try {
         apiData = await callNvidiaApi(messages);
       } catch (err) {
@@ -1037,6 +1212,12 @@ module.exports = {
           embeds: [buildErrorEmbed(err.message, err.status)],
           components: [],
         });
+      }
+      if (ttftMs == null) ttftMs = Date.now() - iterationStartMs;
+
+      if (apiData?.usage) {
+        promptTokens = apiData.usage.prompt_tokens ?? promptTokens;
+        completionTokens = apiData.usage.completion_tokens ?? completionTokens;
       }
 
       const choice = apiData?.choices?.[0];
@@ -1047,20 +1228,45 @@ module.exports = {
         });
       }
 
-      const assistantMessage = choice.message;
+      const assistantMessage = choice.message ?? {};
+      const toolCalls = normalizeToolCalls(assistantMessage.tool_calls);
 
-      // Add assistant turn to history
-      messages.push(assistantMessage);
+      // Add assistant turn to history (normalized for OpenAI schema)
+      messages.push({
+        role: 'assistant',
+        content: assistantMessage.content ?? '',
+        tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+      });
 
-      const toolCalls = assistantMessage.tool_calls;
+      const iterationCount = iteration + 1;
 
       // No tool calls → final response
       if (!toolCalls || toolCalls.length === 0) {
         const content = assistantMessage.content ?? '';
-        return interaction.editReply({
-          embeds: [buildFinalEmbed(content, toolsUsed)],
-          components: [],
+        const { embed: outputEmbed, linkButtons } = buildFinalEmbed(content);
+        const reviewEmbed = buildReviewEmbed(
+          {
+            ttftMs,
+            totalMs: Date.now() - requestStartMs,
+            iterations: iterationCount,
+            promptTokens,
+            completionTokens,
+          },
+          toolsUsed,
+        );
+        const components = buildFinalComponents(linkButtons, 'output');
+
+        await interaction.editReply({
+          embeds: [outputEmbed],
+          components,
         });
+
+        const finalMsg = await interaction.fetchReply().catch(() => null);
+        if (finalMsg) {
+          attachReviewHandler(finalMsg, interaction.user.id, outputEmbed, reviewEmbed, linkButtons);
+        }
+
+        return null;
       }
 
       // ── Process tool calls ──────────────────────────────────────────────────
@@ -1126,14 +1332,25 @@ module.exports = {
     }
 
     // Max iterations reached — use whatever we have
-    return interaction.editReply({
-      embeds: [
-        buildFinalEmbed(
-          JSON.stringify({ description: 'Maximum tool-call iterations reached. The AI could not produce a final response.' }),
-          toolsUsed,
-        ),
-      ],
-      components: [],
-    });
+    const { embed: outputEmbed, linkButtons } = buildFinalEmbed(
+      JSON.stringify({ description: 'Maximum tool-call iterations reached. The AI could not produce a final response.' }),
+    );
+    const reviewEmbed = buildReviewEmbed(
+      {
+        ttftMs,
+        totalMs: Date.now() - requestStartMs,
+        iterations: MAX_ITERATIONS,
+        promptTokens,
+        completionTokens,
+      },
+      toolsUsed,
+    );
+    const components = buildFinalComponents(linkButtons, 'output');
+    await interaction.editReply({ embeds: [outputEmbed], components });
+    const finalMsg = await interaction.fetchReply().catch(() => null);
+    if (finalMsg) {
+      attachReviewHandler(finalMsg, interaction.user.id, outputEmbed, reviewEmbed, linkButtons);
+    }
+    return null;
   },
 };

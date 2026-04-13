@@ -25,6 +25,7 @@
   "homepage": "https://github.com/ShadowsDistant/vcf-discord-bot#readme",
   "dependencies": {
     "discord.js": "^14.26.2",
-    "dotenv": "^16.4.7"
+    "dotenv": "^16.4.7",
+    "openai": "^6.34.0"
   }
 }
