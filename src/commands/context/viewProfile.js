@@ -4,10 +4,29 @@ const {
   ContextMenuCommandBuilder,
   ApplicationCommandType,
   EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   MessageFlags,
 } = require('discord.js');
-const db = require('../../utils/database');
-const economy = require('../../utils/bakeEconomy');
+const { PALETTE } = require('../../utils/embeds');
+
+/** Map Discord UserFlags to readable labels with emojis. */
+const FLAG_LABELS = {
+  Staff: '‍  Discord Staff',
+  Partner: '  Discord Partner',
+  Hypesquad: '  HypeSquad Events',
+  BugHunterLevel1: '  Bug Hunter (Level 1)',
+  HypeSquadOnlineHouse1: '  HypeSquad Bravery',
+  HypeSquadOnlineHouse2: '  HypeSquad Brilliance',
+  HypeSquadOnlineHouse3: '  HypeSquad Balance',
+  PremiumEarlySupporter: '⭐  Early Supporter',
+  BugHunterLevel2: '  Bug Hunter (Level 2)',
+  VerifiedBot: '  Verified Bot',
+  VerifiedDeveloper: '‍  Verified Bot Developer',
+  CertifiedModerator: '  Discord Certified Moderator',
+  ActiveDeveloper: '  Active Developer',
+};
 
 module.exports = {
   data: new ContextMenuCommandBuilder()
@@ -17,24 +36,76 @@ module.exports = {
 
   async execute(interaction) {
     const target = interaction.targetUser;
-    const shift = db.getActiveShift(interaction.guild.id, target.id);
-    const warnings = db.getWarnings(interaction.guild.id, target.id);
-    const snapshot = economy.getUserSnapshot(interaction.guild.id, target.id);
+    const member = await interaction.guild.members.fetch(target.id).catch(() => null);
+
+    const flags = target.flags
+      ? target.flags.toArray().map((f) => FLAG_LABELS[f] ?? f).join('\n')
+      : null;
 
     const embed = new EmbedBuilder()
-      .setColor(0x5865f2)
-      .setTitle(`Profile: ${target.tag}`)
-      .setThumbnail(target.displayAvatarURL({ dynamic: true }))
+      .setColor(member?.displayColor || PALETTE.primary)
+      .setTitle(`  ${target.tag}`)
+      .setThumbnail(target.displayAvatarURL({ dynamic: true, size: 256 }))
       .addFields(
-        { name: 'Warnings', value: `**${warnings.length}**`, inline: true },
-        { name: 'Shift Status', value: shift ? '🟢 On Shift' : '⚪ Off Shift', inline: true },
-        { name: 'Bakery', value: `**${snapshot.user.bakeryName ?? 'My Bakery'}**`, inline: true },
-        { name: 'Cookies', value: economy.toCookieNumber(snapshot.user.cookies ?? 0), inline: true },
-        { name: 'CPS', value: economy.toCookieNumber(economy.computeCps(snapshot.user, Date.now())), inline: true },
-        { name: 'Achievements', value: `${(snapshot.user.milestones ?? []).length}`, inline: true },
+        { name: '🆔  User ID', value: `\`${target.id}\``, inline: true },
+        { name: '  Bot?', value: target.bot ? 'Yes' : 'No', inline: true },
+        {
+          name: '  Account Created',
+          value: `<t:${Math.floor(target.createdTimestamp / 1000)}:D> (<t:${Math.floor(target.createdTimestamp / 1000)}:R>)`,
+        },
       )
-      .setTimestamp();
+      .setTimestamp()
+      .setFooter({
+        text: interaction.guild.name,
+        iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined,
+      });
 
-    return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    if (member) {
+      const topRole = member.roles.highest && member.roles.highest.id !== interaction.guild.id
+        ? member.roles.highest
+        : null;
+      embed.addFields(
+        {
+          name: '  Joined Server',
+          value: member.joinedTimestamp
+            ? `<t:${Math.floor(member.joinedTimestamp / 1000)}:D> (<t:${Math.floor(member.joinedTimestamp / 1000)}:R>)`
+            : 'Unknown',
+        },
+        {
+          name: '  Position',
+          value: topRole ? `${topRole.name}` : 'None',
+          inline: true,
+        },
+        {
+          name: `  Roles (${member.roles.cache.size - 1})`,
+          value:
+            member.roles.cache.size > 1
+              ? member.roles.cache
+                  .filter((r) => r.id !== interaction.guild.id)
+                  .sort((a, b) => b.position - a.position)
+                  .map((r) => `${r}`)
+                  .slice(0, 20)
+                  .join(' ') || 'None'
+              : 'None',
+        },
+      );
+
+      if (member.nickname) {
+        embed.addFields({ name: '  Nickname', value: member.nickname, inline: true });
+      }
+    }
+
+    if (flags) {
+      embed.addFields({ name: '  Badges', value: flags });
+    }
+
+    const robloxQuery = encodeURIComponent(member?.nickname ?? target.username);
+    const robloxButton = new ButtonBuilder()
+      .setStyle(ButtonStyle.Primary)
+      .setLabel('View Roblox Info')
+      .setCustomId(`userinfo_roblox:${target.id}:${robloxQuery}`);
+    const row = new ActionRowBuilder().addComponents(robloxButton);
+
+    return interaction.reply({ embeds: [embed], components: [row], flags: MessageFlags.Ephemeral });
   },
 };

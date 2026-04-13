@@ -4,7 +4,7 @@ const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('disc
 const embeds = require('../../utils/embeds');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
 const analytics = require('../../utils/analytics');
-const { sendModerationActionDm } = require('../../utils/moderationNotifications');
+const { sendModerationActionDm, sendModLog } = require('../../utils/moderationNotifications');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -19,6 +19,7 @@ module.exports = {
       o
         .setName('reason')
         .setDescription('Reason for the ban. Start typing to see preset reasons.')
+        .setRequired(true)
         .setAutocomplete(true),
     )
     .addIntegerOption((o) =>
@@ -39,7 +40,7 @@ module.exports = {
     }
 
     const target = interaction.options.getUser('user');
-    const reason = interaction.options.getString('reason') ?? 'No reason provided.';
+    const reason = interaction.options.getString('reason');
     const deleteDays = interaction.options.getInteger('delete_days') ?? 0;
 
     const member = await interaction.guild.members.fetch(target.id).catch(() => null);
@@ -72,6 +73,14 @@ module.exports = {
         deleteMessageSeconds: deleteDays * 86400,
       });
       analytics.recordModAction(interaction.guild.id, 'ban', Date.now());
+      await sendModLog({
+        guild: interaction.guild,
+        target,
+        moderator: interaction.user,
+        action: 'Ban',
+        reason,
+        extra: deleteDays > 0 ? `Messages deleted: **${deleteDays} day(s)**` : undefined,
+      });
 
       return interaction.reply({
         embeds: [

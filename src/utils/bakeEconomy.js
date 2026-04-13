@@ -1090,7 +1090,19 @@ function syncUserRank(user) {
   if (!RANK_INDEX.has(user.rankId)) user.rankId = RANKS[0].id;
   if (!Array.isArray(user.rankRewardsClaimed)) user.rankRewardsClaimed = [];
   const previousIndex = RANK_INDEX.get(user.rankId) ?? 0;
-  const targetIndex = getHighestUnlockedRankIndex(user);
+  const naturalIndex = getHighestUnlockedRankIndex(user);
+
+  // If admin has forced a rank higher than what the user naturally earned,
+  // respect the forced rank but still apply rewards for any newly unlocked
+  // natural ranks below it.
+  const adminForcedIndex = Number.isInteger(user.adminForcedRankIndex) ? user.adminForcedRankIndex : -1;
+  const targetIndex = Math.max(naturalIndex, adminForcedIndex);
+
+  // Clear the admin force flag once the user naturally reaches or exceeds it.
+  if (adminForcedIndex >= 0 && naturalIndex >= adminForcedIndex) {
+    delete user.adminForcedRankIndex;
+  }
+
   const unlockedRanks = [];
   if (targetIndex > previousIndex) {
     for (let index = previousIndex + 1; index <= targetIndex; index += 1) {
@@ -2232,6 +2244,24 @@ function buyUpgrade(guildId, userId, upgradeId) {
   return { ok: true, upgrade, newlyEarned };
 }
 
+const UPGRADE_SELL_LOSS_RATE = 0.30; // 30% loss
+
+function sellUpgrade(guildId, userId, upgradeId) {
+  const upgrade = UPGRADE_MAP.get(upgradeId);
+  if (!upgrade) return { ok: false, reason: 'Unknown upgrade.' };
+  const data = readState();
+  const guildState = getGuildState(data, guildId);
+  const user = getUserState(guildState, userId);
+  applyPassiveIncome(user, Date.now());
+  if (!user.upgrades.includes(upgradeId)) return { ok: false, reason: 'You have not purchased that upgrade.' };
+  const refund = Math.floor(upgrade.cost * (1 - UPGRADE_SELL_LOSS_RATE));
+  user.upgrades = user.upgrades.filter((id) => id !== upgradeId);
+  user.cookies += refund;
+  user.cookiesBakedAllTime += refund;
+  writeState(data);
+  return { ok: true, upgrade, refund };
+}
+
 function sellInventoryItem(guildId, userId, itemId, sellAll = false) {
   const data = readState();
   const guildState = getGuildState(data, guildId);
@@ -2469,6 +2499,8 @@ function adminSetRank(guildId, targetUserId, rankId) {
   target.rankId = rankId;
   target.title = RANKS[rankIndex].name;
   target.rankRewardsClaimed = RANKS.slice(0, rankIndex + 1).map((rank) => rank.id);
+  // Persist the admin-forced rank index so syncUserRank won't downgrade it.
+  target.adminForcedRankIndex = rankIndex;
   writeState(data);
   return true;
 }
@@ -2518,6 +2550,61 @@ function adminGrantRewardBox(guildId, targetUserId, rewardBoxId, quantity) {
   target.rewardGifts[rewardBoxId] = (target.rewardGifts[rewardBoxId] ?? 0) + quantity;
   writeState(data);
   return true;
+}
+
+/**
+ * Grants a reward gift box to a single user with an optional admin message
+ * stored in the user's giftMessages array.
+ */
+function adminGrantRewardBoxWithMessage(guildId, targetUserId, rewardBoxId, quantity, message, senderTag) {
+  const { data, target } = adminEnsureTarget(guildId, targetUserId);
+  if (!REWARD_BOX_MAP.has(rewardBoxId)) return false;
+  if (!Number.isInteger(quantity) || quantity <= 0) return false;
+  target.rewardGifts[rewardBoxId] = (target.rewardGifts[rewardBoxId] ?? 0) + quantity;
+  if (message) {
+    if (!Array.isArray(target.giftMessages)) target.giftMessages = [];
+    target.giftMessages.push({
+      id: Date.now(),
+      from: senderTag ?? 'Admin',
+      rewardBoxId,
+      quantity,
+      message: String(message).slice(0, 500),
+      receivedAt: new Date().toISOString(),
+    });
+    // Cap stored messages at 20 most recent
+    if (target.giftMessages.length > 20) target.giftMessages = target.giftMessages.slice(-20);
+  }
+  writeState(data);
+  return true;
+}
+
+/**
+ * Grants a reward gift box to every tracked user in the guild.
+ * Returns the number of users gifted.
+ */
+function adminGiftAllUsers(guildId, rewardBoxId, quantity, message, senderTag) {
+  if (!REWARD_BOX_MAP.has(rewardBoxId)) return 0;
+  if (!Number.isInteger(quantity) || quantity <= 0) return 0;
+  const data = readState();
+  const guildState = getGuildState(data, guildId);
+  const users = Object.values(guildState.users ?? {});
+  for (const user of users) {
+    user.rewardGifts[rewardBoxId] = (user.rewardGifts[rewardBoxId] ?? 0) + quantity;
+    if (message) {
+      if (!Array.isArray(user.giftMessages)) user.giftMessages = [];
+      user.giftMessages.push({
+        id: Date.now(),
+        from: senderTag ?? 'Admin',
+        rewardBoxId,
+        quantity,
+        message: String(message).slice(0, 500),
+        receivedAt: new Date().toISOString(),
+      });
+      if (user.giftMessages.length > 20) user.giftMessages = user.giftMessages.slice(-20);
+    }
+  }
+  writeState(data);
+  return users.length;
 }
 
 function adminResetUser(guildId, targetUserId) {
@@ -2625,6 +2712,7 @@ function buildBakeAdminDashboardComponents(actorId) {
       .addOptions(
         { label: 'Refresh Dashboard', value: 'refresh_dashboard', description: 'Refresh global economy statistics.' },
         { label: 'Start Event', value: 'start_event', description: 'Start a timed special cookie event for the server.' },
+        { label: 'Gift All Users', value: 'gift_all_users', description: 'Grant a reward gift box to every user with a message.' },
         { label: 'Set Admin Log Channel', value: 'set_log_channel', description: 'Set channel for bakeadmin action logs.' },
         { label: 'Reset Entire Economy', value: 'reset_economy', description: 'Reset ALL bakery economy data for this guild.' },
       ),
@@ -2694,7 +2782,7 @@ function buildBakeAdminEmbed(guild, actorId, targetId) {
 function buildBakeAdminComponents(actorId, targetId) {
   const select = new StringSelectMenuBuilder()
     .setCustomId(`bakeadmin_action:${actorId}:${targetId}`)
-    .setPlaceholder('Choose an admin action')
+    .setPlaceholder('Choose a user-level admin action')
     .addOptions(
       { label: 'Give Cookies', value: 'give_cookies', description: 'Add cookies directly to the target.' },
       { label: 'Remove Cookies', value: 'remove_cookies', description: 'Subtract cookies from the target.' },
@@ -2703,16 +2791,14 @@ function buildBakeAdminComponents(actorId, targetId) {
       { label: 'Set Building Count', value: 'set_building', description: 'Set ownership count from a building picker.' },
       { label: 'Grant Achievement', value: 'grant_achievement', description: 'Force-unlock one achievement.' },
       { label: 'Set Rank', value: 'set_rank', description: 'Set target rank from the rank picker.' },
-      { label: 'Grant Reward Gift Box', value: 'grant_reward_box', description: 'Grant a reward gift box quantity.' },
+      { label: 'Grant Reward Gift Box', value: 'grant_reward_box', description: 'Grant a reward gift box with a message.' },
       { label: 'Trigger Golden Cookie', value: 'trigger_golden', description: 'Force a Golden Cookie on next bake.' },
-      { label: 'Start Event', value: 'start_event', description: 'Start a timed special cookie event.' },
       { label: 'Ban Bake Commands', value: 'ban_bake', description: 'Block target from baking commands.' },
       { label: 'Unban Bake Commands', value: 'unban_bake', description: 'Restore target bake command access.' },
       { label: 'Alliance: Grant Upgrade', value: 'alliance_add_upgrade', description: 'Grant alliance store upgrade via pickers.' },
       { label: 'Alliance: Delete Alliance', value: 'alliance_delete', description: 'Delete alliance via picker and confirm.' },
       { label: 'Reset User', value: 'reset_user', description: 'Reset target baking profile to defaults.' },
       { label: 'View User Data', value: 'view_user', description: 'Open target user data embed.' },
-      { label: 'Set Admin Log Channel', value: 'set_log_channel', description: 'Set channel for bakeadmin logs.' },
     );
   return [new ActionRowBuilder().addComponents(select)];
 }
@@ -2945,6 +3031,7 @@ module.exports = {
   buyBuilding,
   sellBuilding,
   buyUpgrade,
+  sellUpgrade,
   sellInventoryItem,
   consumeInventoryItem,
   openRewardGift,
@@ -2969,6 +3056,8 @@ module.exports = {
   adminSetRank,
   adminStartEvent,
   adminGrantRewardBox,
+  adminGrantRewardBoxWithMessage,
+  adminGiftAllUsers,
   adminResetUser,
   adminResetGuildEconomy,
   buildBakeAdminDashboardEmbed,

@@ -25,7 +25,6 @@ const alliances = require('../utils/bakeAlliances');
 const bakeCommand = require('../commands/utility/bake');
 const allianceCommand = require('../commands/utility/alliance');
 const helpCommand = require('../commands/utility/help');
-const aiCommand = require('../commands/dev/ai');
 const shiftCommand = require('../commands/shifts/shift');
 const automodCommand = require('../commands/setup/automod');
 const staffInfractionCommand = require('../commands/moderation/staffinfraction');
@@ -342,9 +341,6 @@ module.exports = {
           embeds: [embeds.warning('These buttons have expired. Run the command again to refresh.', interaction.guild)],
           flags: MessageFlags.Ephemeral,
         });
-      }
-      if (aiCommand.isAiComponentCustomId(interaction.customId)) {
-        return aiCommand.handleAiComponentInteraction(interaction);
       }
       if (interaction.customId.startsWith('bake_golden_claim:')) {
         const [, ownerId, token] = interaction.customId.split(':');
@@ -992,10 +988,6 @@ module.exports = {
           flags: MessageFlags.Ephemeral,
         });
       }
-      if (aiCommand.isAiComponentCustomId(interaction.customId)) {
-        return aiCommand.handleAiComponentInteraction(interaction);
-      }
-      const ownerId = getComponentOwnerId(interaction);
       if (ownerId && ownerId !== interaction.user.id) {
         return interaction.reply({
           embeds: [embeds.error('These select menus belong to someone else\'s command.', interaction.guild)],
