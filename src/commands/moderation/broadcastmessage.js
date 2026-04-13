@@ -38,7 +38,7 @@ const AUDIENCE_OPTIONS = [
   {
     label: '🌐 Everyone',
     value: 'everyone',
-    description: 'All users with any economy data in this guild.',
+    description: 'All non-bot members in this guild.',
   },
   {
     label: '🛡️ Moderation Team',
