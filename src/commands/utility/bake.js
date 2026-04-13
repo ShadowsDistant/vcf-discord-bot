@@ -6,6 +6,7 @@ const {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
+  MessageFlags,
 } = require('discord.js');
 const economy = require('../../utils/bakeEconomy');
 const BAKE_COOLDOWN_MS = 30_000;
@@ -285,7 +286,7 @@ module.exports = {
     if (economy.isUserBakeBanned(interaction.guild.id, interaction.user.id)) {
       return interaction.reply({
         content: 'You are banned from baking commands in this server.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
     const now = Date.now();
@@ -294,7 +295,7 @@ module.exports = {
       const remainingSeconds = Math.ceil(remainingMs / 1000);
       return interaction.reply({
         content: `Slow down, baker. You can use \`/bake\` again in **${remainingSeconds}s**.`,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
     touchCooldown(interaction.guild.id, interaction.user.id, now);

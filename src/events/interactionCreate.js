@@ -219,6 +219,12 @@ function getErrorDetails(err) {
   return `${combined.slice(0, ERROR_DETAIL_LIMIT - 3)}...`;
 }
 
+function isUnknownInteractionError(error) {
+  if (!error || typeof error !== 'object') return false;
+  if (Number(error.code) === 10062) return true;
+  return String(error.message ?? '').toLowerCase().includes('unknown interaction');
+}
+
 function getComponentOwnerId(interaction) {
   return interaction.message?.interactionMetadata?.user?.id ?? null;
 }
@@ -329,6 +335,7 @@ function parseMentionUserId(value) {
 module.exports = {
   name: Events.InteractionCreate,
   async execute(interaction) {
+    try {
     if (interaction.isButton()) {
       if (isComponentExpired(interaction)) {
         return interaction.reply({
@@ -607,23 +614,6 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
-        const remainingMs = bakeCommand.getCooldownRemainingMs(
-          interaction.guild.id,
-          interaction.user.id,
-          Date.now(),
-        );
-        if (remainingMs > 0) {
-          return interaction.reply({
-            embeds: [
-              embeds.warning(
-                `Slow down, baker. You can bake again in **${Math.ceil(remainingMs / 1000)}s**.`,
-                interaction.guild,
-              ),
-            ],
-            flags: MessageFlags.Ephemeral,
-          });
-        }
-        bakeCommand.touchCooldown(interaction.guild.id, interaction.user.id, Date.now());
         const outcome = bakeCommand.buildBakeOutcome(interaction.guild, interaction.user.id);
         await interaction.update(outcome.reply);
         if (outcome.specialCookieEvent) {
@@ -1546,6 +1536,66 @@ module.exports = {
         }
       }
 
+      if (interaction.customId.startsWith('bakeadmin_global_action:')) {
+        const [, actorId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin dashboard is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const action = interaction.values[0];
+        if (action === 'refresh_dashboard') {
+          const dashboardEmbed = economy.buildBakeAdminDashboardEmbed(interaction.guild, actorId);
+          const dashboardComponents = economy.buildBakeAdminDashboardComponents(actorId);
+          return interaction.update({ embeds: [dashboardEmbed], components: dashboardComponents });
+        }
+        if (action === 'set_log_channel') {
+          return interaction.reply({
+            embeds: [embeds.info('Set Log Channel', 'Choose the bake admin log channel.', interaction.guild)],
+            components: [
+              new ActionRowBuilder().addComponents(
+                new ChannelSelectMenuBuilder()
+                  .setCustomId(`bakeadmin_global_log_channel_select:${actorId}`)
+                  .setPlaceholder('Select a channel')
+                  .setMinValues(1)
+                  .setMaxValues(1),
+              ),
+            ],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'start_event') {
+          const modal = new ModalBuilder()
+            .setCustomId(`bakeadmin_global_modal:${actorId}:start_event`)
+            .setTitle('Start Bake Event')
+            .addComponents(
+              new ActionRowBuilder().addComponents(new TextInputBuilder()
+                .setCustomId('durationMinutes')
+                .setLabel('Event duration (minutes)')
+                .setPlaceholder('e.g. 30')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)),
+            );
+          return interaction.showModal(modal);
+        }
+        if (action === 'reset_economy') {
+          const modal = new ModalBuilder()
+            .setCustomId(`bakeadmin_global_modal:${actorId}:reset_economy`)
+            .setTitle('Reset Entire Bakery Economy')
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId('confirm')
+                  .setLabel('Type RESET ALL to confirm')
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true),
+              ),
+            );
+          return interaction.showModal(modal);
+        }
+      }
+
       if (interaction.customId.startsWith('bakeadmin_upgrade_select:')) {
         const [, actorId, targetId] = interaction.customId.split(':');
         if (actorId !== interaction.user.id) {
@@ -1842,6 +1892,21 @@ module.exports = {
           components: [],
         });
       }
+      if (interaction.customId.startsWith('bakeadmin_global_log_channel_select:')) {
+        const [, actorId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const channelId = interaction.values[0];
+        economy.setAdminLogChannel(interaction.guild.id, channelId);
+        return interaction.update({
+          embeds: [embeds.success(`Set bake admin log channel to <#${channelId}>.`, interaction.guild)],
+          components: [],
+        });
+      }
     }
 
     if (interaction.isUserSelectMenu()) {
@@ -1868,7 +1933,10 @@ module.exports = {
         }
         const targetId = interaction.values[0];
         const embed = economy.buildBakeAdminEmbed(interaction.guild, interaction.user.id, targetId);
-        const components = economy.buildBakeAdminComponents(interaction.user.id, targetId);
+        const userActionRows = economy.buildBakeAdminComponents(interaction.user.id, targetId);
+        const [, globalActionSelectRow] = economy.buildBakeAdminDashboardComponents(interaction.user.id);
+        const globalActionRow = globalActionSelectRow ? [globalActionSelectRow] : [];
+        const components = [...userActionRows, ...globalActionRow];
         return interaction.update({ embeds: [embed], components });
       }
     }
@@ -2188,6 +2256,54 @@ module.exports = {
         });
       }
 
+      if (interaction.customId.startsWith('bakeadmin_global_modal:')) {
+        const [, actorId, action] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin modal is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'start_event') {
+          const durationRaw = interaction.fields.getTextInputValue('durationMinutes').trim();
+          const durationMinutes = Number.parseInt(durationRaw, 10);
+          if (!Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 1440) {
+            return interaction.reply({
+              embeds: [embeds.error('Duration must be a whole number between 1 and 1440 minutes.', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          const event = economy.adminStartEvent(interaction.guild.id, durationMinutes);
+          await sendBakeAdminLog(interaction, actorId, 'Global: Start Event', `Special Cookie Hunt for ${durationMinutes} minute(s)`);
+          await sendSpecialCookieHuntStartLog(interaction, durationMinutes, event.startedAt, event.endsAt);
+          return interaction.reply({
+            embeds: [embeds.success(`Started **Special Cookie Hunt** for **${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}**.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'reset_economy') {
+          const confirm = interaction.fields.getTextInputValue('confirm').trim();
+          if (confirm !== 'RESET ALL') {
+            return interaction.reply({
+              embeds: [embeds.warning('Reset cancelled. Type `RESET ALL` exactly next time.', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          economy.adminResetGuildEconomy(interaction.guild.id);
+          await sendBakeAdminLog(interaction, actorId, 'Global: Reset Economy', 'Full guild bakery economy reset');
+          const dashboardEmbed = economy.buildBakeAdminDashboardEmbed(interaction.guild, actorId);
+          const dashboardComponents = economy.buildBakeAdminDashboardComponents(actorId);
+          return interaction.reply({
+            embeds: [
+              embeds.success('Entire bakery economy reset completed for this guild.', interaction.guild),
+              dashboardEmbed,
+            ],
+            components: dashboardComponents,
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+      }
+
       if (interaction.customId.startsWith('bakeadmin_modal:')) {
         const [, actorId, targetId, action] = interaction.customId.split(':');
         if (actorId !== interaction.user.id) {
@@ -2277,7 +2393,11 @@ module.exports = {
     const command = interaction.client.commands.get(interaction.commandName);
 
     if (!command) {
-      console.error(`No command matching ${interaction.commandName} was found.`);
+      if (interaction.commandName === 'cookieleaderboard') {
+        console.warn('Received stale /cookieleaderboard interaction; command was removed and should be redeployed away.');
+      } else {
+        console.warn(`No command matching ${interaction.commandName} was found.`);
+      }
       const missingCommandEmbed = embeds
         .error(
           'This command is no longer available. If it still appears, redeploy slash commands to clean stale registrations.',
@@ -2319,6 +2439,10 @@ module.exports = {
       } else {
         await interaction.reply({ embeds: [errorEmbed], flags: MessageFlags.Ephemeral }).catch(() => null);
       }
+    }
+    } catch (err) {
+      if (isUnknownInteractionError(err)) return;
+      console.error('InteractionCreate handler error:', err);
     }
   },
 };
