@@ -152,10 +152,10 @@ function pickWeeklyChallenge(allianceId, ts = Date.now()) {
 }
 
 function getMemberLifetimeTotals(guildId, memberIds) {
+  const economyUsers = economy.getGuildUserStates(guildId);
   const totals = {};
   for (const userId of memberIds) {
-    const snapshot = economy.getUserSnapshot(guildId, userId);
-    totals[userId] = Number(snapshot.user.cookiesBakedAllTime ?? 0);
+    totals[userId] = Number(economyUsers[userId]?.cookiesBakedAllTime ?? 0);
   }
   return totals;
 }
@@ -578,6 +578,35 @@ function getAllianceWithChallenge(guildId, userId) {
   return result;
 }
 
+function processAllianceChallengeRewards() {
+  const notices = [];
+  db.update(ALLIANCES_FILE, {}, (data) => {
+    for (const [guildId, guild] of Object.entries(data ?? {})) {
+      const alliancesById = guild?.alliances ?? {};
+      for (const alliance of Object.values(alliancesById)) {
+        ensureAllianceShape(alliance);
+        const challengeState = buildChallengeState(guildId, alliance, Date.now());
+        const rewardGrant = maybeGrantChallengeReward(guildId, alliance, challengeState, Date.now());
+        if (!rewardGrant) continue;
+        challengeState.rewarded = true;
+        challengeState.rewardedAt = Date.now();
+        for (const memberId of rewardGrant.members) {
+          economy.adminGiveCookies(guildId, memberId, rewardGrant.rewardCookiesPerMember);
+        }
+        notices.push({
+          guildId,
+          allianceName: alliance.name,
+          challengeName: challengeState.challenge?.name ?? 'Weekly Challenge',
+          memberIds: [...rewardGrant.members],
+          rewardCookiesPerMember: rewardGrant.rewardCookiesPerMember,
+          rewardAllianceCoins: rewardGrant.rewardAllianceCoins,
+        });
+      }
+    }
+  });
+  return notices;
+}
+
 function buyAllianceUpgrade(guildId, actorId, upgradeId) {
   const upgrade = STORE_UPGRADE_MAP.get(upgradeId);
   if (!upgrade) return { ok: false, reason: 'Unknown alliance store upgrade.' };
@@ -645,6 +674,7 @@ module.exports = {
   getMemberAlliance,
   getAllianceLeaderboard,
   getAllianceWithChallenge,
+  processAllianceChallengeRewards,
   buyAllianceUpgrade,
   setAllianceJoinApproval,
   resolveAllianceJoinRequest,

@@ -341,11 +341,6 @@ Send a plain-text bot message (no embed) to the current channel or a selected ch
 
 ---
 
-#### `/cookieleaderboard`
-View the top bakers ranked by special cookie totals (Perfect Cookie, Gold Cookie, Spoopier Cookie), including per-cookie breakdowns.
-
----
-
 ### 🕐 Shifts
 
 The shift system allows staff members to clock in and out, tracking their on-duty time persistently per server. Staff-role restrictions, shift DMs, wave periods, and quota requirements are all configurable via `/setup`.
