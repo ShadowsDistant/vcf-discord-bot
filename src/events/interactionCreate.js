@@ -606,7 +606,9 @@ module.exports = {
       if (interaction.customId.startsWith('bakery_nav:')) {
         const requestedView = interaction.customId.split(':')[1];
         const view = requestedView === 'codex' ? 'guide' : requestedView;
-        const viewOptions = view === 'guide' ? getGuideState(interaction.guild.id, interaction.user.id) : {};
+        const viewOptions = view === 'guide'
+          ? getGuideState(interaction.guild.id, interaction.user.id)
+          : (view === 'leaderboard' ? { metric: 'cookies' } : {});
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, view, viewOptions);
         const components = economy.buildDashboardComponents(snapshot.user, view, { guild: interaction.guild, ...viewOptions });
@@ -713,6 +715,22 @@ module.exports = {
         const [, buildingId, qtyRaw] = interaction.customId.split(':');
         const quantity = Number.parseInt(qtyRaw, 10);
         const result = economy.buyBuilding(interaction.guild.id, interaction.user.id, buildingId, quantity);
+        if (!result.ok) {
+          return interaction.reply({
+            embeds: [embeds.warning(result.reason, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'buildings', { buildingId });
+        const components = economy.buildDashboardComponents(snapshot.user, 'buildings', { buildingId, guild: interaction.guild });
+        return interaction.update({ embeds: [embed], components });
+      }
+
+      if (interaction.customId.startsWith('bakery_build_sell:')) {
+        const [, buildingId, qtyRaw] = interaction.customId.split(':');
+        const quantity = Number.parseInt(qtyRaw, 10);
+        const result = economy.sellBuilding(interaction.guild.id, interaction.user.id, buildingId, quantity);
         if (!result.ok) {
           return interaction.reply({
             embeds: [embeds.warning(result.reason, interaction.guild)],
@@ -1096,10 +1114,20 @@ module.exports = {
       if (interaction.customId === 'bakery_nav_select') {
         const requestedView = interaction.values[0] ?? 'home';
         const view = requestedView === 'codex' ? 'guide' : requestedView;
-        const viewOptions = view === 'guide' ? getGuideState(interaction.guild.id, interaction.user.id) : {};
+        const viewOptions = view === 'guide'
+          ? getGuideState(interaction.guild.id, interaction.user.id)
+          : (view === 'leaderboard' ? { metric: 'cookies' } : {});
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, view, viewOptions);
         const components = economy.buildDashboardComponents(snapshot.user, view, { guild: interaction.guild, ...viewOptions });
+        return interaction.update({ embeds: [embed], components });
+      }
+
+      if (interaction.customId === 'bakery_leaderboard_metric') {
+        const metric = interaction.values[0] ?? 'cookies';
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'leaderboard', { metric });
+        const components = economy.buildDashboardComponents(snapshot.user, 'leaderboard', { metric, guild: interaction.guild });
         return interaction.update({ embeds: [embed], components });
       }
 

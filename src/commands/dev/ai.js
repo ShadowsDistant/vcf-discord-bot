@@ -2101,7 +2101,12 @@ async function handleAiComponentInteraction(interaction) {
     const previous = getConversationState(interaction.message.id);
     const model = previous?.model ?? DEFAULT_MODEL;
 
-    await interaction.deferReply();
+    try {
+      await interaction.deferReply();
+    } catch (error) {
+      if (isUnknownInteractionError(error)) return;
+      throw error;
+    }
 
     try {
       const response = await generateAiResponse({
@@ -2248,7 +2253,13 @@ module.exports = {
         priorMessages: [],
       });
 
-      const sentMessage = await interaction.editReply(response.outputPayload);
+      let sentMessage = null;
+      try {
+        sentMessage = await interaction.editReply(response.outputPayload);
+      } catch (error) {
+        if (isUnknownInteractionError(error)) return;
+        throw error;
+      }
 
       storeConversationState(sentMessage.id, {
         userId: interaction.user.id,
@@ -2256,15 +2267,19 @@ module.exports = {
         messages: response.completionMessages,
       });
     } catch (error) {
-      await interaction.editReply({
-        embeds: [
-          embeds.error(
-            `AI request failed: ${truncate(error.message, 500)}`,
-            interaction.guild ?? null,
-          ),
-        ],
-        components: [],
-      });
+      try {
+        await interaction.editReply({
+          embeds: [
+            embeds.error(
+              `AI request failed: ${truncate(error.message, 500)}`,
+              interaction.guild ?? null,
+            ),
+          ],
+          components: [],
+        });
+      } catch (replyError) {
+        if (!isUnknownInteractionError(replyError)) throw replyError;
+      }
       return null;
     }
 

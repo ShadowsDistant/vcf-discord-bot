@@ -23,6 +23,7 @@ const {
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
 
 const PANEL_CUSTOM_ID = 'shift_panel_action';
+const USER_SELECT_PREFIX = 'shift_user_select:';
 const MODAL_PREFIX = 'shift_modal:';
 const MODERATION_MONTHLY_QUOTA_MS = 4 * 60 * 60 * 1000;
 const MEDALS = ['🥇', '🥈', '🥉'];
@@ -68,6 +69,43 @@ async function ensureManagementAccess(interaction) {
     return false;
   }
   return true;
+}
+
+async function getShiftEligibleMembers(guild) {
+  await guild.members.fetch().catch(() => null);
+  return guild.members.cache
+    .filter((member) => !member.user.bot && hasShiftAccessRole(member))
+    .map((member) => member)
+    .sort((a, b) => a.displayName.localeCompare(b.displayName))
+    .slice(0, 25);
+}
+
+async function promptShiftUserSelect(interaction, action) {
+  const eligible = await getShiftEligibleMembers(interaction.guild);
+  if (!eligible.length) {
+    return interaction.reply({
+      embeds: [embeds.warning('No eligible shift users found for selection.', interaction.guild)],
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  const actionLabel = action === 'status'
+    ? 'Shift Status'
+    : (action === 'log_user' ? 'Shift Log' : 'Shift History');
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(`${USER_SELECT_PREFIX}${action}`)
+    .setPlaceholder(`Select user for ${actionLabel}`)
+    .addOptions(eligible.map((member) => ({
+      label: member.displayName.slice(0, 100),
+      value: member.id,
+      description: `${member.user.tag} • Shift-enabled user`.slice(0, 100),
+    })));
+
+  return interaction.reply({
+    embeds: [embeds.info(actionLabel, 'Choose a shift-enabled user below.', interaction.guild)],
+    components: [new ActionRowBuilder().addComponents(menu)],
+    flags: MessageFlags.Ephemeral,
+  });
 }
 
 function buildPanelMenu() {
@@ -147,7 +185,7 @@ function buildPanelMenu() {
 }
 
 function buildModal(action) {
-  if (action === 'status' || action === 'log_user' || action === 'history' || action === 'manage_list') {
+  if (action === 'manage_list') {
     return new ModalBuilder()
       .setCustomId(`${MODAL_PREFIX}${action}`)
       .setTitle('Shift User Input')
@@ -604,7 +642,7 @@ module.exports = {
     .setDMPermission(false),
 
   isShiftPanelSelect(customId) {
-    return customId === PANEL_CUSTOM_ID;
+    return customId === PANEL_CUSTOM_ID || customId.startsWith(USER_SELECT_PREFIX);
   },
 
   isShiftPanelModal(customId) {
@@ -614,12 +652,40 @@ module.exports = {
   async handleShiftPanelSelect(interaction) {
     if (!(await ensureShiftAccess(interaction))) return;
 
+    if (interaction.customId.startsWith(USER_SELECT_PREFIX)) {
+      const action = interaction.customId.slice(USER_SELECT_PREFIX.length);
+      const targetId = interaction.values?.[0];
+      if (!targetId) {
+        return interaction.reply({
+          embeds: [embeds.error('No user was selected.', interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      const targetMember = await interaction.guild.members.fetch(targetId).catch(() => null);
+      if (!targetMember || !hasShiftAccessRole(targetMember)) {
+        return interaction.reply({
+          embeds: [embeds.error('Selected user is not eligible for shifts.', interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      if (action === 'status') return runStatus(interaction, targetMember.user);
+      if (action === 'log_user') return runLogUser(interaction, targetMember.user);
+      if (action === 'history') return runHistory(interaction, targetMember.user);
+      return interaction.reply({
+        embeds: [embeds.error('Unknown shift user selection action.', interaction.guild)],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
     const action = interaction.values?.[0];
     if (action === 'start') return runStart(interaction);
     if (action === 'end') return runEnd(interaction);
     if (action === 'log_active') return runLogActive(interaction);
     if (action === 'leaderboard') return runLeaderboard(interaction);
     if (action === 'roles') return runRoles(interaction);
+    if (action === 'status' || action === 'log_user' || action === 'history') {
+      return promptShiftUserSelect(interaction, action);
+    }
 
     const modal = buildModal(action);
     if (!modal) {

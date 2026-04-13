@@ -3,11 +3,13 @@
 const { Events, ActivityType } = require('discord.js');
 const db = require('../utils/database');
 const economy = require('../utils/bakeEconomy');
+const alliances = require('../utils/bakeAlliances');
 const { fetchLogChannel } = require('../utils/logChannels');
 
 const COOKIE_EVENT_INTERVAL_MIN_MS = 30 * 60 * 1000;
 const COOKIE_EVENT_INTERVAL_MAX_MS = 60 * 60 * 1000;
 const COOKIE_EVENT_DURATION_MINUTES = 30;
+const ALLIANCE_REWARD_TICK_MS = 60 * 1000;
 
 function randomInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -49,6 +51,37 @@ function scheduleCookieEventLoop(guild, client) {
   setTimeout(run, randomInt(COOKIE_EVENT_INTERVAL_MIN_MS, COOKIE_EVENT_INTERVAL_MAX_MS));
 }
 
+async function processAllianceRewardDms(client) {
+  const notices = alliances.processAllianceChallengeRewards();
+  if (!notices.length) return;
+  for (const notice of notices) {
+    const guild = client.guilds.cache.get(notice.guildId) ?? null;
+    const embed = {
+      color: 0x57f287,
+      title: '🎉 Alliance Challenge Completed',
+      description: [
+        `Alliance: **${notice.allianceName}**`,
+        `Challenge: **${notice.challengeName}**`,
+        `Reward: **${economy.toCookieNumber(notice.rewardCookiesPerMember)}** cookies`,
+        `Alliance credits gained: **${notice.rewardAllianceCoins}**`,
+      ].join('\n'),
+      timestamp: new Date().toISOString(),
+      footer: guild
+        ? {
+          text: guild.name,
+          icon_url: guild.iconURL() ?? undefined,
+        }
+        : undefined,
+    };
+
+    for (const memberId of notice.memberIds ?? []) {
+      const user = await client.users.fetch(memberId).catch(() => null);
+      if (!user) continue;
+      await user.send({ embeds: [embed] }).catch(() => null);
+    }
+  }
+}
+
 module.exports = {
   name: Events.ClientReady,
   once: true,
@@ -77,5 +110,10 @@ module.exports = {
       }
     }, 24 * 60 * 60 * 1000);
     if (typeof monthlyTimer.unref === 'function') monthlyTimer.unref();
+
+    const allianceRewardTimer = setInterval(() => {
+      processAllianceRewardDms(client).catch(() => null);
+    }, ALLIANCE_REWARD_TICK_MS);
+    if (typeof allianceRewardTimer.unref === 'function') allianceRewardTimer.unref();
   },
 };
