@@ -40,7 +40,8 @@ const DEFAULT_GUIDE_SECTION = 'info';
 const BAKERY_RENAME_TTL_MS = 10 * 60 * 1000;
 const GUIDE_STATE_TTL_MS = 60 * 60 * 1000;
 const SPECIAL_COOKIE_EVENT_CHANNEL_ID = '1492690923333746790';
-const BAKE_COMMANDS_CHANNEL_URL = 'https://discord.com/channels/1345804368263385170/1492310367869862089';
+const BAKE_COMMANDS_CHANNEL_ID = '1492310367869862089';
+const BAKE_COMMANDS_CHANNEL_URL = `https://discord.com/channels/1345804368263385170/${BAKE_COMMANDS_CHANNEL_ID}`;
 const REPORTS_CHANNEL_ID = '1492689950540435637';
 const REPORTS_PING_ROLE_ID = '1425569078596337745';
 const REPORT_COOLDOWN_MS = 15 * 60 * 1000;
@@ -186,7 +187,7 @@ async function sendSpecialCookieHuntStartLog(interaction, durationMinutes, endsA
     .setDescription([
       `Hosted by <@${interaction.user.id}>`,
       'Special cookie drops are boosted for everyone during this event.',
-      `Run your bake commands here: <#1492310367869862089>`,
+      `Run your bake commands here: <#${BAKE_COMMANDS_CHANNEL_ID}>`,
     ].join('\n'))
     .addFields(
       { name: 'Starts', value: `<t:${startedAtTs}:F> (<t:${startedAtTs}:R>)`, inline: true },
