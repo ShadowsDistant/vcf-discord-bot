@@ -3,11 +3,15 @@
 const { Events } = require('discord.js');
 const embeds = require('../utils/embeds');
 const { fetchLogChannel } = require('../utils/logChannels');
+const economy = require('../utils/bakeEconomy');
+
+const SERVER_BOOSTER_ROLE_ID = '1357082479931949310';
 
 module.exports = {
   name: Events.GuildMemberUpdate,
   async execute(oldMember, newMember) {
     if (!oldMember?.guild || !newMember?.guild) return;
+    economy.setUserBoosterStatus(newMember.guild.id, newMember.id, newMember.roles.cache.has(SERVER_BOOSTER_ROLE_ID));
     const addedRoles = newMember.roles.cache.filter((role) => !oldMember.roles.cache.has(role.id));
     const removedRoles = oldMember.roles.cache.filter((role) => !newMember.roles.cache.has(role.id));
     if (addedRoles.size === 0 && removedRoles.size === 0) return;

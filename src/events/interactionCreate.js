@@ -69,6 +69,7 @@ const MAX_PENDING_RENAME_SELECTIONS = 2_000;
 const MAX_GUIDE_VIEW_SELECTIONS = 5_000;
 const STAFF_MESSAGE_SELECTION_TTL_MS = 10 * 60 * 1000;
 const MAX_PENDING_STAFF_MESSAGE_SELECTIONS = 2_000;
+const SERVER_BOOSTER_ROLE_ID = '1357082479931949310';
 const pendingBakeryRenameSelections = new Map();
 const guideViewSelections = new Map();
 const reportCooldowns = new Map();
@@ -395,7 +396,16 @@ module.exports = {
   name: Events.InteractionCreate,
   async execute(interaction) {
     try {
-    if (interaction.isButton()) {
+      if (interaction.guildId && interaction.user?.id) {
+        const roleCache = interaction.member?.roles?.cache;
+        const roleIds = Array.isArray(interaction.member?.roles) ? interaction.member.roles : null;
+        const hasBoosterRole = roleCache?.has(SERVER_BOOSTER_ROLE_ID)
+          ?? (roleIds ? roleIds.includes(SERVER_BOOSTER_ROLE_ID) : null);
+        if (typeof hasBoosterRole === 'boolean') {
+          economy.setUserBoosterStatus(interaction.guildId, interaction.user.id, hasBoosterRole);
+        }
+      }
+      if (interaction.isButton()) {
       if (isComponentExpired(interaction)) {
         return interaction.reply({
           embeds: [embeds.warning('These buttons have expired. Run the command again to refresh.', interaction.guild)],
@@ -803,6 +813,17 @@ module.exports = {
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'achievements', { page: targetPage });
         const components = economy.buildDashboardComponents(snapshot.user, 'achievements', { page: targetPage, guild: interaction.guild });
+        return interaction.update({ embeds: [embed], components });
+      }
+
+      if (interaction.customId.startsWith('bakery_inventory_prev:') || interaction.customId.startsWith('bakery_inventory_next:')) {
+        const [, currentPageRaw, rarityFilterRaw] = interaction.customId.split(':');
+        const currentPage = Number.parseInt(currentPageRaw, 10) || 0;
+        const rarityFilter = rarityFilterRaw || 'all';
+        const targetPage = interaction.customId.startsWith('bakery_inventory_prev:') ? currentPage - 1 : currentPage + 1;
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'inventory', { page: targetPage, rarityFilter });
+        const components = economy.buildDashboardComponents(snapshot.user, 'inventory', { page: targetPage, rarityFilter, guild: interaction.guild });
         return interaction.update({ embeds: [embed], components });
       }
 

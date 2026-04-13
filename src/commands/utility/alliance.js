@@ -96,6 +96,11 @@ function buildAllianceActionButtons(guild, view, data, userId) {
         .setStyle(ButtonStyle.Primary)
         .setEmoji(economy.getButtonEmoji(guild, ['Labor_of_love', 'bakery'], '✏️')),
       new ButtonBuilder()
+        .setCustomId(`alliance_btn:edit_description:${view}`)
+        .setLabel('Edit Description')
+        .setStyle(ButtonStyle.Secondary)
+        .setEmoji(economy.getButtonEmoji(guild, ['Polymath', 'guide'], '📝')),
+      new ButtonBuilder()
         .setCustomId(`alliance_btn:toggle_approval:${view}`)
         .setLabel(data.alliance.joinApprovalEnabled ? 'Approval: ON' : 'Approval: OFF')
         .setStyle(data.alliance.joinApprovalEnabled ? ButtonStyle.Success : ButtonStyle.Secondary)
@@ -268,6 +273,27 @@ function buildRenameAllianceModal() {
     );
 }
 
+function buildEditAllianceDescriptionModal(currentDescription = '') {
+  const modal = new ModalBuilder()
+    .setCustomId('alliance_modal:edit_description')
+    .setTitle('Edit Alliance Description')
+    .addComponents(
+      new ActionRowBuilder().addComponents(
+        new TextInputBuilder()
+          .setCustomId('description')
+          .setLabel('Alliance description')
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(false)
+          .setMaxLength(alliances.MAX_ALLIANCE_DESCRIPTION_LENGTH)
+          .setPlaceholder('Add a short description for your alliance.'),
+      ),
+    );
+  if (currentDescription) {
+    modal.components[0].components[0].setValue(String(currentDescription).slice(0, alliances.MAX_ALLIANCE_DESCRIPTION_LENGTH));
+  }
+  return modal;
+}
+
 function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = null) {
   const view = PANEL_VIEWS.includes(requestedView) ? requestedView : 'overview';
   const data = alliances.getAllianceWithChallenge(guild.id, userId);
@@ -307,11 +333,24 @@ function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = 
   const challengeStatus = challenge.completed
     ? (challenge.rewarded ? '✅ Completed and rewarded' : '✅ Completed (reward pending)')
     : '⏳ In progress';
+  const allianceDescription = String(data.alliance.description ?? '').trim() || '_No description set._';
+  const boosterStats = data.allianceBoosterBoost ?? {
+    boosterCount: 0,
+    allianceWideBoost: 0,
+    perBoosterBoost: 0.02,
+    personalBoosterBoost: 0,
+  };
+  const boosterInfo = [
+    `Boosters in alliance: **${boosterStats.boosterCount}**`,
+    `Alliance-wide booster bonus: **+${Math.round(boosterStats.allianceWideBoost * 100)}% CPS** (${Math.round(boosterStats.perBoosterBoost * 100)}% per booster)`,
+    `Your booster role bonus: **+${Math.round(boosterStats.personalBoosterBoost * 100)}% CPS**`,
+  ].join('\n');
 
   const baseEmbed = new EmbedBuilder()
     .setColor(0x57f287)
     .setTitle(`Alliance: ${data.alliance.name}`)
     .setDescription(`ID: \`${data.alliance.id}\` • Owner: <@${data.alliance.ownerId}>`)
+    .addFields({ name: 'Description', value: allianceDescription.slice(0, 1024), inline: false })
     .setTimestamp()
     .setFooter({ text: guild.name, iconURL: guild.iconURL({ dynamic: true }) ?? undefined });
 
@@ -330,6 +369,7 @@ function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = 
           value: `Each member: **${economy.toCookieNumber(challenge.rewardCookiesPerMember)}**\nAlliance credits: **${challenge.rewardAllianceCoins}**`,
           inline: false,
         },
+        { name: '💎 Booster CPS Effects', value: boosterInfo.slice(0, 1024), inline: false },
       );
   } else if (view === 'store') {
     const ownedText = store.upgrades
@@ -353,6 +393,7 @@ function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = 
           ].join('\n'),
           inline: false,
         },
+        { name: '💎 Booster CPS Effects', value: boosterInfo.slice(0, 1024), inline: false },
       );
     const storeSelect = buildStoreSelect(guild, store);
     if (storeSelect) components.push(storeSelect);
@@ -381,6 +422,7 @@ function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = 
       { name: 'Progress', value: `${challengeProgressText}\n${challengeBar}`, inline: false },
       { name: 'Top Contributors', value: contributorLines(challenge.contributors), inline: false },
       { name: 'Join Approval', value: data.alliance.joinApprovalEnabled ? 'Enabled' : 'Disabled', inline: true },
+      { name: '💎 Booster CPS Effects', value: boosterInfo.slice(0, 1024), inline: false },
     );
   }
 
@@ -462,6 +504,16 @@ async function handleAllianceButton(interaction) {
   if (action === 'create') return interaction.showModal(buildCreateAllianceModal());
   if (action === 'join') return interaction.showModal(buildJoinAllianceModal());
   if (action === 'rename') return interaction.showModal(buildRenameAllianceModal());
+  if (action === 'edit_description') {
+    const current = alliances.getMemberAlliance(interaction.guild.id, interaction.user.id);
+    if (!current) {
+      return interaction.reply({ embeds: [embeds.error('You are not in an alliance.', interaction.guild)], flags: MessageFlags.Ephemeral });
+    }
+    if (current.ownerId !== interaction.user.id) {
+      return interaction.reply({ embeds: [embeds.error('Only the alliance owner can edit the description.', interaction.guild)], flags: MessageFlags.Ephemeral });
+    }
+    return interaction.showModal(buildEditAllianceDescriptionModal(current.description ?? ''));
+  }
   if (action === 'toggle_approval') {
     const current = alliances.getMemberAlliance(interaction.guild.id, interaction.user.id);
     if (!current) {
@@ -612,6 +664,21 @@ async function handleAllianceModal(interaction) {
       });
     }
     return respondWithPanelReply(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'manage', `Alliance renamed to **${result.alliance.name}**.`));
+  }
+
+  if (modalType === 'edit_description') {
+    const description = interaction.fields.getTextInputValue('description')?.trim() ?? '';
+    const result = alliances.setAllianceDescription(interaction.guild.id, interaction.user.id, description);
+    if (!result.ok) {
+      return interaction.reply({
+        embeds: [embeds.error(result.reason, interaction.guild)],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+    const notice = description
+      ? 'Alliance description updated.'
+      : 'Alliance description cleared.';
+    return respondWithPanelReply(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'manage', notice));
   }
 
   if (modalType === 'kick_reason') {

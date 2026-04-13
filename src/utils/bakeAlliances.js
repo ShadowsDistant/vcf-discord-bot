@@ -8,6 +8,9 @@ const MAX_ALLIANCE_MEMBERS = 10;
 const MAX_WEEKLY_STATE_ENTRIES = 12;
 const MAX_TARGET_REDUCTION = 0.45;
 const ALLIANCE_CREATE_COST = 100_000;
+const MAX_ALLIANCE_DESCRIPTION_LENGTH = 240;
+const BOOSTER_PERSONAL_CPS_BOOST = 0.10;
+const BOOSTER_ALLIANCE_PER_MEMBER_CPS_BOOST = 0.02;
 
 const AUTOMOD_BLOCKED_WORDS = [
   'nigger', 'nigga', 'faggot', 'retard', 'kike', 'spic', 'chink', 'tranny', 'cunt', 'whore',
@@ -184,6 +187,13 @@ function normalizeName(name) {
   return String(name ?? '').trim().slice(0, 40);
 }
 
+function normalizeDescription(description) {
+  return String(description ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, MAX_ALLIANCE_DESCRIPTION_LENGTH);
+}
+
 function findAllianceByName(alliancesById, name) {
   const needle = String(name ?? '').toLowerCase();
   return Object.values(alliancesById ?? {})
@@ -253,6 +263,7 @@ function ensureAllianceShape(alliance) {
     }))
     .filter((entry) => entry.userId);
   alliance.storeCredits = Math.max(0, Number(alliance.storeCredits ?? 0));
+  alliance.description = normalizeDescription(alliance.description);
   pruneOldWeeklyState(alliance);
 }
 
@@ -380,6 +391,7 @@ function createAlliance(guildId, ownerId, name) {
     guild.alliances[allianceId] = {
       id: allianceId,
       name: allianceName,
+      description: '',
       ownerId,
       members: [ownerId],
       createdAt: Date.now(),
@@ -514,6 +526,27 @@ function renameAlliance(guildId, actorId, newName) {
     if (existing && existing.id !== alliance.id) return { ok: false, reason: 'That alliance name is already taken.' };
 
     alliance.name = allianceName;
+    return { ok: true, alliance };
+  });
+}
+
+function setAllianceDescription(guildId, actorId, description) {
+  const cleanDescription = normalizeDescription(description);
+  if (cleanDescription) {
+    const automod = checkAutomod(cleanDescription);
+    if (!automod.ok) {
+      return { ok: false, reason: 'Alliance description contains a blocked word.' };
+    }
+  }
+
+  return db.update(ALLIANCES_FILE, {}, (data) => {
+    const guild = getGuildState(data, guildId);
+    const allianceId = guild.userAlliance?.[actorId];
+    if (!allianceId) return { ok: false, reason: 'You are not in an alliance.' };
+    const alliance = guild.alliances?.[allianceId];
+    if (!alliance) return { ok: false, reason: 'Alliance no longer exists.' };
+    if (alliance.ownerId !== actorId) return { ok: false, reason: 'Only the alliance owner can edit the alliance description.' };
+    alliance.description = cleanDescription;
     return { ok: true, alliance };
   });
 }
@@ -715,12 +748,39 @@ function getAllianceWithChallenge(guildId, userId) {
     };
   }
 
-  // Cache CPS boost (rank boost + sugar_syndicate upgrade boost) onto the user's economy state
+  // Cache CPS boosts for all members (rank + store + alliance booster count scaling).
   if (result.alliance) {
     const rankBoost = getAllianceRankBoosts(guildId, userId);
     const upgradeBoost = result.alliance.upgrades.includes('sugar_syndicate') ? 0.08 : 0;
-    economy.setUserAllianceCpsBoost(guildId, userId, rankBoost.cpsBoostMultiplier + upgradeBoost);
+    const economyUsers = economy.getGuildUserStates(guildId);
+    const boosterCount = (result.alliance.members ?? []).reduce((count, memberId) => {
+      return count + (economyUsers?.[memberId]?.isServerBooster ? 1 : 0);
+    }, 0);
+    const allianceBoosterBoost = boosterCount * BOOSTER_ALLIANCE_PER_MEMBER_CPS_BOOST;
+    const baseAllianceBoost = rankBoost.cpsBoostMultiplier + upgradeBoost + allianceBoosterBoost;
+    const boosts = (result.alliance.members ?? []).map((memberId) => {
+      const memberBoosterBoost = economyUsers?.[memberId]?.isServerBooster ? BOOSTER_PERSONAL_CPS_BOOST : 0;
+      return {
+        userId: memberId,
+        boost: baseAllianceBoost,
+        details: {
+          rankBoost: rankBoost.cpsBoostMultiplier,
+          upgradeBoost,
+          allianceBoosterCount: boosterCount,
+          allianceBoosterBoost,
+          personalBoosterBoost: memberBoosterBoost,
+          totalAllianceBoost: baseAllianceBoost,
+        },
+      };
+    });
+    economy.setAllianceCpsBoostBatch(guildId, boosts);
     result.allianceRankBoost = rankBoost;
+    result.allianceBoosterBoost = {
+      boosterCount,
+      perBoosterBoost: BOOSTER_ALLIANCE_PER_MEMBER_CPS_BOOST,
+      allianceWideBoost: allianceBoosterBoost,
+      personalBoosterBoost: economyUsers?.[userId]?.isServerBooster ? BOOSTER_PERSONAL_CPS_BOOST : 0,
+    };
   } else {
     economy.setUserAllianceCpsBoost(guildId, userId, 0);
   }
@@ -813,6 +873,7 @@ function adminDeleteAlliance(guildId, allianceIdOrName) {
 module.exports = {
   MAX_ALLIANCE_MEMBERS,
   ALLIANCE_CREATE_COST,
+  MAX_ALLIANCE_DESCRIPTION_LENGTH,
   WEEKLY_ALLIANCE_CHALLENGES,
   ALLIANCE_STORE_UPGRADES,
   ALLIANCE_RANK_BOOSTS,
@@ -822,6 +883,7 @@ module.exports = {
   joinAlliance,
   leaveAlliance,
   renameAlliance,
+  setAllianceDescription,
   transferAllianceOwnership,
   removeAllianceMember,
   getMemberAlliance,

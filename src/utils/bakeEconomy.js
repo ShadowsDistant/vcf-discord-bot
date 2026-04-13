@@ -786,6 +786,16 @@ function getDefaultUserState(userId) {
     clickFrenzyCharges: 0,
     clickFrenzyExpiresAt: 0,
     forceGoldenCookieOnNextBake: false,
+    isServerBooster: false,
+    boosterCpsBoost: 0,
+    allianceBoostDetails: {
+      rankBoost: 0,
+      upgradeBoost: 0,
+      allianceBoosterCount: 0,
+      allianceBoosterBoost: 0,
+      personalBoosterBoost: 0,
+      totalAllianceBoost: 0,
+    },
     bakeBanned: false,
     rankId: RANKS[0].id,
     rankRewardsClaimed: [RANKS[0].id],
@@ -812,6 +822,18 @@ function getUserState(guildState, userId) {
   if (typeof user.bakeBanned !== 'boolean') user.bakeBanned = false;
   if (!user.rewardGifts || typeof user.rewardGifts !== 'object') user.rewardGifts = {};
   if (!Array.isArray(user.pendingMessages)) user.pendingMessages = [];
+  if (typeof user.isServerBooster !== 'boolean') user.isServerBooster = false;
+  user.boosterCpsBoost = user.isServerBooster ? 0.1 : 0;
+  if (!user.allianceBoostDetails || typeof user.allianceBoostDetails !== 'object') {
+    user.allianceBoostDetails = {
+      rankBoost: 0,
+      upgradeBoost: 0,
+      allianceBoosterCount: 0,
+      allianceBoosterBoost: 0,
+      personalBoosterBoost: user.boosterCpsBoost,
+      totalAllianceBoost: Math.max(0, Number(user.allianceCpsBoost ?? 0)),
+    };
+  }
   if (!RANK_INDEX.has(user.rankId)) {
     const inferredIndex = getHighestUnlockedRankIndex(user);
     user.rankId = RANKS[inferredIndex].id;
@@ -1217,16 +1239,52 @@ function computeCps(user, nowTs = Date.now()) {
   const frenzy = (user.activeBuffs ?? []).find((buff) => buff.type === 'frenzy' && buff.expiresAt > nowTs);
   const frenzyMultiplier = frenzy ? 7 : 1;
 
-  const total = (buildingCps + consumedBonus) * globalMultiplier * (1 + kittenBonus) * frenzyMultiplier * (1 + (user.allianceCpsBoost ?? 0));
+  const allianceBoost = Math.max(0, Number(user.allianceCpsBoost ?? 0));
+  const boosterBoost = Math.max(0, Number(user.boosterCpsBoost ?? 0));
+  const total = (buildingCps + consumedBonus) * globalMultiplier * (1 + kittenBonus) * frenzyMultiplier * (1 + allianceBoost + boosterBoost);
   user.highestCps = Math.max(user.highestCps ?? 0, total);
   return total;
 }
 
-function setUserAllianceCpsBoost(guildId, userId, boost) {
+function setAllianceCpsBoostBatch(guildId, boosts = []) {
+  const data = readState();
+  const guildState = getGuildState(data, guildId);
+  for (const entry of boosts) {
+    const userId = String(entry?.userId ?? '');
+    if (!userId) continue;
+    const user = getUserState(guildState, userId);
+    user.allianceCpsBoost = Math.max(0, Number(entry?.boost) || 0);
+    const details = entry?.details ?? {};
+    user.allianceBoostDetails = {
+      rankBoost: Math.max(0, Number(details.rankBoost) || 0),
+      upgradeBoost: Math.max(0, Number(details.upgradeBoost) || 0),
+      allianceBoosterCount: Math.max(0, Number(details.allianceBoosterCount) || 0),
+      allianceBoosterBoost: Math.max(0, Number(details.allianceBoosterBoost) || 0),
+      personalBoosterBoost: Math.max(0, Number(details.personalBoosterBoost ?? user.boosterCpsBoost) || 0),
+      totalAllianceBoost: Math.max(0, Number(details.totalAllianceBoost ?? entry?.boost) || 0),
+    };
+  }
+  writeState(data);
+}
+
+function setUserAllianceCpsBoost(guildId, userId, boost, details = null) {
+  setAllianceCpsBoostBatch(guildId, [{
+    userId,
+    boost,
+    details: details ?? {},
+  }]);
+}
+
+function setUserBoosterStatus(guildId, userId, isBooster) {
   const data = readState();
   const guildState = getGuildState(data, guildId);
   const user = getUserState(guildState, userId);
-  user.allianceCpsBoost = Math.max(0, Number(boost) || 0);
+  user.isServerBooster = Boolean(isBooster);
+  user.boosterCpsBoost = user.isServerBooster ? 0.1 : 0;
+  if (!user.allianceBoostDetails || typeof user.allianceBoostDetails !== 'object') {
+    user.allianceBoostDetails = {};
+  }
+  user.allianceBoostDetails.personalBoosterBoost = user.boosterCpsBoost;
   writeState(data);
 }
 
@@ -1511,15 +1569,26 @@ function buildCpsBreakdownEmbed(guild, user) {
   // ── Active buffs (frenzy) ─────────────────────────────────────────────────
   const frenzy = (user.activeBuffs ?? []).find((buff) => buff.type === 'frenzy' && buff.expiresAt > nowTs);
   const frenzyMultiplier = frenzy ? 7 : 1;
+  const allianceBoost = Math.max(0, Number(user.allianceCpsBoost ?? 0));
+  const boosterBoost = Math.max(0, Number(user.boosterCpsBoost ?? 0));
+  const boostDetails = user.allianceBoostDetails ?? {};
+  const boosterCount = Math.max(0, Number(boostDetails.allianceBoosterCount ?? 0));
+  const boosterAllianceBoost = Math.max(0, Number(boostDetails.allianceBoosterBoost ?? 0));
+  const rankBoost = Math.max(0, Number(boostDetails.rankBoost ?? 0));
+  const upgradeBoost = Math.max(0, Number(boostDetails.upgradeBoost ?? 0));
 
   // ── Totals ────────────────────────────────────────────────────────────────
   const basePlusBoosted = buildingTotal + consumedBonus;
-  const totalCps = basePlusBoosted * globalMultiplier * (1 + kittenBonus) * frenzyMultiplier;
+  const totalBeforeAlliance = basePlusBoosted * globalMultiplier * (1 + kittenBonus) * frenzyMultiplier;
+  const totalCps = totalBeforeAlliance * (1 + allianceBoost + boosterBoost);
 
   const embed = new EmbedBuilder()
     .setColor(0xf1c40f)
     .setTitle(`${cookieEmoji} CPS Breakdown`)
-    .setDescription(`**Total CPS: ${toCookieNumber(totalCps)}** cookies/second`)
+    .setDescription([
+      `Pre-alliance total: **${toCookieNumber(totalBeforeAlliance)}** CPS`,
+      `**Final total (all boosters applied): ${toCookieNumber(totalCps)} CPS**`,
+    ].join('\n'))
     .addFields(
       {
         name: `🏗️ Buildings (${toCookieNumber(buildingTotal)} CPS base)`,
@@ -1540,11 +1609,19 @@ function buildCpsBreakdownEmbed(guild, user) {
   if (frenzy) {
     embed.addFields({ name: '🌀 Frenzy Active', value: `×7 multiplier (expires <t:${Math.floor(frenzy.expiresAt / 1000)}:R>)`, inline: true });
   }
-  const allianceBoost = user.allianceCpsBoost ?? 0;
-  if (allianceBoost > 0) {
-    embed.addFields({ name: '🤝 Alliance Boost', value: `+${(allianceBoost * 100).toFixed(0)}% (leaderboard rank reward + upgrades)`, inline: true });
+  if (allianceBoost > 0 || boosterBoost > 0) {
+    embed.addFields({ name: '🤝 Alliance Boost', value: `+${(allianceBoost * 100).toFixed(0)}% (rank + alliance upgrades + alliance boosters)`, inline: true });
+    if (rankBoost > 0 || upgradeBoost > 0 || boosterAllianceBoost > 0 || boosterBoost > 0) {
+      const parts = [];
+      if (rankBoost > 0) parts.push(`Rank: +${(rankBoost * 100).toFixed(0)}%`);
+      if (upgradeBoost > 0) parts.push(`Store: +${(upgradeBoost * 100).toFixed(0)}%`);
+      if (boosterAllianceBoost > 0) parts.push(`Alliance boosters (${boosterCount}): +${(boosterAllianceBoost * 100).toFixed(0)}%`);
+      if (boosterBoost > 0) parts.push(`Your booster role: +${(boosterBoost * 100).toFixed(0)}%`);
+      embed.addFields({ name: '💎 Booster Sources', value: parts.join('\n').slice(0, 1024), inline: false });
+    }
   }
-  embed.addFields({ name: '📊 Formula', value: `(Buildings + Boosts) × Global Multiplier × (1 + Kitten%) × Frenzy × (1 + Alliance%)`, inline: false });
+  embed.addFields({ name: '✅ Final Total (All Boosters)', value: `${toCookieNumber(totalCps)} CPS`, inline: false });
+  embed.addFields({ name: '📊 Formula', value: `(Buildings + Boosts) × Global Multiplier × (1 + Kitten%) × Frenzy × (1 + Alliance% + Booster%)`, inline: false });
 
   embed.setTimestamp();
   if (guild) {
@@ -1986,12 +2063,17 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
       );
     rows.push(new ActionRowBuilder().addComponents(raritySelect));
 
-    const itemOptions = Object.entries(user.inventory)
+    const filteredInventoryEntries = Object.entries(user.inventory)
       .filter(([, qty]) => qty > 0)
       .map(([itemId, qty]) => ({ itemId, qty, item: ITEM_MAP.get(itemId) }))
       .filter((entry) => entry.item)
       .filter((entry) => rarityFilter === 'all' || entry.item.rarity === rarityFilter)
-      .sort((a, b) => compareRarity(b.item.id, a.item.id) || (b.qty - a.qty) || a.item.name.localeCompare(b.item.name))
+      .sort((a, b) => compareRarity(b.item.id, a.item.id) || (b.qty - a.qty) || a.item.name.localeCompare(b.item.name));
+    const pageSize = 8;
+    const pageCount = Math.max(1, Math.ceil(filteredInventoryEntries.length / pageSize));
+    const page = Math.max(0, Math.min(Number.isFinite(options.page) ? options.page : 0, pageCount - 1));
+    const pageEntries = filteredInventoryEntries.slice(page * pageSize, page * pageSize + pageSize);
+    const itemOptions = pageEntries
       .map((entry) => ({
         label: entry.item.name.slice(0, 100),
         description: `${RARITY[entry.item.rarity].name} • Owned: ${toCookieNumber(entry.qty)}`.slice(0, 100),
@@ -2014,8 +2096,11 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
       .filter(Boolean)
       .slice(0, 25);
 
-    const remainingGiftSlots = Math.max(0, 25 - itemOptions.length);
-    const inventoryOptions = [...itemOptions, ...rewardGiftOptions.slice(0, remainingGiftSlots)];
+    const giftSlots = Math.min(rewardGiftOptions.length, 5);
+    const itemSlots = Math.max(0, 25 - giftSlots);
+    const limitedItemOptions = itemOptions.slice(0, itemSlots);
+    const remainingGiftSlots = Math.max(0, 25 - limitedItemOptions.length);
+    const inventoryOptions = [...limitedItemOptions, ...rewardGiftOptions.slice(0, remainingGiftSlots)];
     if (inventoryOptions.length) {
       rows.push(
         new ActionRowBuilder().addComponents(
@@ -2026,6 +2111,25 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
         ),
       );
     }
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`bakery_inventory_prev:${page}:${rarityFilter}`)
+          .setLabel('◀ Prev')
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(page <= 0),
+        new ButtonBuilder()
+          .setCustomId(`bakery_inventory_page:${page}`)
+          .setLabel(`Page ${page + 1}/${pageCount}`)
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(true),
+        new ButtonBuilder()
+          .setCustomId(`bakery_inventory_next:${page}:${rarityFilter}`)
+          .setLabel('Next ▶')
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(page >= pageCount - 1),
+      ),
+    );
   }
 
   if (view === 'buildings') {
@@ -2866,12 +2970,14 @@ function deletePendingMessage(guildId, userId, messageId) {
 
 function buildMessagesEmbed(guild, user, page) {
   const pending = user.pendingMessages ?? [];
+  const unclaimedRewards = pending.filter((msg) => (msg.type === 'gift_box' || msg.type === 'gift_cookies') && !msg.claimed).length;
   const totalPages = Math.max(1, Math.ceil(pending.length / MESSAGES_PER_PAGE));
   const safePage = Math.max(0, Math.min(page, totalPages - 1));
   const pageMsgs = pending.slice(safePage * MESSAGES_PER_PAGE, safePage * MESSAGES_PER_PAGE + MESSAGES_PER_PAGE);
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
-    .setTitle('Messages & Notifications')
+    .setTitle('📬 Messages & Notifications')
+    .setDescription(`Total: **${pending.length}** • Unclaimed rewards: **${unclaimedRewards}**`)
     .setFooter({ text: `Page ${safePage + 1}/${totalPages} • ${pending.length} message(s) total` });
 
   if (pending.length === 0) {
@@ -2882,32 +2988,37 @@ function buildMessagesEmbed(guild, user, page) {
   const lines = pageMsgs.map((msg, idx) => {
     const num = safePage * MESSAGES_PER_PAGE + idx + 1;
     const ts = msg.createdAt ? `<t:${Math.floor(new Date(msg.createdAt).getTime() / 1000)}:R>` : '';
-    let icon, summary;
+    let icon, category, summary;
     if (msg.type === 'gift_box') {
       const box = REWARD_BOX_MAP.get(msg.rewardBoxId);
       icon = msg.claimed ? '✅' : '🎁';
+      category = 'Gift Box';
       const msgText = msg.message ? `: *${msg.message.slice(0, 80)}${msg.message.length > 80 ? '…' : ''}*` : '';
       summary = `×${msg.quantity} **${box?.name ?? msg.rewardBoxId}** from **${msg.from}**${msgText}${msg.claimed ? ' *(claimed)*' : ''}`;
     } else if (msg.type === 'gift_cookies') {
       icon = msg.claimed ? '✅' : '🍪';
+      category = 'Cookie Gift';
       const msgText = msg.message ? `: *${msg.message.slice(0, 80)}${msg.message.length > 80 ? '…' : ''}*` : '';
       summary = `**${toCookieNumber(msg.cookieAmount)}** cookies from **${msg.from}**${msgText}${msg.claimed ? ' *(claimed)*' : ''}`;
     } else if (msg.type === 'alliance_notification') {
       icon = '🤝';
+      category = 'Alliance';
       summary = msg.content ?? '(alliance notification)';
     } else if (msg.type === 'staff_message') {
       const typeIcon = msg.messageType === 'moderation' ? '⚠️' : msg.messageType === 'bakery' ? '🍪' : '🔔';
       icon = typeIcon;
+      category = 'Staff';
       const titlePart = msg.title ? `**${msg.title}**: ` : '';
       summary = `${titlePart}${(msg.content ?? '').slice(0, 200)} *(from ${msg.from ?? 'Staff'})*`;
     } else {
       icon = '📢';
+      category = 'Notification';
       summary = msg.content ?? msg.message ?? '(notification)';
     }
-    return `**${num}.** ${icon} ${summary} ${ts}`;
+    return `**#${num} • ${icon} ${category}**\n${summary}${ts ? `\n${ts}` : ''}`;
   });
 
-  embed.setDescription(lines.join('\n\n'));
+  embed.addFields({ name: 'Inbox', value: lines.join('\n\n').slice(0, 1024) });
   return embed;
 }
 
@@ -3309,18 +3420,22 @@ function getGuildUserStates(guildId) {
 }
 
 function getLeaderboardScore(userState, metricId) {
+  const allianceBoostMultiplier = 1 + Math.max(0, Number(userState?.allianceCpsBoost ?? 0));
   if (metricId === 'special') {
     const inventory = userState?.inventory ?? {};
-    return Number(inventory.perfectcookie ?? 0)
+    const baseScore = Number(inventory.perfectcookie ?? 0)
       + Number(inventory.goldcookie ?? 0)
       + Number(inventory.spoopiercookie ?? 0);
+    return baseScore * allianceBoostMultiplier;
   }
-  if (metricId === 'lifetime') return Number(userState?.cookiesBakedAllTime ?? 0);
+  if (metricId === 'lifetime') return Number(userState?.cookiesBakedAllTime ?? 0) * allianceBoostMultiplier;
   if (metricId === 'cps') {
     const safeUser = JSON.parse(JSON.stringify(userState ?? {}));
-    return Number(computeCps(safeUser, Date.now()) ?? 0);
+    safeUser.allianceCpsBoost = 0;
+    const baseScore = Number(computeCps(safeUser, Date.now()) ?? 0);
+    return baseScore * allianceBoostMultiplier;
   }
-  return Number(userState?.cookies ?? 0);
+  return Number(userState?.cookies ?? 0) * allianceBoostMultiplier;
 }
 
 function getBakeryLeaderboard(guildId, metricId = 'cookies') {
@@ -3380,7 +3495,9 @@ module.exports = {
   getEarnedAchievementCount,
   getUserSnapshot,
   saveUserSnapshot,
+  setAllianceCpsBoostBatch,
   setUserAllianceCpsBoost,
+  setUserBoosterStatus,
   buildDashboardEmbed,
   buildDashboardComponents,
   buildCpsBreakdownEmbed,
