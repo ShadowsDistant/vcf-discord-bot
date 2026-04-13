@@ -1093,7 +1093,13 @@ async function runTool(context, name, args) {
     const member = await guild.members.fetch(userId).catch(() => null);
     if (!member) return { ok: false, error: 'Member not found in this guild.' };
     const warnings = db.getWarnings(guild.id, userId);
-    const activeShift = db.getActiveShift(guild.id, userId);
+    const activeShift = (() => {
+      try {
+        return db.getActiveShift(guild.id, userId);
+      } catch {
+        return null;
+      }
+    })();
     const snapshot = economy.getUserSnapshot(guild.id, userId);
     const cps = economy.computeCps(snapshot.user, Date.now());
     return {
@@ -1328,7 +1334,7 @@ async function runTool(context, name, args) {
     if (latestPrompt !== expectedPhrase) {
       return {
         ok: false,
-        error: `Confirmation phrase mismatch. User must send exactly: CONFIRM MODERATION ${confirmationToken.toUpperCase()}`,
+        error: `Confirmation phrase mismatch. Received: "${truncate(context.latestPrompt, 80)}". Expected: "CONFIRM MODERATION ${confirmationToken.toUpperCase()}".`,
       };
     }
 
@@ -1386,8 +1392,9 @@ async function runTool(context, name, args) {
 
       if (pending.action === 'ban') {
         const banTarget = target?.user ?? pending.targetId;
+        const banDmUser = target?.user ?? await context.client.users.fetch(pending.targetId).catch(() => null);
         await sendModerationActionDm({
-          user: target?.user ?? null,
+          user: banDmUser,
           guild,
           action: 'Ban',
           reason: pending.reason,
