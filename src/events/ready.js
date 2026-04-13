@@ -1,6 +1,6 @@
 'use strict';
 
-const { Events, ActivityType } = require('discord.js');
+const { Events, ActivityType, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const db = require('../utils/database');
 const economy = require('../utils/bakeEconomy');
 const alliances = require('../utils/bakeAlliances');
@@ -65,6 +65,14 @@ function scheduleCookieEventLoop(guild, client) {
               icon_url: guild.iconURL() ?? undefined,
             },
           },
+        ],
+        components: [
+          new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setLabel('🍪 Go Bake Now')
+              .setStyle(ButtonStyle.Link)
+              .setURL(`https://discord.com/channels/${guild.id}/${BAKE_COMMANDS_CHANNEL_ID}`),
+          ),
         ],
       }).catch(() => null);
     }

@@ -2645,13 +2645,16 @@ function adminSetRank(guildId, targetUserId, rankId) {
   return true;
 }
 
-function adminStartEvent(guildId, durationMinutes) {
+function adminStartEvent(guildId, durationMinutes, eventId = null) {
   const data = readState();
   const guildState = getGuildState(data, guildId);
   const nowTs = Date.now();
   const durationMs = Math.max(60_000, Math.floor(durationMinutes * 60_000));
+  const resolvedId = eventId && COOKIE_EVENT_DEFINITIONS.find((e) => e.id === eventId)
+    ? eventId
+    : BAKE_EVENT_SPECIAL_COOKIE_HUNT;
   guildState.settings.bakeEvent = {
-    id: BAKE_EVENT_SPECIAL_COOKIE_HUNT,
+    id: resolvedId,
     startedAt: nowTs,
     endsAt: nowTs + durationMs,
   };
@@ -2793,6 +2796,13 @@ function addPendingMessage(guildId, userId, messageData) {
   writeState(data);
 }
 
+function getAllTrackedUserIds(guildId) {
+  const data = readState();
+  const guildState = data[guildId];
+  if (!guildState?.users) return [];
+  return Object.keys(guildState.users);
+}
+
 function claimPendingMessage(guildId, userId, messageId) {
   const data = readState();
   const guildState = getGuildState(data, guildId);
@@ -2884,9 +2894,17 @@ function buildMessagesEmbed(guild, user, page) {
       icon = msg.claimed ? '✅' : '🍪';
       const msgText = msg.message ? `: *${msg.message.slice(0, 80)}${msg.message.length > 80 ? '…' : ''}*` : '';
       summary = `**${toCookieNumber(msg.cookieAmount)}** cookies from **${msg.from}**${msgText}${msg.claimed ? ' *(claimed)*' : ''}`;
+    } else if (msg.type === 'alliance_notification') {
+      icon = '🤝';
+      summary = msg.content ?? '(alliance notification)';
+    } else if (msg.type === 'staff_message') {
+      const typeIcon = msg.messageType === 'moderation' ? '⚠️' : msg.messageType === 'bakery' ? '🍪' : '🔔';
+      icon = typeIcon;
+      const titlePart = msg.title ? `**${msg.title}**: ` : '';
+      summary = `${titlePart}${(msg.content ?? '').slice(0, 200)} *(from ${msg.from ?? 'Staff'})*`;
     } else {
       icon = '📢';
-      summary = msg.message ?? '(notification)';
+      summary = msg.content ?? msg.message ?? '(notification)';
     }
     return `**${num}.** ${icon} ${summary} ${ts}`;
   });
@@ -3435,6 +3453,7 @@ module.exports = {
   startRandomCookieEvent,
   GIFT_BOX_OPTION_PREFIX,
   addPendingMessage,
+  getAllTrackedUserIds,
   claimPendingMessage,
   claimAllPendingMessages,
   deletePendingMessage,

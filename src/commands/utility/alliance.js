@@ -43,13 +43,13 @@ function buildNavigationSelect(currentView) {
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
       .setCustomId('alliance_nav_select')
-      .setPlaceholder('Navigate alliance panel')
+      .setPlaceholder('📋 Navigate alliance panel...')
       .addOptions(
-        { label: 'Overview', value: 'overview', description: 'Alliance info, members, and current summary.', default: currentView === 'overview' },
-        { label: 'Challenge', value: 'challenge', description: 'Weekly challenge progress and contributors.', default: currentView === 'challenge' },
-        { label: 'Store', value: 'store', description: 'Alliance-wide upgrades and available credits.', default: currentView === 'store' },
-        { label: 'Manage', value: 'manage', description: 'Owner actions like rename, transfer, and member removal.', default: currentView === 'manage' },
-        { label: 'Leaderboard', value: 'leaderboard', description: 'Top alliances by total CPS.', default: currentView === 'leaderboard' },
+        { label: '🏠 Overview', value: 'overview', description: 'Alliance info, members, and current summary.', default: currentView === 'overview' },
+        { label: '🎯 Challenge', value: 'challenge', description: 'Weekly challenge progress and contributors.', default: currentView === 'challenge' },
+        { label: '🛍️ Store', value: 'store', description: 'Alliance-wide upgrades and available credits.', default: currentView === 'store' },
+        { label: '🛠️ Manage', value: 'manage', description: 'Owner actions like rename, transfer, and member removal.', default: currentView === 'manage' },
+        { label: '🏆 Leaderboard', value: 'leaderboard', description: 'Top alliances by total CPS.', default: currentView === 'leaderboard' },
       ),
   );
 }
@@ -108,10 +108,16 @@ function buildAllianceActionButtons(guild, view, data, userId) {
 
 function buildLeaderboardLines(guildId) {
   const ranking = alliances.getAllianceLeaderboard(guildId);
-  if (!ranking.length) return 'No alliances yet.';
+  if (!ranking.length) return 'No alliances yet. Be the first to create one!';
+  const medals = ['🥇', '🥈', '🥉'];
+  const rankBoostLabels = [' *(+10% CPS)*', ' *(+5% CPS)*', ' *(+3% CPS)*'];
   return ranking
     .slice(0, 10)
-    .map((entry, idx) => `${idx + 1}. **${entry.name}** — CPS **${economy.toCookieNumber(entry.cpsTotal)}** (${entry.memberCount} members)`)
+    .map((entry, idx) => {
+      const medal = medals[idx] ?? `**${idx + 1}.**`;
+      const boost = rankBoostLabels[idx] ?? '';
+      return `${medal} **${entry.name}**${boost} — ${economy.toCookieNumber(entry.cpsTotal)} CPS • ${entry.memberCount} members`;
+    })
     .join('\n');
 }
 
@@ -149,7 +155,13 @@ function buildStoreSelect(guild, store) {
   );
 }
 
-function buildManageSelects(data, userId) {
+function memberDisplayName(guild, memberId) {
+  const member = guild?.members?.cache?.get(memberId);
+  if (member) return member.displayName.slice(0, 80);
+  return `User ${memberId.slice(-4)}`;
+}
+
+function buildManageSelects(guild, data, userId) {
   if (!data.alliance || data.alliance.ownerId !== userId) return [];
   const memberIds = data.alliance.members.filter((memberId) => memberId !== userId).slice(0, 25);
   const requestIds = (data.alliance.joinRequests ?? []).map((entry) => entry.userId).slice(0, 25);
@@ -160,9 +172,9 @@ function buildManageSelects(data, userId) {
       new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
           .setCustomId('alliance_transfer_select')
-          .setPlaceholder('Transfer alliance ownership')
+          .setPlaceholder('👑 Transfer alliance ownership...')
           .addOptions(memberIds.map((memberId) => ({
-            label: `Member ${memberId}`.slice(0, 100),
+            label: memberDisplayName(guild, memberId),
             value: memberId,
             description: 'Transfer leadership to this member.',
           }))),
@@ -170,9 +182,9 @@ function buildManageSelects(data, userId) {
       new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
           .setCustomId('alliance_remove_select')
-          .setPlaceholder('Remove alliance member')
+          .setPlaceholder('🚫 Kick a member...')
           .addOptions(memberIds.map((memberId) => ({
-            label: `Member ${memberId}`.slice(0, 100),
+            label: memberDisplayName(guild, memberId),
             value: memberId,
             description: 'Remove this member from the alliance.',
           }))),
@@ -185,12 +197,12 @@ function buildManageSelects(data, userId) {
       .slice(0, 12)
       .flatMap((memberId) => ([
         {
-          label: `Approve ${memberId}`.slice(0, 100),
+          label: `✅ Approve: ${memberDisplayName(guild, memberId)}`.slice(0, 100),
           value: `approve:${memberId}`,
           description: 'Approve and add this user to the alliance.',
         },
         {
-          label: `Deny ${memberId}`.slice(0, 100),
+          label: `❌ Deny: ${memberDisplayName(guild, memberId)}`.slice(0, 100),
           value: `deny:${memberId}`,
           description: 'Deny this join request.',
         },
@@ -199,7 +211,7 @@ function buildManageSelects(data, userId) {
       new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
           .setCustomId('alliance_request_action_select')
-          .setPlaceholder('Review pending join requests')
+          .setPlaceholder('📋 Review pending join requests...')
           .addOptions(requestActionOptions),
       ),
     );
@@ -356,7 +368,7 @@ function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = 
         { name: 'Join Approval', value: data.alliance.joinApprovalEnabled ? 'Enabled (owner approval required)' : 'Disabled (instant join)', inline: false },
         { name: 'Pending Requests', value: `${(data.alliance.joinRequests ?? []).length}`, inline: true },
       );
-    components.push(...buildManageSelects(data, userId));
+    components.push(...buildManageSelects(guild, data, userId));
   } else if (view === 'leaderboard') {
     baseEmbed
       .setColor(0x5865f2)
@@ -522,14 +534,21 @@ async function handleAllianceSelect(interaction) {
   }
   if (interaction.customId === 'alliance_remove_select') {
     const memberId = interaction.values[0];
-    const result = alliances.removeAllianceMember(interaction.guild.id, interaction.user.id, memberId);
-    if (!result.ok) {
-      return interaction.reply({
-        embeds: [embeds.error(result.reason, interaction.guild)],
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-    return respondWithPanelUpdate(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'manage', `Removed <@${memberId}> from the alliance.`));
+    const modal = new ModalBuilder()
+      .setCustomId(`alliance_modal:kick_reason:${memberId}`)
+      .setTitle('Kick Member')
+      .addComponents(
+        new ActionRowBuilder().addComponents(
+          new TextInputBuilder()
+            .setCustomId('reason')
+            .setLabel('Reason (optional)')
+            .setStyle(TextInputStyle.Short)
+            .setRequired(false)
+            .setMaxLength(200)
+            .setPlaceholder('e.g. Inactive, rule violation, etc.'),
+        ),
+      );
+    return interaction.showModal(modal);
   }
   if (interaction.customId === 'alliance_request_action_select') {
     const [action, memberId] = String(interaction.values[0] ?? '').split(':');
@@ -550,7 +569,8 @@ async function handleAllianceSelect(interaction) {
 }
 
 async function handleAllianceModal(interaction) {
-  const [, modalType] = interaction.customId.split(':');
+  const parts = interaction.customId.split(':');
+  const modalType = parts[1];
 
   if (modalType === 'create') {
     const name = interaction.fields.getTextInputValue('name').trim();
@@ -594,6 +614,23 @@ async function handleAllianceModal(interaction) {
     return respondWithPanelReply(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'manage', `Alliance renamed to **${result.alliance.name}**.`));
   }
 
+  if (modalType === 'kick_reason') {
+    const targetMemberId = parts[2];
+    if (!targetMemberId) return null;
+    const reason = interaction.fields.getTextInputValue('reason')?.trim() ?? '';
+    const result = alliances.removeAllianceMember(interaction.guild.id, interaction.user.id, targetMemberId, reason);
+    if (!result.ok) {
+      return interaction.reply({
+        embeds: [embeds.error(result.reason, interaction.guild)],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+    const notice = reason
+      ? `Kicked <@${targetMemberId}> from the alliance. Reason: *${reason}*`
+      : `Kicked <@${targetMemberId}> from the alliance.`;
+    return respondWithPanelReply(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'manage', notice));
+  }
+
   return null;
 }
 
@@ -601,29 +638,9 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('alliance')
     .setDescription('Open the unified alliance panel for challenges, management, and store upgrades.')
-    .setDMPermission(false)
-    .addUserOption((option) =>
-      option
-        .setName('member')
-        .setDescription('Alliance owner only: kick a member from your alliance.')
-        .setRequired(false),
-    ),
+    .setDMPermission(false),
 
   async execute(interaction) {
-    const kickTarget = interaction.options.getUser('member');
-    if (kickTarget) {
-      const result = alliances.removeAllianceMember(interaction.guild.id, interaction.user.id, kickTarget.id);
-      if (!result.ok) {
-        return interaction.reply({
-          embeds: [embeds.error(result.reason, interaction.guild)],
-          flags: MessageFlags.Ephemeral,
-        });
-      }
-      return interaction.reply({
-        embeds: [embeds.success(`Kicked <@${kickTarget.id}> from **${result.alliance.name}**.`, interaction.guild)],
-        flags: MessageFlags.Ephemeral,
-      });
-    }
     return respondWithPanelReply(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'overview'));
   },
 

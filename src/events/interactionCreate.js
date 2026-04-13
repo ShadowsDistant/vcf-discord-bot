@@ -28,6 +28,8 @@ const helpCommand = require('../commands/utility/help');
 const shiftCommand = require('../commands/shifts/shift');
 const automodCommand = require('../commands/setup/automod');
 const staffInfractionCommand = require('../commands/moderation/staffinfraction');
+const staffMessageCommand = require('../commands/moderation/staffmessage');
+const broadcastMessageCommand = require('../commands/moderation/broadcastmessage');
 const challenges = require('../utils/bakeryChallenges');
 const { sendModerationActionDm, sendReporterStatusDm } = require('../utils/moderationNotifications');
 const { version: botVersion } = require('../../package.json');
@@ -176,23 +178,37 @@ async function sendBakeAdminLog(interaction, targetUserId, action, details) {
   await channel.send({ embeds: [embed] }).catch(() => null);
 }
 
-async function sendSpecialCookieHuntStartLog(interaction, durationMinutes, startsAt, endsAt) {
+async function sendBakeEventStartLog(interaction, eventDef, durationMinutes, startsAt, endsAt) {
   const channel = await interaction.guild.channels.fetch(SPECIAL_COOKIE_EVENT_CHANNEL_ID).catch(() => null);
   if (!channel || !channel.isTextBased()) return;
   const startedAtTs = Math.floor((Number.isFinite(startsAt) ? startsAt : Date.now()) / 1000);
   const endsAtTs = Math.floor(endsAt / 1000);
+  const eventEmojis = {
+    special_cookie_hunt: '🍪',
+    golden_fever: '✨',
+    sugar_rush: '⚡',
+    steady_heat: '🔥',
+  };
+  const eventColors = {
+    special_cookie_hunt: 0xfee75c,
+    golden_fever: 0xffd700,
+    sugar_rush: 0xff6b35,
+    steady_heat: 0xed4245,
+  };
+  const emoji = eventEmojis[eventDef.id] ?? '🎉';
+  const color = eventColors[eventDef.id] ?? 0x5865f2;
   const embed = new EmbedBuilder()
-    .setColor(0xfee75c)
-    .setTitle('🍪🎉 Special Cookie Hunt is Live!')
+    .setColor(color)
+    .setTitle(`${emoji} ${eventDef.name} is Live!`)
     .setDescription([
       `Hosted by <@${interaction.user.id}>`,
-      'Special cookie drops are boosted for everyone during this event.',
+      `**${eventDef.description}**`,
       `Run your bake commands here: <#${BAKE_COMMANDS_CHANNEL_ID}>`,
     ].join('\n'))
     .addFields(
-      { name: 'Starts', value: `<t:${startedAtTs}:F> (<t:${startedAtTs}:R>)`, inline: true },
-      { name: 'Ends', value: `<t:${endsAtTs}:F> (<t:${endsAtTs}:R>)`, inline: true },
-      { name: 'Duration', value: `**${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}**`, inline: true },
+      { name: '⏰ Starts', value: `<t:${startedAtTs}:F> (<t:${startedAtTs}:R>)`, inline: true },
+      { name: '🏁 Ends', value: `<t:${endsAtTs}:F> (<t:${endsAtTs}:R>)`, inline: true },
+      { name: '⏱️ Duration', value: `**${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}**`, inline: true },
     )
     .setTimestamp()
     .setFooter({
@@ -202,10 +218,16 @@ async function sendSpecialCookieHuntStartLog(interaction, durationMinutes, start
   const actions = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setStyle(ButtonStyle.Link)
-      .setLabel('Open Bake Commands Channel')
+      .setLabel('🍪 Open Bake Commands')
       .setURL(BAKE_COMMANDS_CHANNEL_URL),
   );
   await channel.send({ embeds: [embed], components: [actions] }).catch(() => null);
+}
+
+// Legacy alias used at other call sites
+async function sendSpecialCookieHuntStartLog(interaction, durationMinutes, startsAt, endsAt) {
+  const eventDef = economy.COOKIE_EVENT_DEFINITIONS.find((e) => e.id === 'special_cookie_hunt') ?? { id: 'special_cookie_hunt', name: 'Special Cookie Hunt', description: 'Special cookie drops are boosted.' };
+  return sendBakeEventStartLog(interaction, eventDef, durationMinutes, startsAt, endsAt);
 }
 
 function getErrorDetails(err) {
@@ -665,6 +687,122 @@ module.exports = {
         const embed = economy.buildMessagesEmbed(interaction.guild, snapshot.user, safePage);
         const components = economy.buildMessagesComponents(snapshot.user, safePage);
         return interaction.update({ embeds: [embed], components });
+      }
+
+      // ── Staff Message: user select → type select → modal ──────────────────
+      if (interaction.customId.startsWith('staffmsg_user_select:')) {
+        const [, actorId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({ embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)], flags: MessageFlags.Ephemeral });
+        }
+        const userIds = interaction.values.join(',');
+        return interaction.reply({
+          embeds: [{
+            color: 0x5865f2,
+            title: '📨 Staff Message — Select Type',
+            description: `Recipients: ${interaction.values.map((id) => `<@${id}>`).join(', ')}\n\nChoose the message type:`,
+            timestamp: new Date().toISOString(),
+          }],
+          components: [
+            new ActionRowBuilder().addComponents(
+              new StringSelectMenuBuilder()
+                .setCustomId(`staffmsg_type_select:${actorId}:${userIds}`)
+                .setPlaceholder('Select message type...')
+                .addOptions(staffMessageCommand.MESSAGE_TYPES),
+            ),
+          ],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (interaction.customId.startsWith('staffmsg_type_select:')) {
+        const parts = interaction.customId.split(':');
+        const actorId = parts[1];
+        const userIds = parts[2];
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({ embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)], flags: MessageFlags.Ephemeral });
+        }
+        const messageType = interaction.values[0];
+        const modal = new ModalBuilder()
+          .setCustomId(`staffmsg_modal:${actorId}:${messageType}:${userIds}`)
+          .setTitle('Staff Message')
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('title')
+                .setLabel('Message Title')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+                .setMaxLength(100),
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('content')
+                .setLabel('Message Content')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true)
+                .setMaxLength(1000),
+            ),
+          );
+        return interaction.showModal(modal);
+      }
+
+      // ── Broadcast Message: audience select → type select → modal ──────────
+      if (interaction.customId.startsWith('broadcastmsg_audience_select:')) {
+        const [, actorId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({ embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)], flags: MessageFlags.Ephemeral });
+        }
+        const audience = interaction.values[0];
+        return interaction.reply({
+          embeds: [{
+            color: 0x5865f2,
+            title: '📢 Broadcast — Select Type',
+            description: `Audience: **${audience}**\n\nChoose the message type:`,
+            timestamp: new Date().toISOString(),
+          }],
+          components: [
+            new ActionRowBuilder().addComponents(
+              new StringSelectMenuBuilder()
+                .setCustomId(`broadcastmsg_type_select:${actorId}:${audience}`)
+                .setPlaceholder('Select message type...')
+                .addOptions(staffMessageCommand.MESSAGE_TYPES),
+            ),
+          ],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (interaction.customId.startsWith('broadcastmsg_type_select:')) {
+        const parts = interaction.customId.split(':');
+        const actorId = parts[1];
+        const audience = parts[2];
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({ embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)], flags: MessageFlags.Ephemeral });
+        }
+        const messageType = interaction.values[0];
+        const modal = new ModalBuilder()
+          .setCustomId(`broadcastmsg_modal:${actorId}:${messageType}:${audience}`)
+          .setTitle('Broadcast Message')
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('title')
+                .setLabel('Message Title')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+                .setMaxLength(100),
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('content')
+                .setLabel('Message Content')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true)
+                .setMaxLength(1000),
+            ),
+          );
+        return interaction.showModal(modal);
       }
 
       if (interaction.customId.startsWith('bakery_nav:')) {
@@ -1704,18 +1842,31 @@ module.exports = {
           });
         }
         if (action === 'start_event') {
-          const modal = new ModalBuilder()
-            .setCustomId(`bakeadmin_global_modal:${actorId}:start_event`)
-            .setTitle('Start Bake Event')
-            .addComponents(
-              new ActionRowBuilder().addComponents(new TextInputBuilder()
-                .setCustomId('durationMinutes')
-                .setLabel('Event duration (minutes)')
-                .setPlaceholder('e.g. 30')
-                .setStyle(TextInputStyle.Short)
-                .setRequired(true)),
-            );
-          return interaction.showModal(modal);
+          return interaction.reply({
+            embeds: [embeds.info('Start Bake Event', 'Choose the type of event to start.', interaction.guild)],
+            components: [
+              new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder()
+                  .setCustomId(`bakeadmin_event_type_select:${actorId}`)
+                  .setPlaceholder('Select event type')
+                  .addOptions(economy.COOKIE_EVENT_DEFINITIONS.map((eventDef) => {
+                    const eventEmojis = {
+                      special_cookie_hunt: '🍪',
+                      golden_fever: '✨',
+                      sugar_rush: '⚡',
+                      steady_heat: '🔥',
+                    };
+                    return {
+                      label: eventDef.name,
+                      value: eventDef.id,
+                      description: eventDef.description.slice(0, 100),
+                      emoji: eventEmojis[eventDef.id] ?? '🎉',
+                    };
+                  })),
+              ),
+            ],
+            flags: MessageFlags.Ephemeral,
+          });
         }
         if (action === 'gift_all_users') {
           return interaction.reply({
@@ -1750,6 +1901,38 @@ module.exports = {
             );
           return interaction.showModal(modal);
         }
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_event_type_select:')) {
+        const [, actorId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const eventId = interaction.values[0];
+        const eventDef = economy.COOKIE_EVENT_DEFINITIONS.find((e) => e.id === eventId);
+        if (!eventDef) {
+          return interaction.reply({
+            embeds: [embeds.error('Unknown event type.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const modal = new ModalBuilder()
+          .setCustomId(`bakeadmin_global_modal:${actorId}:start_event:${eventId}`)
+          .setTitle(`Start ${eventDef.name}`)
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('durationMinutes')
+                .setLabel('Event duration (minutes)')
+                .setPlaceholder('e.g. 30')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true),
+            ),
+          );
+        return interaction.showModal(modal);
       }
 
       if (interaction.customId.startsWith('bakeadmin_gift_all_box_select:')) {
@@ -2494,7 +2677,10 @@ module.exports = {
       }
 
       if (interaction.customId.startsWith('bakeadmin_global_modal:')) {
-        const [, actorId, action] = interaction.customId.split(':');
+        const parts = interaction.customId.split(':');
+        const actorId = parts[1];
+        const action = parts[2];
+        const extraParam = parts[3] ?? null; // e.g. event id for start_event
         if (actorId !== interaction.user.id) {
           return interaction.reply({
             embeds: [embeds.error('This admin modal is not assigned to you.', interaction.guild)],
@@ -2510,11 +2696,13 @@ module.exports = {
               flags: MessageFlags.Ephemeral,
             });
           }
-          const event = economy.adminStartEvent(interaction.guild.id, durationMinutes);
-          await sendBakeAdminLog(interaction, actorId, 'Global: Start Event', `Special Cookie Hunt for ${durationMinutes} minute(s)`);
-          await sendSpecialCookieHuntStartLog(interaction, durationMinutes, event.startedAt, event.endsAt);
+          const eventId = extraParam ?? 'special_cookie_hunt';
+          const eventDef = economy.COOKIE_EVENT_DEFINITIONS.find((e) => e.id === eventId) ?? economy.COOKIE_EVENT_DEFINITIONS[0];
+          const event = economy.adminStartEvent(interaction.guild.id, durationMinutes, eventId);
+          await sendBakeAdminLog(interaction, actorId, 'Global: Start Event', `${eventDef.name} for ${durationMinutes} minute(s)`);
+          await sendBakeEventStartLog(interaction, eventDef, durationMinutes, event.startedAt, event.endsAt);
           return interaction.reply({
-            embeds: [embeds.success(`Started **Special Cookie Hunt** for **${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}**.`, interaction.guild)],
+            embeds: [embeds.success(`Started **${eventDef.name}** for **${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}**.`, interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
@@ -2590,14 +2778,107 @@ module.exports = {
               flags: MessageFlags.Ephemeral,
             });
           }
-          const event = economy.adminStartEvent(interaction.guild.id, durationMinutes);
-          await sendBakeAdminLog(interaction, targetId, 'Start Event', `Special Cookie Hunt for ${durationMinutes} minute(s)`);
-          await sendSpecialCookieHuntStartLog(interaction, durationMinutes, event.startedAt, event.endsAt);
+          const eventIdParam = interaction.customId.split(':')[4] ?? 'special_cookie_hunt';
+          const eventDef = economy.COOKIE_EVENT_DEFINITIONS.find((e) => e.id === eventIdParam) ?? economy.COOKIE_EVENT_DEFINITIONS[0];
+          const event = economy.adminStartEvent(interaction.guild.id, durationMinutes, eventDef.id);
+          await sendBakeAdminLog(interaction, targetId, 'Start Event', `${eventDef.name} for ${durationMinutes} minute(s)`);
+          await sendBakeEventStartLog(interaction, eventDef, durationMinutes, event.startedAt, event.endsAt);
           return interaction.reply({
-            embeds: [embeds.success(`Started **Special Cookie Hunt** for **${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}**.`, interaction.guild)],
+            embeds: [embeds.success(`Started **${eventDef.name}** for **${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}**.`, interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
+      }
+
+      // ── Staff Message modal submit ─────────────────────────────────────────
+      if (interaction.customId.startsWith('staffmsg_modal:')) {
+        const parts = interaction.customId.split(':');
+        const actorId = parts[1];
+        const messageType = parts[2];
+        const recipientIds = (parts[3] ?? '').split(',').filter(Boolean);
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({ embeds: [embeds.error('This modal is not assigned to you.', interaction.guild)], flags: MessageFlags.Ephemeral });
+        }
+        if (!staffMessageCommand.hasSeniorModPlus(interaction.member)) {
+          return interaction.reply({ embeds: [embeds.error('Permission denied.', interaction.guild)], flags: MessageFlags.Ephemeral });
+        }
+        const title = interaction.fields.getTextInputValue('title').trim();
+        const content = interaction.fields.getTextInputValue('content').trim();
+        for (const userId of recipientIds) {
+          economy.addPendingMessage(interaction.guild.id, userId, {
+            type: 'staff_message',
+            messageType,
+            title,
+            content,
+            from: interaction.user.tag,
+            claimed: true,
+          });
+        }
+        const recipientMentions = recipientIds.map((id) => `<@${id}>`).join(', ');
+        return interaction.reply({
+          embeds: [embeds.success(`Message sent to ${recipientMentions}.`, interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      // ── Broadcast Message modal submit ────────────────────────────────────
+      if (interaction.customId.startsWith('broadcastmsg_modal:')) {
+        const parts = interaction.customId.split(':');
+        const actorId = parts[1];
+        const messageType = parts[2];
+        const audience = parts[3];
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({ embeds: [embeds.error('This modal is not assigned to you.', interaction.guild)], flags: MessageFlags.Ephemeral });
+        }
+        if (!broadcastMessageCommand.hasLeadManagement(interaction.member)) {
+          return interaction.reply({ embeds: [embeds.error('Permission denied.', interaction.guild)], flags: MessageFlags.Ephemeral });
+        }
+        const title = interaction.fields.getTextInputValue('title').trim();
+        const content = interaction.fields.getTextInputValue('content').trim();
+
+        let targetUserIds = [];
+        if (audience === 'everyone') {
+          targetUserIds = economy.getAllTrackedUserIds(interaction.guild.id);
+        } else if (audience.startsWith('role:')) {
+          const roleKey = audience.slice(5);
+          let roleSet;
+          if (roleKey === 'moderation') roleSet = broadcastMessageCommand.MODERATION_ROLE_IDS;
+          else if (roleKey === 'sid') roleSet = broadcastMessageCommand.SID_ROLE_IDS;
+          else if (roleKey === 'osc') roleSet = broadcastMessageCommand.OSC_ROLE_IDS;
+          else if (roleKey === 'facility') roleSet = broadcastMessageCommand.FACILITY_ROLE_IDS;
+          else if (roleKey === 'all_staff') roleSet = broadcastMessageCommand.ALL_STAFF_ROLE_IDS;
+          if (roleSet) {
+            await interaction.guild.members.fetch().catch(() => null);
+            for (const member of interaction.guild.members.cache.values()) {
+              if ([...roleSet].some((roleId) => member.roles.cache.has(roleId))) {
+                targetUserIds.push(member.id);
+              }
+            }
+          }
+        }
+
+        if (targetUserIds.length === 0) {
+          return interaction.reply({
+            embeds: [embeds.warning('No matching users found for the selected audience.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        for (const userId of targetUserIds) {
+          economy.addPendingMessage(interaction.guild.id, userId, {
+            type: 'staff_message',
+            messageType,
+            title,
+            content,
+            from: interaction.user.tag,
+            claimed: true,
+          });
+        }
+
+        return interaction.reply({
+          embeds: [embeds.success(`Broadcast sent to **${targetUserIds.length}** user(s) (audience: *${audience}*).`, interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
       }
     }
 
