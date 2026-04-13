@@ -2869,11 +2869,9 @@ function buildMessagesEmbed(guild, user, page) {
   const totalPages = Math.max(1, Math.ceil(pending.length / MESSAGES_PER_PAGE));
   const safePage = Math.max(0, Math.min(page, totalPages - 1));
   const pageMsgs = pending.slice(safePage * MESSAGES_PER_PAGE, safePage * MESSAGES_PER_PAGE + MESSAGES_PER_PAGE);
-  const cookieEmoji = getCookieEmoji(guild);
-
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
-    .setTitle(`${cookieEmoji} Messages & Notifications`)
+    .setTitle('Messages & Notifications')
     .setFooter({ text: `Page ${safePage + 1}/${totalPages} • ${pending.length} message(s) total` });
 
   if (pending.length === 0) {

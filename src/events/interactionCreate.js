@@ -67,9 +67,12 @@ const COMPONENT_EXPIRY_DEFAULT_MS = 10 * 60 * 1000;
 const COMPONENT_EXPIRY_LONG_MS = 30 * 60 * 1000;
 const MAX_PENDING_RENAME_SELECTIONS = 2_000;
 const MAX_GUIDE_VIEW_SELECTIONS = 5_000;
+const STAFF_MESSAGE_SELECTION_TTL_MS = 10 * 60 * 1000;
+const MAX_PENDING_STAFF_MESSAGE_SELECTIONS = 2_000;
 const pendingBakeryRenameSelections = new Map();
 const guideViewSelections = new Map();
 const reportCooldowns = new Map();
+const pendingStaffMessageSelections = new Map();
 
 function prunePendingBakeryRenameSelections(now = Date.now()) {
   const expiredKeys = [...pendingBakeryRenameSelections.entries()]
@@ -103,6 +106,39 @@ function getPendingBakeryRenameSelection(guildId, userId) {
 
 function clearPendingBakeryRenameSelection(guildId, userId) {
   pendingBakeryRenameSelections.delete(`${guildId}:${userId}`);
+}
+
+function prunePendingStaffMessageSelections(now = Date.now()) {
+  const expiredKeys = [...pendingStaffMessageSelections.entries()]
+    .filter(([, entry]) => (entry?.expiresAt ?? 0) <= now)
+    .map(([key]) => key);
+  for (const key of expiredKeys) pendingStaffMessageSelections.delete(key);
+  if (pendingStaffMessageSelections.size > MAX_PENDING_STAFF_MESSAGE_SELECTIONS) {
+    const overflow = pendingStaffMessageSelections.size - MAX_PENDING_STAFF_MESSAGE_SELECTIONS;
+    const oldestKeys = [...pendingStaffMessageSelections.entries()]
+      .sort((a, b) => (a[1]?.expiresAt ?? 0) - (b[1]?.expiresAt ?? 0))
+      .slice(0, overflow)
+      .map(([key]) => key);
+    for (const key of oldestKeys) pendingStaffMessageSelections.delete(key);
+  }
+}
+
+function setPendingStaffMessageSelection(guildId, actorId, recipientIds) {
+  prunePendingStaffMessageSelections();
+  pendingStaffMessageSelections.set(`${guildId}:${actorId}`, {
+    recipientIds: [...recipientIds],
+    expiresAt: Date.now() + STAFF_MESSAGE_SELECTION_TTL_MS,
+  });
+}
+
+function getPendingStaffMessageSelection(guildId, actorId) {
+  prunePendingStaffMessageSelections();
+  const entry = pendingStaffMessageSelections.get(`${guildId}:${actorId}`);
+  return Array.isArray(entry?.recipientIds) ? [...entry.recipientIds] : [];
+}
+
+function clearPendingStaffMessageSelection(guildId, actorId) {
+  pendingStaffMessageSelections.delete(`${guildId}:${actorId}`);
 }
 
 function getGuideState(guildId, userId) {
@@ -689,122 +725,6 @@ module.exports = {
         return interaction.update({ embeds: [embed], components });
       }
 
-      // ── Staff Message: user select → type select → modal ──────────────────
-      if (interaction.customId.startsWith('staffmsg_user_select:')) {
-        const [, actorId] = interaction.customId.split(':');
-        if (actorId !== interaction.user.id) {
-          return interaction.reply({ embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)], flags: MessageFlags.Ephemeral });
-        }
-        const userIds = interaction.values.join(',');
-        return interaction.reply({
-          embeds: [{
-            color: 0x5865f2,
-            title: '📨 Staff Message — Select Type',
-            description: `Recipients: ${interaction.values.map((id) => `<@${id}>`).join(', ')}\n\nChoose the message type:`,
-            timestamp: new Date().toISOString(),
-          }],
-          components: [
-            new ActionRowBuilder().addComponents(
-              new StringSelectMenuBuilder()
-                .setCustomId(`staffmsg_type_select:${actorId}:${userIds}`)
-                .setPlaceholder('Select message type...')
-                .addOptions(staffMessageCommand.MESSAGE_TYPES),
-            ),
-          ],
-          flags: MessageFlags.Ephemeral,
-        });
-      }
-
-      if (interaction.customId.startsWith('staffmsg_type_select:')) {
-        const parts = interaction.customId.split(':');
-        const actorId = parts[1];
-        const userIds = parts[2];
-        if (actorId !== interaction.user.id) {
-          return interaction.reply({ embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)], flags: MessageFlags.Ephemeral });
-        }
-        const messageType = interaction.values[0];
-        const modal = new ModalBuilder()
-          .setCustomId(`staffmsg_modal:${actorId}:${messageType}:${userIds}`)
-          .setTitle('Staff Message')
-          .addComponents(
-            new ActionRowBuilder().addComponents(
-              new TextInputBuilder()
-                .setCustomId('title')
-                .setLabel('Message Title')
-                .setStyle(TextInputStyle.Short)
-                .setRequired(true)
-                .setMaxLength(100),
-            ),
-            new ActionRowBuilder().addComponents(
-              new TextInputBuilder()
-                .setCustomId('content')
-                .setLabel('Message Content')
-                .setStyle(TextInputStyle.Paragraph)
-                .setRequired(true)
-                .setMaxLength(1000),
-            ),
-          );
-        return interaction.showModal(modal);
-      }
-
-      // ── Broadcast Message: audience select → type select → modal ──────────
-      if (interaction.customId.startsWith('broadcastmsg_audience_select:')) {
-        const [, actorId] = interaction.customId.split(':');
-        if (actorId !== interaction.user.id) {
-          return interaction.reply({ embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)], flags: MessageFlags.Ephemeral });
-        }
-        const audience = interaction.values[0];
-        return interaction.reply({
-          embeds: [{
-            color: 0x5865f2,
-            title: '📢 Broadcast — Select Type',
-            description: `Audience: **${audience}**\n\nChoose the message type:`,
-            timestamp: new Date().toISOString(),
-          }],
-          components: [
-            new ActionRowBuilder().addComponents(
-              new StringSelectMenuBuilder()
-                .setCustomId(`broadcastmsg_type_select:${actorId}:${audience}`)
-                .setPlaceholder('Select message type...')
-                .addOptions(staffMessageCommand.MESSAGE_TYPES),
-            ),
-          ],
-          flags: MessageFlags.Ephemeral,
-        });
-      }
-
-      if (interaction.customId.startsWith('broadcastmsg_type_select:')) {
-        const parts = interaction.customId.split(':');
-        const actorId = parts[1];
-        const audience = parts[2];
-        if (actorId !== interaction.user.id) {
-          return interaction.reply({ embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)], flags: MessageFlags.Ephemeral });
-        }
-        const messageType = interaction.values[0];
-        const modal = new ModalBuilder()
-          .setCustomId(`broadcastmsg_modal:${actorId}:${messageType}:${audience}`)
-          .setTitle('Broadcast Message')
-          .addComponents(
-            new ActionRowBuilder().addComponents(
-              new TextInputBuilder()
-                .setCustomId('title')
-                .setLabel('Message Title')
-                .setStyle(TextInputStyle.Short)
-                .setRequired(true)
-                .setMaxLength(100),
-            ),
-            new ActionRowBuilder().addComponents(
-              new TextInputBuilder()
-                .setCustomId('content')
-                .setLabel('Message Content')
-                .setStyle(TextInputStyle.Paragraph)
-                .setRequired(true)
-                .setMaxLength(1000),
-            ),
-          );
-        return interaction.showModal(modal);
-      }
-
       if (interaction.customId.startsWith('bakery_nav:')) {
         const requestedView = interaction.customId.split(':')[1];
         const view = requestedView === 'codex' ? 'guide' : requestedView;
@@ -1251,11 +1171,103 @@ module.exports = {
           flags: MessageFlags.Ephemeral,
         });
       }
+      const ownerId = getComponentOwnerId(interaction);
       if (ownerId && ownerId !== interaction.user.id) {
         return interaction.reply({
           embeds: [embeds.error('These select menus belong to someone else\'s command.', interaction.guild)],
           flags: MessageFlags.Ephemeral,
         });
+      }
+      if (interaction.customId.startsWith('staffmsg_type_select:')) {
+        const actorId = interaction.customId.split(':')[1];
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({ embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)], flags: MessageFlags.Ephemeral });
+        }
+        const recipientIds = getPendingStaffMessageSelection(interaction.guild.id, actorId);
+        if (recipientIds.length === 0) {
+          return interaction.reply({
+            embeds: [embeds.warning('Recipient selection expired. Run `/staffmessage` again.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const messageType = interaction.values[0];
+        const modal = new ModalBuilder()
+          .setCustomId(`staffmsg_modal:${actorId}:${messageType}`)
+          .setTitle('Staff Message')
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('title')
+                .setLabel('Message Title')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+                .setMaxLength(100),
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('content')
+                .setLabel('Message Content')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true)
+                .setMaxLength(1000),
+            ),
+          );
+        return interaction.showModal(modal);
+      }
+      if (interaction.customId.startsWith('broadcastmsg_audience_select:')) {
+        const [, actorId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({ embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)], flags: MessageFlags.Ephemeral });
+        }
+        const audience = interaction.values[0];
+        return interaction.reply({
+          embeds: [{
+            color: 0x5865f2,
+            title: '📢 Broadcast — Select Type',
+            description: `Audience: **${audience}**\n\nChoose the message type:`,
+            timestamp: new Date().toISOString(),
+          }],
+          components: [
+            new ActionRowBuilder().addComponents(
+              new StringSelectMenuBuilder()
+                .setCustomId(`broadcastmsg_type_select:${actorId}:${audience}`)
+                .setPlaceholder('Select message type...')
+                .addOptions(staffMessageCommand.MESSAGE_TYPES),
+            ),
+          ],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      if (interaction.customId.startsWith('broadcastmsg_type_select:')) {
+        const parts = interaction.customId.split(':');
+        const actorId = parts[1];
+        const audience = parts[2];
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({ embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)], flags: MessageFlags.Ephemeral });
+        }
+        const messageType = interaction.values[0];
+        const modal = new ModalBuilder()
+          .setCustomId(`broadcastmsg_modal:${actorId}:${messageType}:${audience}`)
+          .setTitle('Broadcast Message')
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('title')
+                .setLabel('Message Title')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+                .setMaxLength(100),
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('content')
+                .setLabel('Message Content')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true)
+                .setMaxLength(1000),
+            ),
+          );
+        return interaction.showModal(modal);
       }
       if (allianceCommand.isAllianceSelectCustomId(interaction.customId)) {
         return allianceCommand.handleAllianceSelect(interaction);
@@ -2309,6 +2321,30 @@ module.exports = {
           flags: MessageFlags.Ephemeral,
         });
       }
+      if (interaction.customId.startsWith('staffmsg_user_select:')) {
+        const [, actorId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({ embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)], flags: MessageFlags.Ephemeral });
+        }
+        setPendingStaffMessageSelection(interaction.guild.id, actorId, interaction.values);
+        return interaction.reply({
+          embeds: [{
+            color: 0x5865f2,
+            title: '📨 Staff Message — Select Type',
+            description: `Recipients: ${interaction.values.map((id) => `<@${id}>`).join(', ')}\n\nChoose the message type:`,
+            timestamp: new Date().toISOString(),
+          }],
+          components: [
+            new ActionRowBuilder().addComponents(
+              new StringSelectMenuBuilder()
+                .setCustomId(`staffmsg_type_select:${actorId}`)
+                .setPlaceholder('Select message type...')
+                .addOptions(staffMessageCommand.MESSAGE_TYPES),
+            ),
+          ],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
       if (interaction.customId.startsWith('bakeadmin_target_select:')) {
         const actorId = interaction.customId.split(':')[1];
         if (actorId !== interaction.user.id) {
@@ -2795,16 +2831,24 @@ module.exports = {
         const parts = interaction.customId.split(':');
         const actorId = parts[1];
         const messageType = parts[2];
-        const recipientIds = (parts[3] ?? '').split(',').filter(Boolean);
+        const recipientIds = getPendingStaffMessageSelection(interaction.guild.id, actorId);
+        const legacyRecipientIds = (parts[3] ?? '').split(',').filter(Boolean);
+        const finalRecipientIds = recipientIds.length > 0 ? recipientIds : legacyRecipientIds;
         if (actorId !== interaction.user.id) {
           return interaction.reply({ embeds: [embeds.error('This modal is not assigned to you.', interaction.guild)], flags: MessageFlags.Ephemeral });
         }
         if (!staffMessageCommand.hasSeniorModPlus(interaction.member)) {
           return interaction.reply({ embeds: [embeds.error('Permission denied.', interaction.guild)], flags: MessageFlags.Ephemeral });
         }
+        if (finalRecipientIds.length === 0) {
+          return interaction.reply({
+            embeds: [embeds.warning('Recipient selection expired. Run `/staffmessage` again.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
         const title = interaction.fields.getTextInputValue('title').trim();
         const content = interaction.fields.getTextInputValue('content').trim();
-        for (const userId of recipientIds) {
+        for (const userId of finalRecipientIds) {
           economy.addPendingMessage(interaction.guild.id, userId, {
             type: 'staff_message',
             messageType,
@@ -2814,7 +2858,8 @@ module.exports = {
             claimed: true,
           });
         }
-        const recipientMentions = recipientIds.map((id) => `<@${id}>`).join(', ');
+        clearPendingStaffMessageSelection(interaction.guild.id, actorId);
+        const recipientMentions = finalRecipientIds.map((id) => `<@${id}>`).join(', ');
         return interaction.reply({
           embeds: [embeds.success(`Message sent to ${recipientMentions}.`, interaction.guild)],
           flags: MessageFlags.Ephemeral,
