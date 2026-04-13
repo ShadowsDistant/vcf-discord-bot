@@ -1446,6 +1446,98 @@ function getThemeColor(theme) {
   return THEMES[theme]?.color ?? THEMES.classic.color;
 }
 
+/**
+ * Builds an embed showing a breakdown of the user's current CPS
+ * (buildings, upgrade multipliers, consumed boosts, active buffs, etc.)
+ */
+function buildCpsBreakdownEmbed(guild, user) {
+  const nowTs = Date.now();
+  const cookieEmoji = getCookieFallbackEmoji(guild);
+
+  // ── Building contributions ────────────────────────────────────────────────
+  let buildingTotal = 0;
+  const buildingLines = [];
+  for (const building of BUILDINGS) {
+    const owned = user.buildings[building.id] ?? 0;
+    if (!owned) continue;
+    let multiplier = 1;
+    for (const upgradeId of user.upgrades) {
+      const upgrade = UPGRADE_MAP.get(upgradeId);
+      if (upgrade?.buildingId === building.id && typeof upgrade.multiplier === 'number') {
+        multiplier *= upgrade.multiplier;
+      }
+    }
+    for (const buff of (user.activeBuffs ?? [])) {
+      if (buff.type === 'buildingSpecial' && buff.buildingId === building.id && buff.expiresAt > nowTs) {
+        multiplier *= 2;
+      }
+    }
+    const contribution = owned * building.baseCps * multiplier;
+    buildingTotal += contribution;
+    const buildingEmoji = getCustomGuildEmoji(guild, [building.id, ...(BUILDING_EMOJI_ALIASES[building.id] ?? [])]) ?? '🏗️';
+    buildingLines.push(`${buildingEmoji} **${building.name}** ×${owned} → ${toCookieNumber(contribution)} CPS`);
+  }
+
+  // ── Global upgrade multiplier ─────────────────────────────────────────────
+  let globalMultiplier = 1;
+  for (const upgradeId of user.upgrades) {
+    const upgrade = UPGRADE_MAP.get(upgradeId);
+    if (upgrade?.globalMultiplier) globalMultiplier *= upgrade.globalMultiplier;
+  }
+
+  // ── Kitten bonus ──────────────────────────────────────────────────────────
+  const milkLevel = getEarnedAchievementCount(user) * 4;
+  let kittenBonus = 0;
+  for (const upgradeId of user.upgrades) {
+    const upgrade = UPGRADE_MAP.get(upgradeId);
+    if (upgrade?.kittenScale) kittenBonus += (milkLevel / 100) * upgrade.kittenScale;
+  }
+
+  // ── Consumed boosts ───────────────────────────────────────────────────────
+  const activeBoosts = (user.consumedBoosts ?? []).filter((boost) => boost.expiresAt > nowTs);
+  const consumedBonus = activeBoosts.reduce((sum, boost) => sum + boost.cpsBonus, 0);
+
+  // ── Active buffs (frenzy) ─────────────────────────────────────────────────
+  const frenzy = (user.activeBuffs ?? []).find((buff) => buff.type === 'frenzy' && buff.expiresAt > nowTs);
+  const frenzyMultiplier = frenzy ? 7 : 1;
+
+  // ── Totals ────────────────────────────────────────────────────────────────
+  const basePlusBoosted = buildingTotal + consumedBonus;
+  const totalCps = basePlusBoosted * globalMultiplier * (1 + kittenBonus) * frenzyMultiplier;
+
+  const embed = new EmbedBuilder()
+    .setColor(0xf1c40f)
+    .setTitle(`${cookieEmoji} CPS Breakdown`)
+    .setDescription(`**Total CPS: ${toCookieNumber(totalCps)}** cookies/second`)
+    .addFields(
+      {
+        name: `🏗️ Buildings (${toCookieNumber(buildingTotal)} CPS base)`,
+        value: buildingLines.length ? buildingLines.slice(0, 10).join('\n').slice(0, 1024) : 'No buildings owned.',
+      },
+    );
+
+  if (globalMultiplier !== 1) {
+    embed.addFields({ name: '🧩 Upgrade Global Multiplier', value: `×${globalMultiplier.toFixed(2)}`, inline: true });
+  }
+  if (kittenBonus > 0) {
+    embed.addFields({ name: '🐱 Kitten Bonus', value: `+${(kittenBonus * 100).toFixed(1)}%`, inline: true });
+  }
+  if (consumedBonus > 0) {
+    const boostList = activeBoosts.map((b) => `+${toCookieNumber(b.cpsBonus)} (expires <t:${Math.floor(b.expiresAt / 1000)}:R>)`).join('\n');
+    embed.addFields({ name: '⚡ Active Boosts', value: boostList.slice(0, 512) });
+  }
+  if (frenzy) {
+    embed.addFields({ name: '🌀 Frenzy Active', value: `×7 multiplier (expires <t:${Math.floor(frenzy.expiresAt / 1000)}:R>)`, inline: true });
+  }
+  embed.addFields({ name: '📊 Formula', value: `(Buildings + Boosts) × Global Multiplier × (1 + Kitten%) × Frenzy`, inline: false });
+
+  embed.setTimestamp();
+  if (guild) {
+    embed.setFooter({ text: guild.name, iconURL: guild.iconURL({ dynamic: true }) ?? undefined });
+  }
+  return embed;
+}
+
 function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
   const nowTs = Date.now();
   const cps = computeCps(user, nowTs);
@@ -1566,6 +1658,16 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
         value: `Discovered: **${user.uniqueItemsDiscovered.length}/${ITEMS.length}**`,
       });
       embed.setFooter({ text: `Page ${page + 1}/${Math.max(1, Math.ceil(entries.length / 8))}` });
+
+      // Show up to 3 most recent gift messages
+      const recentMessages = (user.giftMessages ?? []).slice(-3).reverse();
+      if (recentMessages.length > 0) {
+        const msgLines = recentMessages.map((msg) => {
+          const box = REWARD_BOX_MAP.get(msg.rewardBoxId);
+          return `📨 **From ${msg.from}**: ${msg.message.slice(0, 80)}${msg.message.length > 80 ? '…' : ''} *(×${msg.quantity} ${box?.name ?? msg.rewardBoxId})*`;
+        }).join('\n');
+        embed.addFields({ name: '📬 Recent Gift Messages', value: msgLines.slice(0, 1024) });
+      }
     }
   }
 
@@ -1947,18 +2049,42 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
         new StringSelectMenuBuilder()
           .setCustomId('bakery_upgrade_select')
           .setPlaceholder('Choose an upgrade')
-          .addOptions(UPGRADES.slice(0, 25).map((u) => ({
-            label: u.name.slice(0, 100),
-            description: `${getUpgradeCategoryLabel(u)} • ${toCookieNumber(u.cost)} cookies`.slice(0, 100),
-            value: u.id,
-            emoji: getCustomGuildEmoji(options.guild, [u.id, `upgrade_${u.id}`, `cc_${u.id}`, u.buildingId, ...(BUILDING_EMOJI_ALIASES[u.buildingId] ?? [])].filter(Boolean)) ?? getCookieFallbackEmoji(options.guild),
-          }))),
+          .addOptions(UPGRADES.slice(0, 25).map((u) => {
+            const purchased = user.upgrades.includes(u.id);
+            const unlocked = !purchased && u.unlockedWhen(user);
+            const statusTag = purchased ? ' [Bought]' : (!unlocked ? ' [Locked]' : '');
+            return {
+              label: `${u.name}${statusTag}`.slice(0, 100),
+              description: `${getUpgradeCategoryLabel(u)} • ${toCookieNumber(u.cost)} cookies`.slice(0, 100),
+              value: u.id,
+              emoji: getCustomGuildEmoji(options.guild, [u.id, `upgrade_${u.id}`, `cc_${u.id}`, u.buildingId, ...(BUILDING_EMOJI_ALIASES[u.buildingId] ?? [])].filter(Boolean)) ?? getCookieFallbackEmoji(options.guild),
+            };
+          })),
       ),
     );
     const selectedUpgrade = options.upgradeId ?? UPGRADES[0].id;
+    const isPurchased = user.upgrades.includes(selectedUpgrade);
+    const upgradeRow = new ActionRowBuilder();
+    if (!isPurchased) {
+      upgradeRow.addComponents(
+        new ButtonBuilder().setCustomId(`bakery_upgrade_buy:${selectedUpgrade}`).setLabel('Buy Upgrade').setStyle(ButtonStyle.Success).setEmoji(getButtonEmoji(options.guild, ['Augmenter', 'upgrade'], '🛍️')),
+      );
+    } else {
+      upgradeRow.addComponents(
+        new ButtonBuilder().setCustomId(`bakery_upgrade_sell:${selectedUpgrade}`).setLabel('Sell Upgrade (−30%)').setStyle(ButtonStyle.Danger).setEmoji(getButtonEmoji(options.guild, ['Paid_in_full', 'sell'], '💸')),
+      );
+    }
+    rows.push(upgradeRow);
+  }
+
+  if (view === 'stats') {
     rows.push(
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`bakery_upgrade_buy:${selectedUpgrade}`).setLabel('Buy Upgrade').setStyle(ButtonStyle.Success).setEmoji(getButtonEmoji(options.guild, ['Augmenter', 'upgrade'], '🛍️')),
+        new ButtonBuilder()
+          .setCustomId('bakery_cps_breakdown')
+          .setLabel('CPS Breakdown')
+          .setStyle(ButtonStyle.Secondary)
+          .setEmoji(getButtonEmoji(options.guild, ['CookieProduction10', 'stats'], '📊')),
       ),
     );
   }
@@ -3016,10 +3142,12 @@ module.exports = {
   THEMES,
   TITLES,
   toCookieNumber,
+  getEarnedAchievementCount,
   getUserSnapshot,
   saveUserSnapshot,
   buildDashboardEmbed,
   buildDashboardComponents,
+  buildCpsBreakdownEmbed,
   bake,
   claimGoldenCookie,
   getMarketplaceEmbed,

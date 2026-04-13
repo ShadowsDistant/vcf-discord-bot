@@ -8,9 +8,14 @@ const {
 const challenges = require('../../utils/bakeryChallenges');
 const embeds = require('../../utils/embeds');
 const economy = require('../../utils/bakeEconomy');
+const { makeProgressBar } = require('../../utils/helpers');
 
 function formatProgress(progress, target) {
-  return `${economy.toCookieNumber(progress)} / ${economy.toCookieNumber(target)}`;
+  const pct = target > 0 ? Math.min(100, Math.floor((progress / target) * 100)) : 100;
+  return [
+    `${economy.toCookieNumber(progress)} / ${economy.toCookieNumber(target)}`,
+    makeProgressBar(pct, 12),
+  ].join('\n');
 }
 
 module.exports = {
@@ -18,14 +23,16 @@ module.exports = {
     .setName('daily')
     .setDescription('View bakery daily and weekly challenges.')
     .setDMPermission(false)
-    .addBooleanOption((o) =>
+    .addStringOption((o) =>
       o
         .setName('claim')
-        .setDescription('Claim any completed challenge rewards.'),
+        .setDescription('Claim completed challenge rewards.')
+        .setAutocomplete(true),
     ),
 
   async execute(interaction) {
-    const shouldClaim = interaction.options.getBoolean('claim') ?? false;
+    const claimArg = interaction.options.getString('claim') ?? '';
+    const shouldClaim = claimArg === 'all' || claimArg === 'daily' || claimArg === 'weekly' || claimArg === 'true';
 
     const rewards = shouldClaim
       ? challenges.claimAvailableRewards(interaction.guild.id, interaction.user.id, Date.now())
@@ -39,19 +46,19 @@ module.exports = {
       .setTitle(`${cookieEmoji} Daily & Weekly Challenges`)
       .addFields(
         {
-          name: `Daily: ${status.daily.name}`,
+          name: `📅 Daily: ${status.daily.name}`,
           value: [
-            `Progress: **${formatProgress(status.daily.progress, status.daily.target)}**`,
+            formatProgress(status.daily.progress, status.daily.target),
             `Reward: **${economy.toCookieNumber(status.daily.rewardCookies)}** cookies`,
-            `Status: ${status.daily.claimed ? '✅ Claimed' : (status.daily.complete ? '🎉 Complete (claim ready)' : '⏳ In progress')}`,
+            `Status: ${status.daily.claimed ? '✅ Claimed' : (status.daily.complete ? '🎉 Complete — claim ready!' : '⏳ In progress')}`,
           ].join('\n'),
         },
         {
-          name: `Weekly: ${status.weekly.name}`,
+          name: `📆 Weekly: ${status.weekly.name}`,
           value: [
-            `Progress: **${formatProgress(status.weekly.progress, status.weekly.target)}**`,
+            formatProgress(status.weekly.progress, status.weekly.target),
             `Reward: **${economy.toCookieNumber(status.weekly.rewardCookies)}** cookies`,
-            `Status: ${status.weekly.claimed ? '✅ Claimed' : (status.weekly.complete ? '🎉 Complete (claim ready)' : '⏳ In progress')}`,
+            `Status: ${status.weekly.claimed ? '✅ Claimed' : (status.weekly.complete ? '🎉 Complete — claim ready!' : '⏳ In progress')}`,
           ].join('\n'),
         },
       )
@@ -64,11 +71,11 @@ module.exports = {
     if (shouldClaim) {
       if (rewards.length > 0) {
         embed.addFields({
-          name: 'Claimed Rewards',
+          name: '🎁 Claimed Rewards',
           value: rewards.map((reward) => `• ${reward.type.toUpperCase()}: **${economy.toCookieNumber(reward.cookies)}** cookies (${reward.challenge})`).join('\n').slice(0, 1024),
         });
       } else {
-        embed.addFields({ name: 'Claimed Rewards', value: 'No completed unclaimed rewards were available.' });
+        embed.addFields({ name: '🎁 Claimed Rewards', value: 'No completed unclaimed rewards were available.' });
       }
     }
 

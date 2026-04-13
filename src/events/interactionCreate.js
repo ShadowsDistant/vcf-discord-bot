@@ -28,6 +28,7 @@ const helpCommand = require('../commands/utility/help');
 const shiftCommand = require('../commands/shifts/shift');
 const automodCommand = require('../commands/setup/automod');
 const staffInfractionCommand = require('../commands/moderation/staffinfraction');
+const challenges = require('../utils/bakeryChallenges');
 const { sendModerationActionDm, sendReporterStatusDm } = require('../utils/moderationNotifications');
 const { version: botVersion } = require('../../package.json');
 
@@ -603,6 +604,30 @@ module.exports = {
         return interaction.update({ embeds: [embed], components });
       }
 
+      if (interaction.customId.startsWith('bakery_gift_sell_all:')) {
+        // Quick sell all items currently in the user's inventory that came from opening a gift box.
+        // We sell all sellable items in the user's full inventory at once.
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const user = snapshot.user;
+        let totalEarned = 0;
+        let itemsSold = 0;
+        for (const itemId of Object.keys(user.inventory ?? {})) {
+          const qty = user.inventory[itemId] ?? 0;
+          if (qty <= 0) continue;
+          const result = economy.sellInventoryItem(interaction.guild.id, interaction.user.id, itemId, true);
+          if (result.ok) {
+            totalEarned += result.value ?? 0;
+            itemsSold += qty;
+          }
+        }
+        return interaction.reply({
+          embeds: [
+            embeds.success(`Sold **${economy.toCookieNumber(itemsSold)}** item(s) from your inventory for **${economy.toCookieNumber(totalEarned)}** cookies.`, interaction.guild),
+          ],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
       if (interaction.customId === 'bake_again') {
         if (economy.isUserBakeBanned(interaction.guild.id, interaction.user.id)) {
           return interaction.reply({
@@ -653,6 +678,12 @@ module.exports = {
         const market = economy.getMarketplaceEmbed(interaction.guild, snapshot.guildState, snapshot.user, 0, 'all');
         const components = economy.getMarketplaceComponents(snapshot.guildState, 0, 'all');
         return interaction.update({ embeds: [market.embed], components });
+      }
+
+      if (interaction.customId === 'bakery_cps_breakdown') {
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const breakdownEmbed = economy.buildCpsBreakdownEmbed(interaction.guild, snapshot.user);
+        return interaction.reply({ embeds: [breakdownEmbed], flags: MessageFlags.Ephemeral });
       }
 
       if (interaction.customId === 'bakery_set_name') {
@@ -726,6 +757,25 @@ module.exports = {
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'upgrades', { upgradeId });
         const components = economy.buildDashboardComponents(snapshot.user, 'upgrades', { upgradeId, guild: interaction.guild });
+        return interaction.update({ embeds: [embed], components });
+      }
+
+      if (interaction.customId.startsWith('bakery_upgrade_sell:')) {
+        const upgradeId = interaction.customId.split(':')[1];
+        const result = economy.sellUpgrade(interaction.guild.id, interaction.user.id, upgradeId);
+        if (!result.ok) {
+          return interaction.reply({
+            embeds: [embeds.warning(result.reason, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'upgrades', { upgradeId });
+        const components = economy.buildDashboardComponents(snapshot.user, 'upgrades', { upgradeId, guild: interaction.guild });
+        embed.addFields({
+          name: `${economy.getButtonEmoji(interaction.guild, ['Paid_in_full', 'sell'], '💸')} Upgrade Sold`,
+          value: `Sold **${result.upgrade.name}** for **${economy.toCookieNumber(result.refund)}** cookies (−30% of original cost).`,
+        });
         return interaction.update({ embeds: [embed], components });
       }
 
@@ -1124,17 +1174,28 @@ module.exports = {
               flags: MessageFlags.Ephemeral,
             });
           }
+          const boxEmoji = economy.getRewardBoxEmoji(result.rewardBox, interaction.guild);
+          const totalValue = result.grants.reduce((sum, grant) => {
+            const rarity = economy.RARITY[grant.item.rarity];
+            return sum + grant.item.baseValue * (rarity?.valueMultiplier ?? 1) * grant.quantity;
+          }, 0);
           const grantsText = result.grants.length
-            ? result.grants.map((grant) => `• ${economy.getItemEmoji(grant.item, interaction.guild)} **${grant.item.name}** x${grant.quantity}`).join('\n')
+            ? result.grants.map((grant) => `${economy.getItemEmoji(grant.item, interaction.guild)} **${grant.item.name}** ×${grant.quantity}`).join('\n')
             : 'No drops this time.';
+          const openingEmbed = embeds.base(interaction.guild)
+            .setColor(0xf1c40f)
+            .setTitle(`${boxEmoji} Opened ${result.rewardBox.name}!`)
+            .addFields(
+              { name: '🎁 Contents', value: grantsText.slice(0, 1024) },
+              { name: '💰 Total Value', value: `**${economy.toCookieNumber(totalValue)}** cookies`, inline: true },
+            )
+            .setTimestamp();
           const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
-          const dashboard = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'inventory');
-          dashboard.addFields({
-            name: `${economy.getRewardBoxEmoji(result.rewardBox, interaction.guild)} Opened ${result.rewardBox.name}`,
-            value: grantsText.slice(0, 1024),
-          });
-          const components = economy.buildDashboardComponents(snapshot.user, 'inventory', { guild: interaction.guild });
-          return interaction.update({ embeds: [dashboard], components });
+          const quickSellRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`bakery_gift_sell_all:${rewardBoxId}`).setLabel('Quick Sell All Drops').setStyle(ButtonStyle.Success).setEmoji('💸'),
+            new ButtonBuilder().setCustomId('bakery_nav:inventory').setLabel('View Inventory').setStyle(ButtonStyle.Secondary).setEmoji('🎒'),
+          );
+          return interaction.reply({ embeds: [openingEmbed], components: [quickSellRow], flags: MessageFlags.Ephemeral });
         }
         const item = economy.ITEM_MAP.get(itemId);
         if (!item) {
@@ -1166,17 +1227,27 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+        const boxEmoji = economy.getRewardBoxEmoji(result.rewardBox, interaction.guild);
+        const totalValue = result.grants.reduce((sum, grant) => {
+          const rarity = economy.RARITY[grant.item.rarity];
+          return sum + grant.item.baseValue * (rarity?.valueMultiplier ?? 1) * grant.quantity;
+        }, 0);
         const grantsText = result.grants.length
-          ? result.grants.map((grant) => `• ${economy.getItemEmoji(grant.item, interaction.guild)} **${grant.item.name}** x${grant.quantity}`).join('\n')
+          ? result.grants.map((grant) => `${economy.getItemEmoji(grant.item, interaction.guild)} **${grant.item.name}** ×${grant.quantity}`).join('\n')
           : 'No drops this time.';
-        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
-        const dashboard = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'inventory');
-        dashboard.addFields({
-          name: `${economy.getRewardBoxEmoji(result.rewardBox, interaction.guild)} Opened ${result.rewardBox.name}`,
-          value: grantsText.slice(0, 1024),
-        });
-        const components = economy.buildDashboardComponents(snapshot.user, 'inventory', { guild: interaction.guild });
-        return interaction.update({ embeds: [dashboard], components });
+        const openingEmbed = embeds.base(interaction.guild)
+          .setColor(0xf1c40f)
+          .setTitle(`${boxEmoji} Opened ${result.rewardBox.name}!`)
+          .addFields(
+            { name: '🎁 Contents', value: grantsText.slice(0, 1024) },
+            { name: '💰 Total Value', value: `**${economy.toCookieNumber(totalValue)}** cookies`, inline: true },
+          )
+          .setTimestamp();
+        const quickSellRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`bakery_gift_sell_all:${rewardBoxId}`).setLabel('Quick Sell All Drops').setStyle(ButtonStyle.Success).setEmoji('💸'),
+          new ButtonBuilder().setCustomId('bakery_nav:inventory').setLabel('View Inventory').setStyle(ButtonStyle.Secondary).setEmoji('🎒'),
+        );
+        return interaction.reply({ embeds: [openingEmbed], components: [quickSellRow], flags: MessageFlags.Ephemeral });
       }
 
       if (interaction.customId === 'bakery_building_select') {
@@ -1571,6 +1642,24 @@ module.exports = {
             );
           return interaction.showModal(modal);
         }
+        if (action === 'gift_all_users') {
+          return interaction.reply({
+            embeds: [embeds.info('Gift All Users', 'Select the reward gift box to send to every tracked user.', interaction.guild)],
+            components: [
+              new ActionRowBuilder().addComponents(
+                new StringSelectMenuBuilder()
+                  .setCustomId(`bakeadmin_gift_all_box_select:${actorId}`)
+                  .setPlaceholder('Select a reward gift box')
+                  .addOptions(economy.REWARD_BOXES.slice(0, 25).map((rewardBox) => ({
+                    label: rewardBox.name.slice(0, 100),
+                    value: rewardBox.id,
+                    emoji: economy.getRewardBoxEmoji(rewardBox, interaction.guild),
+                  }))),
+              ),
+            ],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
         if (action === 'reset_economy') {
           const modal = new ModalBuilder()
             .setCustomId(`bakeadmin_global_modal:${actorId}:reset_economy`)
@@ -1586,6 +1675,45 @@ module.exports = {
             );
           return interaction.showModal(modal);
         }
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_gift_all_box_select:')) {
+        const [, actorId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const rewardBoxId = interaction.values[0];
+        const rewardBox = economy.REWARD_BOXES.find((entry) => entry.id === rewardBoxId);
+        if (!rewardBox) {
+          return interaction.reply({
+            embeds: [embeds.error('Unknown reward gift box.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const modal = new ModalBuilder()
+          .setCustomId(`bakeadmin_gift_all_modal:${actorId}:${rewardBoxId}`)
+          .setTitle(`Gift All: ${rewardBox.name}`)
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('quantity')
+                .setLabel('Quantity per user')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true),
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('message')
+                .setLabel('Gift message (required)')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true)
+                .setMaxLength(500),
+            ),
+          );
+        return interaction.showModal(modal);
       }
 
       if (interaction.customId.startsWith('bakeadmin_upgrade_select:')) {
@@ -1835,6 +1963,14 @@ module.exports = {
                 .setLabel('Quantity')
                 .setStyle(TextInputStyle.Short)
                 .setRequired(true),
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('message')
+                .setLabel('Gift message (required)')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true)
+                .setMaxLength(500),
             ),
           );
         return interaction.showModal(modal);
@@ -2146,8 +2282,9 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+        const giftMessage = interaction.fields.getTextInputValue('message')?.trim() ?? '';
         const rewardBox = economy.REWARD_BOXES.find((entry) => entry.id === rewardBoxId);
-        const ok = economy.adminGrantRewardBox(interaction.guild.id, targetId, rewardBoxId, quantity);
+        const ok = economy.adminGrantRewardBoxWithMessage(interaction.guild.id, targetId, rewardBoxId, quantity, giftMessage, interaction.user.tag);
         if (!ok) {
           return interaction.reply({
             embeds: [embeds.error('Could not grant that reward gift box.', interaction.guild)],
@@ -2244,6 +2381,39 @@ module.exports = {
         await sendBakeAdminLog(interaction, targetId, 'Alliance: Delete', `${result.allianceName} (${result.allianceId}), members removed: ${result.memberCount}`);
         return interaction.reply({
           embeds: [embeds.success(`Deleted alliance **${result.allianceName}** (\`${result.allianceId}\`).`, interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_gift_all_modal:')) {
+        const parts = interaction.customId.split(':');
+        const actorId = parts[1];
+        const rewardBoxId = parts[2];
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin modal is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const quantity = Number.parseInt(interaction.fields.getTextInputValue('quantity').trim(), 10);
+        if (!Number.isInteger(quantity) || quantity <= 0) {
+          return interaction.reply({
+            embeds: [embeds.error('Quantity must be a positive integer.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const giftMessage = interaction.fields.getTextInputValue('message')?.trim() ?? '';
+        const rewardBox = economy.REWARD_BOXES.find((entry) => entry.id === rewardBoxId);
+        const count = economy.adminGiftAllUsers(interaction.guild.id, rewardBoxId, quantity, giftMessage, interaction.user.tag);
+        if (!count) {
+          return interaction.reply({
+            embeds: [embeds.warning('No tracked users found or invalid box.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        await sendBakeAdminLog(interaction, interaction.user.id, 'Gift All Users', `${rewardBoxId} x${quantity} — ${count} users`);
+        return interaction.reply({
+          embeds: [embeds.success(`Gifted ${economy.getRewardBoxEmoji(rewardBox, interaction.guild)} **${quantity}x ${rewardBox?.name ?? rewardBoxId}** to **${count}** tracked user(s).`, interaction.guild)],
           flags: MessageFlags.Ephemeral,
         });
       }
@@ -2372,7 +2542,25 @@ module.exports = {
           .slice(0, 25)
           .map((r) => ({ name: r.reason.slice(0, 100), value: r.reason }));
         await interaction.respond(matches).catch(() => null);
+        return;
       }
+
+      if (interaction.commandName === 'daily' && focused.name === 'claim' && interaction.guildId) {
+        const status = challenges.getChallengeStatus(interaction.guildId, interaction.user.id, Date.now());
+        const options = [];
+        if (!status.daily.claimed && status.daily.complete) {
+          options.push({ name: `Claim Daily: ${status.daily.name} (+${economy.toCookieNumber(status.daily.rewardCookies)} cookies)`, value: 'all' });
+        }
+        if (!status.weekly.claimed && status.weekly.complete) {
+          options.push({ name: `Claim Weekly: ${status.weekly.name} (+${economy.toCookieNumber(status.weekly.rewardCookies)} cookies)`, value: 'all' });
+        }
+        if (options.length === 0) {
+          options.push({ name: 'No claimable rewards at this time', value: 'none' });
+        }
+        await interaction.respond(options).catch(() => null);
+        return;
+      }
+
       return;
     }
 
