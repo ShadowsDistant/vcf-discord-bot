@@ -14,6 +14,7 @@ const COOLDOWN_PRUNE_INTERVAL_MS = BAKE_COOLDOWN_MS;
 const MAX_BAKE_COOLDOWN_ENTRIES = 10_000;
 let lastCooldownPruneAt = 0;
 const COOKIE_LOG_CHANNEL_ID = '1492706903938043904';
+const SPECIAL_COOKIE_EVENT_CHANNEL_ID = '1492690923333746790';
 const SPECIAL_COOKIE_EVENT_DETAILS = {
   perfectcookie: {
     title: '✨ Perfect Cookie Event',
@@ -117,6 +118,7 @@ function buildBakeOutcome(guild, userId) {
     burnt,
     rankUpdate,
     activeEvent,
+    endedEvent,
   } = result;
   const rarity = economy.RARITY[item.rarity];
   const dropChance = economy.getItemDropChance(user, item, new Date()) * 100;
@@ -171,10 +173,18 @@ function buildBakeOutcome(guild, userId) {
   }
 
   if (activeEvent?.id === 'special_cookie_hunt' && Number.isFinite(activeEvent.endsAt)) {
-    const secondsRemaining = Math.max(1, Math.floor((activeEvent.endsAt - Date.now()) / 1000));
+    const endsAtTs = Math.floor(activeEvent.endsAt / 1000);
     embed.addFields({
       name: '🎉 Active Event: Special Cookie Hunt',
-      value: `Special cookie drops are boosted.\nEnds in **${secondsRemaining}s**.`,
+      value: `Special cookie drops are boosted.\nEnds: <t:${endsAtTs}:F> (<t:${endsAtTs}:R>).`,
+    });
+  }
+
+  if (endedEvent?.id === 'special_cookie_hunt' && Number.isFinite(endedEvent.endedAt)) {
+    const endedAtTs = Math.floor(endedEvent.endedAt / 1000);
+    embed.addFields({
+      name: '⏱️ Event Ended: Special Cookie Hunt',
+      value: `Ended at <t:${endedAtTs}:F> (<t:${endedAtTs}:R>).`,
     });
   }
 
@@ -217,6 +227,7 @@ function buildBakeOutcome(guild, userId) {
   return {
     reply: { embeds: [embed], components },
     specialCookieEvent,
+    endedEvent,
   };
 }
 
@@ -231,6 +242,26 @@ async function postSpecialCookieEvent(guild, bakerUser, event) {
       `${economy.getItemEmoji(event.item.id, guild)} <@${bakerUser.id}> just baked **${event.item.name}**!`,
       event.details.description,
       `Total special cookies owned: **${economy.toCookieNumber(event.totalSpecialCookies)}**`,
+    ].join('\n'))
+    .setTimestamp()
+    .setFooter({
+      text: guild.name,
+      iconURL: guild.iconURL({ dynamic: true }) ?? undefined,
+    });
+  await channel.send({ embeds: [eventEmbed] }).catch(() => null);
+}
+
+async function postSpecialCookieHuntEnd(guild, endedAtMs) {
+  if (!guild || !Number.isFinite(endedAtMs)) return;
+  const channel = await guild.channels.fetch(SPECIAL_COOKIE_EVENT_CHANNEL_ID).catch(() => null);
+  if (!channel || !channel.isTextBased()) return;
+  const endedAtTs = Math.floor(endedAtMs / 1000);
+  const eventEmbed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle('⏱️ Special Cookie Hunt Ended')
+    .setDescription([
+      'The event boost window has closed.',
+      `Ended: <t:${endedAtTs}:F> (<t:${endedAtTs}:R>)`,
     ].join('\n'))
     .setTimestamp()
     .setFooter({
@@ -271,6 +302,9 @@ module.exports = {
     await interaction.reply(outcome.reply);
     if (outcome.specialCookieEvent) {
       await postSpecialCookieEvent(interaction.guild, interaction.user, outcome.specialCookieEvent);
+    }
+    if (outcome.endedEvent?.id === 'special_cookie_hunt' && Number.isFinite(outcome.endedEvent.endedAt)) {
+      await postSpecialCookieHuntEnd(interaction.guild, outcome.endedEvent.endedAt);
     }
     return;
   },

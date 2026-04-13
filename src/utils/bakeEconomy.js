@@ -18,9 +18,10 @@ const ECONOMY_FILE = 'bake_economy.json';
 const PASSIVE_CAP_MS = 24 * 60 * 60 * 1000;
 const MARKET_LISTING_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const MARKET_FEE_RATE = 0.05;
-const BASE_GOLDEN_CHANCE = 0.03;
+const BASE_GOLDEN_CHANCE = 0.02;
 const BURNT_BAKE_CHANCE = 0.08;
 const BUILDING_SELL_REFUND_RATE = 0.5;
+const BUILDING_COST_GROWTH = 1.18;
 const MAX_DISPLAYED_GIFT_BOXES = 6;
 const GIFT_BOX_OPTION_PREFIX = 'gift:';
 const BAKE_ADMIN_ROLE_ID = '1492510387579654205';
@@ -31,7 +32,7 @@ const BAKE_EVENT_SPECIAL_COOKIE_HUNT = 'special_cookie_hunt';
 const BAKE_EVENT_GOLDEN_FEVER = 'golden_fever';
 const BAKE_EVENT_SUGAR_RUSH = 'sugar_rush';
 const BAKE_EVENT_STEADY_HEAT = 'steady_heat';
-const SPECIAL_COOKIE_EVENT_BOOST_CHANCE = 0.2;
+const SPECIAL_COOKIE_EVENT_BOOST_CHANCE = 0.12;
 const COOKIE_EVENT_DEFINITIONS = [
   {
     id: BAKE_EVENT_SPECIAL_COOKIE_HUNT,
@@ -497,8 +498,8 @@ const BUILDING_MAP = new Map(BUILDINGS.map((b) => [b.id, b]));
 
 const UPGRADES = [
   { id: 'fingers_crossed', name: 'Fingers Crossed', category: 'baking', cost: 100, effect: '+1 manual bake', unlockedWhen: (u) => u.totalBakes >= 25 },
-  { id: 'ladyfingers', name: 'Ladyfingers', category: 'baking', cost: 500, effect: '+5 manual bake', unlockedWhen: (u) => u.totalBakes >= 250 },
-  { id: 'ritual_rolling_pins', name: 'Ritual Rolling Pins', category: 'baking', cost: 5000, effect: '+1% of CPS to manual bake', unlockedWhen: (u) => getTotalBuildingsOwned(u) >= 10 },
+  { id: 'ladyfingers', name: 'Ladyfingers', category: 'baking', cost: 500, effect: '+3 manual bake', unlockedWhen: (u) => u.totalBakes >= 250 },
+  { id: 'ritual_rolling_pins', name: 'Ritual Rolling Pins', category: 'baking', cost: 5000, effect: '+0.5% of CPS to manual bake', unlockedWhen: (u) => getTotalBuildingsOwned(u) >= 10 },
   { id: 'underworld_ovens', name: 'Underworld Ovens', category: 'building', cost: 1000, effect: '2x Grandma CPS', buildingId: 'grandma', multiplier: 2, unlockedWhen: (u) => (u.buildings.grandma ?? 0) >= 1 },
   { id: 'gingerbread_trees', name: 'Gingerbread Trees', category: 'building', cost: 11000, effect: '2x Farm CPS', buildingId: 'farm', multiplier: 2, unlockedWhen: (u) => (u.buildings.farm ?? 0) >= 1 },
   { id: 'ive_got_the_midas_touch', name: "I've got the Midas touch", category: 'building', cost: 55000, effect: '2x Farm CPS', buildingId: 'farm', multiplier: 2, unlockedWhen: (u) => (u.buildings.farm ?? 0) >= 10 },
@@ -857,7 +858,7 @@ function getBuildingPrice(buildingId, owned, quantity = 1) {
   if (!building) return null;
   let total = 0;
   for (let i = 0; i < quantity; i += 1) {
-    total += building.baseCost * (1.15 ** (owned + i));
+    total += building.baseCost * (BUILDING_COST_GROWTH ** (owned + i));
   }
   return Math.ceil(total);
 }
@@ -870,7 +871,7 @@ function getBuildingSellValue(buildingId, owned, quantity = 1) {
   if (safeOwned <= 0) return 0;
   let total = 0;
   for (let i = 0; i < safeQuantity; i += 1) {
-    total += building.baseCost * (1.15 ** (safeOwned - 1 - i));
+    total += building.baseCost * (BUILDING_COST_GROWTH ** (safeOwned - 1 - i));
   }
   return Math.floor(total * BUILDING_SELL_REFUND_RATE);
 }
@@ -1267,8 +1268,8 @@ function getItemDropChance(user, itemOrId, nowDate = new Date()) {
 function getManualBakeYield(user, nowTs = Date.now()) {
   let base = 1;
   if (hasUpgrade(user, 'fingers_crossed')) base += 1;
-  if (hasUpgrade(user, 'ladyfingers')) base += 5;
-  if (hasUpgrade(user, 'ritual_rolling_pins')) base += Math.floor(computeCps(user, nowTs) * 0.01);
+  if (hasUpgrade(user, 'ladyfingers')) base += 3;
+  if (hasUpgrade(user, 'ritual_rolling_pins')) base += Math.floor(computeCps(user, nowTs) * 0.005);
   if (user.clickFrenzyCharges > 0 && user.clickFrenzyExpiresAt > nowTs) {
     user.clickFrenzyCharges -= 1;
     base *= 777;
@@ -1334,7 +1335,11 @@ function bake(guildId, userId) {
     cleanMarketplace(guildState);
     const user = getUserState(guildState, userId);
     const nowTs = Date.now();
+    const previousEvent = guildState.settings?.bakeEvent ?? null;
     const activeEvent = getActiveBakeEvent(guildState, nowTs);
+    const endedEvent = (!activeEvent && previousEvent && Number.isFinite(previousEvent.endsAt) && previousEvent.endsAt <= nowTs)
+      ? { id: previousEvent.id, endedAt: previousEvent.endsAt }
+      : null;
     const passive = applyPassiveIncome(user, nowTs);
 
     if (user.pendingGoldenCookie?.expiresAt <= nowTs) user.pendingGoldenCookie = null;
@@ -1342,7 +1347,7 @@ function bake(guildId, userId) {
     const burntChance = activeEvent?.id === BAKE_EVENT_STEADY_HEAT ? BURNT_BAKE_CHANCE * 0.4 : BURNT_BAKE_CHANCE;
     const burnt = Math.random() < burntChance;
     const boostedYield = activeEvent?.id === BAKE_EVENT_SUGAR_RUSH
-      ? Math.floor(getManualBakeYield(user, nowTs) * 1.4)
+      ? Math.floor(getManualBakeYield(user, nowTs) * 1.2)
       : getManualBakeYield(user, nowTs);
     const yieldAmount = burnt ? 0 : boostedYield;
     user.cookies += yieldAmount;
@@ -1350,7 +1355,10 @@ function bake(guildId, userId) {
     user.totalBakes += 1;
 
     const burntItem = ITEM_MAP.get('burnt_cookie') ?? ITEMS[0];
-    const boostedSpecialItemIds = SPECIAL_COOKIE_IDS.filter((itemId) => ITEM_MAP.has(itemId));
+    const unlockedRarities = getUnlockedRarities(user, new Date(nowTs));
+    const boostedSpecialItemIds = SPECIAL_COOKIE_IDS
+      .filter((itemId) => ITEM_MAP.has(itemId))
+      .filter((itemId) => unlockedRarities.has(ITEM_MAP.get(itemId)?.rarity));
     const boostedEventRoll = activeEvent?.id === BAKE_EVENT_SPECIAL_COOKIE_HUNT
       && boostedSpecialItemIds.length > 0
       && Math.random() < SPECIAL_COOKIE_EVENT_BOOST_CHANCE;
@@ -1383,6 +1391,7 @@ function bake(guildId, userId) {
       burnt,
       rankUpdate,
       activeEvent: activeEvent ? { id: activeEvent.id, endsAt: activeEvent.endsAt } : null,
+      endedEvent,
     };
   });
 }
