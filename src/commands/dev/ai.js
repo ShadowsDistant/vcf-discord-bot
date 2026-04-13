@@ -5,6 +5,9 @@ const {
   EmbedBuilder,
   MessageFlags,
   ChannelType,
+  AutoModerationRuleEventType,
+  AutoModerationRuleTriggerType,
+  AutoModerationActionType,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
@@ -12,6 +15,12 @@ const {
 } = require('discord.js');
 const { randomBytes } = require('crypto');
 const embeds = require('../../utils/embeds');
+const db = require('../../utils/database');
+const economy = require('../../utils/bakeEconomy');
+const analytics = require('../../utils/analytics');
+const { fetchLogChannel } = require('../../utils/logChannels');
+const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
+const { sendModerationActionDm } = require('../../utils/moderationNotifications');
 const { isDevUser } = require('../../utils/roles');
 
 const NVIDIA_BUILD_AI_BASE_URL = 'https://integrate.api.nvidia.com/v1';
@@ -34,6 +43,8 @@ const MCP_DOCS_SNIPPET_MAX_CHARS = 3000;
 const MAX_CONTEXT_MESSAGES = 24;
 const MAX_TOOL_LOG_LINES = 12;
 const DEFAULT_EMBED_COLOR = 0x808080;
+const MAX_BOT_SERVER_LIST = 50;
+const MODERATION_CONFIRM_TTL_MS = 10 * 60 * 1000;
 
 const AI_MODELS = Object.freeze([
   { displayName: 'Gemma 4 31B', value: 'google/gemma-4-31b-it' },
@@ -45,6 +56,7 @@ const MODEL_DISPLAY_NAME_BY_VALUE = new Map(AI_MODELS.map((entry) => [entry.valu
 
 const conversationStates = new Map();
 const aiComponentStates = new Map();
+const pendingModerationConfirmations = new Map();
 
 function asString(value, fallback = '') {
   if (typeof value === 'string') return value;
@@ -130,6 +142,62 @@ function pruneComponentStates(now = Date.now()) {
   for (const [token, state] of aiComponentStates.entries()) {
     if ((state?.expiresAt ?? 0) <= now) aiComponentStates.delete(token);
   }
+}
+
+function pruneModerationConfirmations(now = Date.now()) {
+  for (const [key, state] of pendingModerationConfirmations.entries()) {
+    if ((state?.expiresAt ?? 0) <= now) pendingModerationConfirmations.delete(key);
+  }
+}
+
+function parseDiscordId(value) {
+  const match = asString(value, '').trim().match(/^(?:<@!?(\d+)>|(\d+))$/);
+  return match?.[1] ?? match?.[2] ?? '';
+}
+
+function buildModerationConfirmationKey(guildId, moderatorId, token) {
+  return `${guildId}:${moderatorId}:${token}`;
+}
+
+function formatAutoModRule(rule) {
+  const actions = Array.isArray(rule?.actions) ? rule.actions : [];
+  return {
+    id: rule.id,
+    name: rule.name,
+    enabled: Boolean(rule.enabled),
+    eventType: rule.eventType,
+    triggerType: rule.triggerType,
+    exemptRoles: [...(rule.exemptRoles ?? [])],
+    exemptChannels: [...(rule.exemptChannels ?? [])],
+    actions: actions.map((action) => ({
+      type: action.type,
+      channelId: action.metadata?.channel,
+      durationSeconds: action.metadata?.durationSeconds ?? null,
+      customMessage: action.metadata?.customMessage ?? null,
+    })),
+  };
+}
+
+async function sendAiModerationLog(guild, payload) {
+  const logChannel = await fetchLogChannel(guild, 'automod');
+  if (!logChannel) return false;
+  const embed = new EmbedBuilder()
+    .setColor(0xed4245)
+    .setTitle('AI Moderation Action')
+    .setDescription(payload.description)
+    .addFields(
+      { name: 'Action', value: payload.action, inline: true },
+      { name: 'Moderator', value: payload.moderator, inline: true },
+      { name: 'Target', value: payload.target, inline: true },
+      { name: 'Reason', value: payload.reason || 'No reason provided.' },
+    )
+    .setTimestamp()
+    .setFooter({
+      text: guild.name,
+      iconURL: guild.iconURL({ dynamic: true }) ?? undefined,
+    });
+  const sent = await logChannel.send({ embeds: [embed] }).catch(() => null);
+  return Boolean(sent);
 }
 
 function normalizeColor(value, fallback = DEFAULT_EMBED_COLOR) {
@@ -512,6 +580,151 @@ function buildToolDefinitions() {
         },
       },
     },
+    {
+      type: 'function',
+      function: {
+        name: 'get_user_profile_summary',
+        description: 'Get profile details for a specific server member including moderation and bakery stats.',
+        parameters: {
+          type: 'object',
+          properties: {
+            user_id: { type: 'string', description: 'User ID or mention for the target member.' },
+          },
+          required: ['user_id'],
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'get_user_bakery_summary',
+        description: 'Get bakery-specific stats for a specific user in this server.',
+        parameters: {
+          type: 'object',
+          properties: {
+            user_id: { type: 'string', description: 'User ID or mention for the target member.' },
+          },
+          required: ['user_id'],
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'list_bot_servers',
+        description: 'List Discord servers the bot is currently in (name, id, member count).',
+        parameters: {
+          type: 'object',
+          properties: {
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: MAX_BOT_SERVER_LIST,
+              description: 'Maximum number of servers to return.',
+            },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'list_discord_automod_rules',
+        description: 'List native Discord AutoMod rules currently configured for this server.',
+        parameters: {
+          type: 'object',
+          properties: {},
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'configure_discord_automod',
+        description: 'Create or update native Discord AutoMod rules in this server.',
+        parameters: {
+          type: 'object',
+          properties: {
+            action: {
+              type: 'string',
+              enum: ['create_keyword_preset_rule', 'create_mention_spam_rule', 'toggle_rule'],
+            },
+            rule_name: { type: 'string', description: 'Rule name for new rules.' },
+            preset: {
+              type: 'string',
+              enum: ['profanity', 'sexual_content', 'slurs'],
+              description: 'Preset for keyword preset rules.',
+            },
+            mention_limit: {
+              type: 'integer',
+              minimum: 3,
+              maximum: 50,
+              description: 'Mention limit for mention spam rule.',
+            },
+            log_channel_id: {
+              type: 'string',
+              description: 'Optional text channel ID for AutoMod alert actions.',
+            },
+            custom_message: {
+              type: 'string',
+              description: 'Optional custom message sent to users when blocked.',
+            },
+            rule_id: { type: 'string', description: 'Rule ID for toggle action.' },
+            enabled: { type: 'boolean', description: 'Enabled state for toggle action.' },
+          },
+          required: ['action'],
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'prepare_moderation_action',
+        description: 'Prepare a moderation action and return a confirmation token. This does NOT execute moderation.',
+        parameters: {
+          type: 'object',
+          properties: {
+            action: { type: 'string', enum: ['warn', 'timeout', 'kick', 'ban'] },
+            user_id: { type: 'string', description: 'Target user ID or mention.' },
+            reason: { type: 'string', description: 'Moderation reason.' },
+            timeout_minutes: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 40320,
+              description: 'Required for timeout actions. Max 28 days.',
+            },
+            delete_days: {
+              type: 'integer',
+              minimum: 0,
+              maximum: 7,
+              description: 'Optional for ban actions.',
+            },
+          },
+          required: ['action', 'user_id'],
+          additionalProperties: false,
+        },
+      },
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'confirm_moderation_action',
+        description: 'Execute a previously prepared moderation action after explicit user confirmation phrase is present.',
+        parameters: {
+          type: 'object',
+          properties: {
+            confirmation_token: { type: 'string', description: 'Token returned by prepare_moderation_action.' },
+          },
+          required: ['confirmation_token'],
+          additionalProperties: false,
+        },
+      },
+    },
   ];
 }
 
@@ -874,6 +1087,349 @@ async function runTool(context, name, args) {
     };
   }
 
+  if (name === 'get_user_profile_summary') {
+    const userId = parseDiscordId(parsedArgs.user_id);
+    if (!userId) return { ok: false, error: 'user_id is required.' };
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (!member) return { ok: false, error: 'Member not found in this guild.' };
+    const warnings = db.getWarnings(guild.id, userId);
+    const activeShift = (() => {
+      try {
+        return db.getActiveShift(guild.id, userId);
+      } catch {
+        return null;
+      }
+    })();
+    const snapshot = economy.getUserSnapshot(guild.id, userId);
+    const cps = economy.computeCps(snapshot.user, Date.now());
+    return {
+      ok: true,
+      member: formatMember(member),
+      moderation: {
+        warningCount: warnings.length,
+        latestWarning: warnings[warnings.length - 1] ?? null,
+      },
+      shift: {
+        onShift: Boolean(activeShift),
+        activeShiftId: activeShift?.id ?? null,
+        startedAt: activeShift?.startedAt ?? null,
+      },
+      bakery: {
+        bakeryName: snapshot.user.bakeryName ?? 'My Bakery',
+        bakeryEmoji: snapshot.user.bakeryEmoji ?? economy.getCookieEmoji(guild),
+        cookies: snapshot.user.cookies ?? 0,
+        cps,
+        achievements: (snapshot.user.milestones ?? []).length,
+      },
+    };
+  }
+
+  if (name === 'get_user_bakery_summary') {
+    const userId = parseDiscordId(parsedArgs.user_id);
+    if (!userId) return { ok: false, error: 'user_id is required.' };
+    const snapshot = economy.getUserSnapshot(guild.id, userId);
+    const user = snapshot.user;
+    const rarestItemId = Object.entries(user.inventory ?? {})
+      .filter(([, qty]) => qty > 0)
+      .sort((a, b) => {
+        const rarityDiff = economy.RARITY_ORDER.indexOf(economy.ITEM_MAP.get(b[0])?.rarity ?? 'common')
+          - economy.RARITY_ORDER.indexOf(economy.ITEM_MAP.get(a[0])?.rarity ?? 'common');
+        return rarityDiff || (b[1] - a[1]);
+      })[0]?.[0] ?? null;
+    return {
+      ok: true,
+      bakery: {
+        userId,
+        bakeryName: user.bakeryName ?? 'My Bakery',
+        bakeryEmoji: user.bakeryEmoji ?? economy.getCookieEmoji(guild),
+        rankId: user.rankId ?? 'rookie',
+        cookies: user.cookies ?? 0,
+        cps: economy.computeCps(user, Date.now()),
+        achievements: (user.milestones ?? []).length,
+        totalBuildings: Object.values(user.buildings ?? {}).reduce((sum, count) => sum + (Number(count) || 0), 0),
+        rarestItem: rarestItemId
+          ? {
+            id: rarestItemId,
+            name: economy.ITEM_MAP.get(rarestItemId)?.name ?? rarestItemId,
+            rarity: economy.ITEM_MAP.get(rarestItemId)?.rarity ?? 'common',
+          }
+          : null,
+      },
+    };
+  }
+
+  if (name === 'list_bot_servers') {
+    const client = context.client;
+    if (!client) return { ok: false, error: 'Client context is unavailable.' };
+    const limit = Math.min(MAX_BOT_SERVER_LIST, Math.max(1, Number(parsedArgs.limit) || 20));
+    const guilds = [...client.guilds.cache.values()]
+      .sort((a, b) => (b.memberCount ?? 0) - (a.memberCount ?? 0))
+      .slice(0, limit)
+      .map((entry) => ({
+        id: entry.id,
+        name: entry.name,
+        memberCount: entry.memberCount ?? null,
+      }));
+    return {
+      ok: true,
+      servers: guilds,
+      totalServers: client.guilds.cache.size,
+    };
+  }
+
+  if (name === 'list_discord_automod_rules') {
+    const rules = await guild.autoModerationRules.fetch().catch(() => null);
+    if (!rules) return { ok: false, error: 'Failed to fetch native Discord AutoMod rules.' };
+    const all = [...rules.values()].map(formatAutoModRule);
+    return {
+      ok: true,
+      rules: all,
+      totalRules: all.length,
+    };
+  }
+
+  if (name === 'configure_discord_automod') {
+    const actorMember = await guild.members.fetch(context.user.id).catch(() => null);
+    if (!actorMember || !hasModLevel(actorMember, guild.id, MOD_LEVEL.seniorMod)) {
+      return { ok: false, error: 'You need Senior Moderator access to configure Discord AutoMod.' };
+    }
+
+    const action = asString(parsedArgs.action, '').trim();
+    const logChannelId = parseDiscordId(parsedArgs.log_channel_id);
+    const customMessage = truncate(parsedArgs.custom_message, 150);
+    let actionPayloads = [{ type: AutoModerationActionType.BlockMessage }];
+
+    if (logChannelId) {
+      const logChannel = await guild.channels.fetch(logChannelId).catch(() => null);
+      if (!logChannel || !logChannel.isTextBased()) {
+        return { ok: false, error: 'log_channel_id is not a valid text channel.' };
+      }
+      actionPayloads = [
+        ...actionPayloads,
+        { type: AutoModerationActionType.SendAlertMessage, metadata: { channel: logChannel.id } },
+      ];
+    }
+    if (customMessage) {
+      actionPayloads = actionPayloads.map((entry) => (
+        entry.type === AutoModerationActionType.BlockMessage
+          ? { ...entry, metadata: { customMessage } }
+          : entry
+      ));
+    }
+
+    if (action === 'create_keyword_preset_rule') {
+      const presetName = asString(parsedArgs.preset, '').trim();
+      const presetValue = {
+        profanity: 1,
+        sexual_content: 2,
+        slurs: 3,
+      }[presetName];
+      if (!presetValue) return { ok: false, error: 'preset is required (profanity, sexual_content, or slurs).' };
+      const ruleName = truncate(parsedArgs.rule_name, 100) || `AI AutoMod Preset (${presetName})`;
+      const rule = await guild.autoModerationRules.create({
+        name: ruleName,
+        eventType: AutoModerationRuleEventType.MessageSend,
+        triggerType: AutoModerationRuleTriggerType.KeywordPreset,
+        triggerMetadata: { presets: [presetValue], allowList: [] },
+        actions: actionPayloads,
+        enabled: true,
+        reason: `${context.user.tag}: AI tool Discord AutoMod setup`,
+      }).catch((error) => ({ error }));
+      if (rule?.error) return { ok: false, error: `Failed to create rule: ${truncate(rule.error.message, 250)}` };
+      return { ok: true, action, rule: formatAutoModRule(rule) };
+    }
+
+    if (action === 'create_mention_spam_rule') {
+      const mentionLimit = Math.min(50, Math.max(3, Number(parsedArgs.mention_limit) || 5));
+      const ruleName = truncate(parsedArgs.rule_name, 100) || `AI Mention Spam (${mentionLimit})`;
+      const rule = await guild.autoModerationRules.create({
+        name: ruleName,
+        eventType: AutoModerationRuleEventType.MessageSend,
+        triggerType: AutoModerationRuleTriggerType.MentionSpam,
+        triggerMetadata: { mentionTotalLimit: mentionLimit },
+        actions: actionPayloads,
+        enabled: true,
+        reason: `${context.user.tag}: AI tool Discord AutoMod setup`,
+      }).catch((error) => ({ error }));
+      if (rule?.error) return { ok: false, error: `Failed to create rule: ${truncate(rule.error.message, 250)}` };
+      return { ok: true, action, rule: formatAutoModRule(rule) };
+    }
+
+    if (action === 'toggle_rule') {
+      const ruleId = parseDiscordId(parsedArgs.rule_id);
+      if (!ruleId) return { ok: false, error: 'rule_id is required for toggle_rule.' };
+      const enabled = Boolean(parsedArgs.enabled);
+      const rules = await guild.autoModerationRules.fetch().catch(() => null);
+      const existing = rules?.get(ruleId) ?? null;
+      if (!existing) return { ok: false, error: 'Rule not found.' };
+      const updated = await existing.edit({
+        enabled,
+        reason: `${context.user.tag}: AI tool Discord AutoMod toggle`,
+      }).catch((error) => ({ error }));
+      if (updated?.error) return { ok: false, error: `Failed to update rule: ${truncate(updated.error.message, 250)}` };
+      return { ok: true, action, rule: formatAutoModRule(updated) };
+    }
+
+    return { ok: false, error: 'Unknown configure_discord_automod action.' };
+  }
+
+  if (name === 'prepare_moderation_action') {
+    const actorMember = await guild.members.fetch(context.user.id).catch(() => null);
+    if (!actorMember || !hasModLevel(actorMember, guild.id, MOD_LEVEL.moderator)) {
+      return { ok: false, error: 'You need Moderator access to prepare moderation actions.' };
+    }
+    const action = asString(parsedArgs.action, '').trim();
+    if (!['warn', 'timeout', 'kick', 'ban'].includes(action)) {
+      return { ok: false, error: 'action must be one of warn, timeout, kick, or ban.' };
+    }
+    if (action === 'ban' && !hasModLevel(actorMember, guild.id, MOD_LEVEL.seniorMod)) {
+      return { ok: false, error: 'You need Senior Moderator access to prepare ban actions.' };
+    }
+    const targetId = parseDiscordId(parsedArgs.user_id);
+    if (!targetId) return { ok: false, error: 'user_id is required.' };
+    if (targetId === context.user.id) return { ok: false, error: 'You cannot moderate yourself.' };
+    const reason = truncate(parsedArgs.reason, 300) || 'No reason provided.';
+    const timeoutMinutesRaw = Number(parsedArgs.timeout_minutes);
+    if (action === 'timeout' && (!Number.isFinite(timeoutMinutesRaw) || timeoutMinutesRaw <= 0)) {
+      return { ok: false, error: 'timeout_minutes is required for timeout actions.' };
+    }
+    const timeoutMinutes = action === 'timeout'
+      ? Math.min(40320, Math.max(1, Math.floor(timeoutMinutesRaw)))
+      : null;
+    const deleteDays = Math.min(7, Math.max(0, Number(parsedArgs.delete_days) || 0));
+    const confirmationToken = randomBytes(3).toString('hex').toLowerCase();
+    const key = buildModerationConfirmationKey(guild.id, context.user.id, confirmationToken);
+    pendingModerationConfirmations.set(key, {
+      action,
+      targetId,
+      reason,
+      timeoutMinutes: action === 'timeout' ? timeoutMinutes : null,
+      deleteDays: action === 'ban' ? deleteDays : 0,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + MODERATION_CONFIRM_TTL_MS,
+    });
+    pruneModerationConfirmations();
+    return {
+      ok: true,
+      prepared: true,
+      action,
+      targetId,
+      reason,
+      confirmationToken,
+      confirmationPhrase: `CONFIRM MODERATION ${confirmationToken}`,
+      expiresInMinutes: Math.round(MODERATION_CONFIRM_TTL_MS / 60_000),
+      note: 'Do not execute moderation until the user sends the exact confirmation phrase.',
+    };
+  }
+
+  if (name === 'confirm_moderation_action') {
+    pruneModerationConfirmations();
+    const confirmationToken = asString(parsedArgs.confirmation_token, '').trim();
+    const normalizedToken = confirmationToken.toLowerCase();
+    if (!normalizedToken) return { ok: false, error: 'confirmation_token is required.' };
+    const key = buildModerationConfirmationKey(guild.id, context.user.id, normalizedToken);
+    const pending = pendingModerationConfirmations.get(key);
+    if (!pending) return { ok: false, error: 'No pending moderation action found for that token.' };
+    const expectedPhrase = `confirm moderation ${normalizedToken}`;
+    const latestPrompt = asString(context.latestPrompt, '').trim().toLowerCase();
+    if (latestPrompt !== expectedPhrase) {
+      return {
+        ok: false,
+        error: `Confirmation phrase mismatch. Send exactly: "CONFIRM MODERATION ${normalizedToken.toUpperCase()}".`,
+      };
+    }
+
+    const target = await guild.members.fetch(pending.targetId).catch(() => null);
+    if (!target && pending.action !== 'ban') {
+      pendingModerationConfirmations.delete(key);
+      return { ok: false, error: 'Target member not found in this guild.' };
+    }
+
+    try {
+      if (pending.action === 'warn') {
+        db.addWarning(guild.id, pending.targetId, {
+          moderatorId: context.user.id,
+          reason: pending.reason,
+        });
+        await sendModerationActionDm({
+          user: target.user,
+          guild,
+          action: 'Warning',
+          reason: pending.reason,
+          moderatorTag: context.user.tag,
+        });
+        analytics.recordModAction(guild.id, 'warn', Date.now());
+      }
+
+      if (pending.action === 'timeout') {
+        if (!target?.moderatable) {
+          return { ok: false, error: 'I cannot timeout that user due to role hierarchy/permissions.' };
+        }
+        await sendModerationActionDm({
+          user: target.user,
+          guild,
+          action: 'Timeout',
+          reason: pending.reason,
+          moderatorTag: context.user.tag,
+          duration: `${pending.timeoutMinutes} minute(s)`,
+        });
+        await target.timeout(pending.timeoutMinutes * 60_000, `${context.user.tag}: ${pending.reason}`);
+      }
+
+      if (pending.action === 'kick') {
+        if (!target?.kickable) {
+          return { ok: false, error: 'I cannot kick that user due to role hierarchy/permissions.' };
+        }
+        await sendModerationActionDm({
+          user: target.user,
+          guild,
+          action: 'Kick',
+          reason: pending.reason,
+          moderatorTag: context.user.tag,
+        });
+        await target.kick(`${context.user.tag}: ${pending.reason}`);
+        analytics.recordModAction(guild.id, 'kick', Date.now());
+      }
+
+      if (pending.action === 'ban') {
+        const banTarget = target?.user ?? pending.targetId;
+        // Fetch only when target is no longer a guild member so we can still attempt a DM.
+        const banDmUser = target?.user ?? await context.client.users.fetch(pending.targetId).catch(() => null);
+        // DM delivery may fail (privacy settings/blocks); moderation still proceeds and logs internally.
+        await sendModerationActionDm({
+          user: banDmUser,
+          guild,
+          action: 'Ban',
+          reason: pending.reason,
+          moderatorTag: context.user.tag,
+        });
+        await guild.members.ban(banTarget, {
+          reason: `${context.user.tag}: ${pending.reason}`,
+          deleteMessageSeconds: pending.deleteDays * 86400,
+        });
+        analytics.recordModAction(guild.id, 'ban', Date.now());
+      }
+
+      await sendAiModerationLog(guild, {
+        description: 'A moderation action was executed through the `/ai` confirmation workflow.',
+        action: pending.action.toUpperCase(),
+        moderator: `${context.user.tag} (\`${context.user.id}\`)`,
+        target: `<@${pending.targetId}> (\`${pending.targetId}\`)`,
+        reason: pending.reason,
+      });
+      pendingModerationConfirmations.delete(key);
+      return {
+        ok: true,
+        executed: true,
+        action: pending.action,
+        targetId: pending.targetId,
+        reason: pending.reason,
+      };
+    } catch (error) {
+      return { ok: false, error: `Moderation execution failed: ${truncate(error.message, 250)}` };
+    }
+  }
+
   return { ok: false, error: `Unknown tool: ${name}` };
 }
 
@@ -914,9 +1470,12 @@ function buildSystemPrompt(model) {
     'You are an assistant for a Discord moderation/community server.',
     'Use tools when needed to inspect server context.',
     'Safety rules:',
-    '- Never claim to execute moderation or administrative actions.',
+    '- Never claim a moderation action has been executed unless confirm_moderation_action succeeds.',
     '- Never request, expose, or infer secrets/tokens/credentials.',
-    '- Only use the provided read-only tools for server context.',
+    '- You may use server tools, moderation tools, and Discord AutoMod tools only as defined.',
+    '- For moderation actions, always call prepare_moderation_action first.',
+    '- After prepare_moderation_action returns a token, instruct the user to send EXACTLY: CONFIRM MODERATION <token>.',
+    '- Only call confirm_moderation_action when the user message exactly matches that phrase.',
     '- Refuse harmful, abusive, illegal, or privacy-invasive requests.',
     '- Keep responses professional and concise.',
     '- Keep formatting consistent between runs.',
@@ -1344,6 +1903,7 @@ function buildInteractionContext(source) {
   return {
     guild: source.guild,
     channel: source.channel,
+    client: source.client,
     user: source.user ?? source.author,
   };
 }
@@ -1365,7 +1925,10 @@ async function generateAiResponse({
   const completion = await runAiCompletion({
     apiKey,
     model,
-    context: buildInteractionContext(source),
+    context: {
+      ...buildInteractionContext(source),
+      latestPrompt: prompt,
+    },
     prompt,
     priorMessages,
   });
@@ -1456,111 +2019,122 @@ function isAiComponentCustomId(customId) {
   return value.startsWith('ai_btn:') || value.startsWith('ai_sel:') || value.startsWith('ai_view:') || value.startsWith('ai_viewsel:');
 }
 
+function isUnknownInteractionError(error) {
+  if (!error || typeof error !== 'object') return false;
+  if (Number(error.code) === 10062) return true;
+  return asString(error.message, '').toLowerCase().includes('unknown interaction');
+}
+
 async function handleAiComponentInteraction(interaction) {
-  const viewToggle = parseAiViewCustomId(interaction.customId);
-  const viewSelect = parseAiViewSelectCustomId(interaction.customId);
-  const parsed = parseAiComponentCustomId(interaction.customId);
-  if (!viewToggle && !viewSelect && !parsed) return false;
-
-  pruneComponentStates();
-
-  const ownerId = viewToggle?.ownerId ?? viewSelect?.ownerId ?? parsed?.ownerId;
-  if (ownerId !== interaction.user.id) {
-    await interaction.reply({
-      embeds: [embeds.error('These AI controls belong to someone else.', interaction.guild)],
-      flags: MessageFlags.Ephemeral,
-    });
-    return true;
-  }
-
-  const token = viewToggle?.token ?? viewSelect?.token ?? parsed?.token;
-  const state = aiComponentStates.get(token);
-  if (!state || state.ownerId !== ownerId) {
-    await interaction.reply({
-      embeds: [embeds.warning('These AI controls have expired. Run `/ai` again.', interaction.guild)],
-      flags: MessageFlags.Ephemeral,
-    });
-    return true;
-  }
-
-  if (viewToggle || viewSelect) {
-    const selectedView = viewToggle?.view
-      ?? (Array.isArray(interaction.values) ? interaction.values[0] : '')
-      ?? '';
-    if (selectedView === 'tools') {
-      await interaction.update(buildAiToolsPayload(state));
-    } else {
-      await interaction.update(buildAiOutputPayload(state));
-    }
-    return true;
-  }
-
-  let followupPrompt = '';
-
-  if (parsed.kind === 'ai_btn') {
-    const action = state.interactiveButtons[parsed.actionIndex];
-    if (!action) {
-      await interaction.reply({
-        embeds: [embeds.warning('That AI button action is no longer available.', interaction.guild)],
-        flags: MessageFlags.Ephemeral,
-      });
-      return true;
-    }
-    followupPrompt = truncate(action.prompt, 1500);
-  }
-
-  if (parsed.kind === 'ai_sel') {
-    const action = state.interactiveSelectMenus[parsed.actionIndex];
-    const selectedValues = Array.isArray(interaction.values) ? interaction.values : [];
-    followupPrompt = truncate(
-      selectedValues
-        .map((value) => action?.optionPrompts?.[value])
-        .filter(Boolean)
-        .join('\n'),
-      1500,
-    );
-    if (!followupPrompt) {
-      await interaction.reply({
-        embeds: [embeds.warning('That AI menu option has no continuation prompt.', interaction.guild)],
-        flags: MessageFlags.Ephemeral,
-      });
-      return true;
-    }
-  }
-
-  const previous = getConversationState(interaction.message.id);
-  const model = previous?.model ?? DEFAULT_MODEL;
-
-  await interaction.deferReply();
-
   try {
-    const response = await generateAiResponse({
-      source: interaction,
-      prompt: followupPrompt,
-      model,
-      priorMessages: previous?.messages ?? [],
-    });
+    const viewToggle = parseAiViewCustomId(interaction.customId);
+    const viewSelect = parseAiViewSelectCustomId(interaction.customId);
+    const parsed = parseAiComponentCustomId(interaction.customId);
+    if (!viewToggle && !viewSelect && !parsed) return false;
 
-    const sentMessage = await interaction.editReply(response.outputPayload);
+    pruneComponentStates();
 
-    storeConversationState(sentMessage.id, {
-      userId: interaction.user.id,
-      model: response.model,
-      messages: response.completionMessages,
-    });
+    const ownerId = viewToggle?.ownerId ?? viewSelect?.ownerId ?? parsed?.ownerId;
+    if (ownerId !== interaction.user.id) {
+      await interaction.reply({
+        embeds: [embeds.error('These AI controls belong to someone else.', interaction.guild)],
+        flags: MessageFlags.Ephemeral,
+      });
+      return true;
+    }
+
+    const token = viewToggle?.token ?? viewSelect?.token ?? parsed?.token;
+    const state = aiComponentStates.get(token);
+    if (!state || state.ownerId !== ownerId) {
+      await interaction.reply({
+        embeds: [embeds.warning('These AI controls have expired. Run `/ai` again.', interaction.guild)],
+        flags: MessageFlags.Ephemeral,
+      });
+      return true;
+    }
+
+    if (viewToggle || viewSelect) {
+      const selectedView = viewToggle?.view
+        ?? (Array.isArray(interaction.values) ? interaction.values[0] : '')
+        ?? '';
+      if (selectedView === 'tools') {
+        await interaction.update(buildAiToolsPayload(state));
+      } else {
+        await interaction.update(buildAiOutputPayload(state));
+      }
+      return true;
+    }
+
+    let followupPrompt = '';
+
+    if (parsed.kind === 'ai_btn') {
+      const action = state.interactiveButtons[parsed.actionIndex];
+      if (!action) {
+        await interaction.reply({
+          embeds: [embeds.warning('That AI button action is no longer available.', interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+        return true;
+      }
+      followupPrompt = truncate(action.prompt, 1500);
+    }
+
+    if (parsed.kind === 'ai_sel') {
+      const action = state.interactiveSelectMenus[parsed.actionIndex];
+      const selectedValues = Array.isArray(interaction.values) ? interaction.values : [];
+      followupPrompt = truncate(
+        selectedValues
+          .map((value) => action?.optionPrompts?.[value])
+          .filter(Boolean)
+          .join('\n'),
+        1500,
+      );
+      if (!followupPrompt) {
+        await interaction.reply({
+          embeds: [embeds.warning('That AI menu option has no continuation prompt.', interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+        return true;
+      }
+    }
+
+    const previous = getConversationState(interaction.message.id);
+    const model = previous?.model ?? DEFAULT_MODEL;
+
+    await interaction.deferReply();
+
+    try {
+      const response = await generateAiResponse({
+        source: interaction,
+        prompt: followupPrompt,
+        model,
+        priorMessages: previous?.messages ?? [],
+      });
+
+      const sentMessage = await interaction.editReply(response.outputPayload);
+
+      storeConversationState(sentMessage.id, {
+        userId: interaction.user.id,
+        model: response.model,
+        messages: response.completionMessages,
+      });
+    } catch (error) {
+      await interaction.editReply({
+        embeds: [
+          embeds.error(
+            `AI request failed: ${truncate(error.message, 500)}`,
+            interaction.guild ?? null,
+          ),
+        ],
+        components: [],
+      });
+    }
+
+    return true;
   } catch (error) {
-    await interaction.editReply({
-      embeds: [
-        embeds.error(
-          `AI request failed: ${truncate(error.message, 500)}`,
-          interaction.guild ?? null,
-        ),
-      ],
-      components: [],
-    });
+    if (isUnknownInteractionError(error)) return true;
+    throw error;
   }
-
-  return true;
 }
 
 async function handleAiReplyMessage(message) {
