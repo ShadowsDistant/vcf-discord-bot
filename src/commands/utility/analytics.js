@@ -8,6 +8,7 @@ const {
 } = require('discord.js');
 const analytics = require('../../utils/analytics');
 const embeds = require('../../utils/embeds');
+const economy = require('../../utils/bakeEconomy');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
 
 const PERIOD_CHOICES = [
@@ -31,6 +32,12 @@ module.exports = {
         .setName('period')
         .setDescription('Analytics window')
         .addChoices(...PERIOD_CHOICES.map((entry) => ({ name: entry.name, value: entry.value }))),
+    )
+    .addUserOption((o) =>
+      o
+        .setName('user')
+        .setDescription('Optional user to include detailed bakery stats for')
+        .setRequired(false),
     ),
 
   async execute(interaction) {
@@ -42,12 +49,19 @@ module.exports = {
     }
 
     const period = interaction.options.getString('period') ?? '7d';
+    const targetUser = interaction.options.getUser('user');
     const days = resolveDays(period);
     const data = analytics.getAnalytics(interaction.guild.id, days);
+    const modTotal = Number(data.modActions.warn ?? 0) + Number(data.modActions.kick ?? 0) + Number(data.modActions.ban ?? 0);
+    const modRatePerThousand = data.messages > 0 ? ((modTotal / data.messages) * 1000) : 0;
+    const channelConcentration = data.channelTotals.length > 0 && data.messages > 0
+      ? ((data.channelTotals.slice(0, 3).reduce((sum, entry) => sum + entry.count, 0) / data.messages) * 100)
+      : 0;
+    const peakDay = data.topDays[0] ?? null;
 
     const topChannels = data.channelTotals.length
       ? data.channelTotals
-        .map((entry, idx) => `${idx + 1}. <#${entry.channelId}> — **${entry.count.toLocaleString()}**`) 
+        .map((entry, idx) => `${idx + 1}. <#${entry.channelId}> — **${entry.count.toLocaleString()}** (${((entry.count / Math.max(1, data.messages)) * 100).toFixed(1)}%)`)
         .join('\n')
       : 'No channel activity recorded.';
 
@@ -68,6 +82,19 @@ module.exports = {
     const topAction = data.topAction
       ? `${data.topAction.action.toUpperCase()} (${data.topAction.count.toLocaleString()})`
       : 'No moderation actions.';
+    const specificUserStats = targetUser
+      ? economy.getUserSnapshot(interaction.guild.id, targetUser.id).user
+      : null;
+    const specificUserField = specificUserStats
+      ? [
+        `User: ${targetUser} (\`${targetUser.id}\`)`,
+        `Cookies: **${economy.toCookieNumber(specificUserStats.cookies)}**`,
+        `CPS: **${economy.toCookieNumber(economy.computeCps(specificUserStats, Date.now()))}**`,
+        `Lifetime baked: **${economy.toCookieNumber(specificUserStats.cookiesBakedAllTime)}**`,
+        `Total bakes: **${economy.toCookieNumber(specificUserStats.totalBakes)}**`,
+        `Achievements: **${(specificUserStats.milestones ?? []).length}/${economy.ACHIEVEMENTS.length}**`,
+      ].join('\n')
+      : null;
 
     const embed = new EmbedBuilder()
       .setColor(0x5865f2)
@@ -99,12 +126,22 @@ module.exports = {
           inline: true,
         },
         {
-          name: 'Moderation Actions',
+          name: 'Moderation Actions & Enforcement',
           value: [
             `Warns: **${data.modActions.warn.toLocaleString()}**`,
             `Kicks: **${data.modActions.kick.toLocaleString()}**`,
             `Bans: **${data.modActions.ban.toLocaleString()}**`,
             `Top action: **${topAction}**`,
+            `Actions / 1k msgs: **${modRatePerThousand.toFixed(2)}**`,
+          ].join('\n'),
+          inline: true,
+        },
+        {
+          name: 'Server Health Signals',
+          value: [
+            `Peak day: **${peakDay ? `${peakDay.day} (${peakDay.count.toLocaleString()} msgs)` : 'None'}**`,
+            `Channel concentration (Top 3): **${channelConcentration.toFixed(1)}%**`,
+            `Coverage days with activity: **${data.activeDays}/${Math.max(1, data.dayKeys.length)}**`,
           ].join('\n'),
           inline: true,
         },
@@ -120,6 +157,7 @@ module.exports = {
           name: 'Busiest Hours',
           value: busyHours.slice(0, 1024),
         },
+        ...(specificUserField ? [{ name: 'Specific User Bakery Stats', value: specificUserField.slice(0, 1024) }] : []),
       )
       .setTimestamp()
       .setFooter({

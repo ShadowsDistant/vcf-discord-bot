@@ -10,6 +10,7 @@ const {
   StringSelectMenuBuilder,
   TextInputBuilder,
   TextInputStyle,
+  UserSelectMenuBuilder,
   userMention,
 } = require('discord.js');
 const db = require('./database');
@@ -1442,8 +1443,8 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
   const cookieEmoji = getCookieFallbackEmoji(guild);
   const cpsEmoji = getCustomGuildEmoji(guild, ['CookieProduction10', 'CookieProduction5']) ?? '⚙️';
   const collectionEmoji = getCustomGuildEmoji(guild, ['Polymath', 'Cookie_Clicker']) ?? '📚';
-  const buildingEmoji = getCustomGuildEmoji(guild, ['Builder', 'Factory_new']) ?? '🏗️';
-  const achievementEmoji = getCustomGuildEmoji(guild, ['Cookie_Clicker', 'Builder']) ?? '🏆';
+  const buildingEmoji = getCustomGuildEmoji(guild, ['hammer_wrench', 'Builder', 'Factory_new']) ?? '🏗️';
+  const achievementEmoji = getCustomGuildEmoji(guild, ['trophy', 'Cookie_Clicker', 'Builder']) ?? '🏆';
   const passiveEmoji = getCustomGuildEmoji(guild, ['CookieProduction6', 'CookieProduction10']) ?? '📈';
   const homeMilkType = getMilkType(user.milkLevel);
   const homeMilkKey = homeMilkType.toLowerCase().replace(/\s*milk$/, '');
@@ -2487,6 +2488,112 @@ function adminResetUser(guildId, targetUserId) {
   writeState(data);
 }
 
+function adminResetGuildEconomy(guildId) {
+  const data = readState();
+  const existing = getGuildState(data, guildId);
+  const reset = getDefaultGuildState();
+  reset.settings.adminLogChannelId = existing.settings?.adminLogChannelId ?? null;
+  reset.settings.adminModRoleId = existing.settings?.adminModRoleId ?? BAKE_ADMIN_ROLE_ID;
+  data[guildId] = reset;
+  writeState(data);
+}
+
+function buildBakeAdminDashboardEmbed(guild, actorId) {
+  const data = readState();
+  const guildState = getGuildState(data, guild?.id ?? 'unknown_guild');
+  const now = Date.now();
+  const users = Object.values(guildState.users ?? {});
+  const totals = users.reduce((acc, user) => {
+    const safeUser = JSON.parse(JSON.stringify(user ?? {}));
+    acc.cookies += Number(user?.cookies ?? 0);
+    acc.cookiesBakedAllTime += Number(user?.cookiesBakedAllTime ?? 0);
+    acc.cookiesSpent += Number(user?.cookiesSpent ?? 0);
+    acc.totalBakes += Number(user?.totalBakes ?? 0);
+    acc.totalBuildings += getTotalBuildingsOwned(user);
+    acc.totalUpgrades += Number((user?.upgrades ?? []).length);
+    acc.bakeBanned += user?.bakeBanned ? 1 : 0;
+    acc.totalCps += Number(computeCps(safeUser, now) ?? 0);
+    return acc;
+  }, {
+    cookies: 0,
+    cookiesBakedAllTime: 0,
+    cookiesSpent: 0,
+    totalBakes: 0,
+    totalBuildings: 0,
+    totalUpgrades: 0,
+    bakeBanned: 0,
+    totalCps: 0,
+  });
+  const activeEvent = getActiveBakeEvent(guildState, now);
+  const eventLabel = activeEvent
+    ? `${COOKIE_EVENT_DEFINITIONS.find((event) => event.id === activeEvent.id)?.name ?? activeEvent.id} (ends <t:${Math.floor(activeEvent.endsAt / 1000)}:R>)`
+    : 'None';
+
+  const embed = new EmbedBuilder()
+    .setColor(0xed4245)
+    .setTitle('🛠️ Bake Admin Dashboard')
+    .setDescription(`Global bakery economy overview for this server.\nModerator: <@${actorId}>`)
+    .addFields(
+      {
+        name: 'Economy Totals',
+        value: [
+          `Users tracked: **${toCookieNumber(users.length)}**`,
+          `Live cookies: **${toCookieNumber(totals.cookies)}**`,
+          `Lifetime baked: **${toCookieNumber(totals.cookiesBakedAllTime)}**`,
+          `Lifetime spent: **${toCookieNumber(totals.cookiesSpent)}**`,
+        ].join('\n'),
+        inline: true,
+      },
+      {
+        name: 'Production & Progress',
+        value: [
+          `Combined CPS: **${toCookieNumber(totals.totalCps)}**`,
+          `Total bakes: **${toCookieNumber(totals.totalBakes)}**`,
+          `Buildings owned: **${toCookieNumber(totals.totalBuildings)}**`,
+          `Upgrades unlocked: **${toCookieNumber(totals.totalUpgrades)}**`,
+        ].join('\n'),
+        inline: true,
+      },
+      {
+        name: 'Global Status',
+        value: [
+          `Bake-banned users: **${toCookieNumber(totals.bakeBanned)}**`,
+          `Marketplace listings: **${toCookieNumber(guildState.marketplace?.listings?.length ?? 0)}**`,
+          `Unique item stats tracked: **${toCookieNumber(Object.keys(guildState.itemStats ?? {}).length)}**`,
+          `Active event: **${eventLabel}**`,
+        ].join('\n'),
+      },
+    )
+    .setTimestamp();
+
+  if (guild) {
+    embed.setFooter({ text: guild.name, iconURL: guild.iconURL({ dynamic: true }) ?? undefined });
+  }
+  return embed;
+}
+
+function buildBakeAdminDashboardComponents(actorId) {
+  const targetSelectRow = new ActionRowBuilder().addComponents(
+    new UserSelectMenuBuilder()
+      .setCustomId(`bakeadmin_target_select:${actorId}`)
+      .setPlaceholder('Select a user for user-level bakeadmin actions')
+      .setMinValues(1)
+      .setMaxValues(1),
+  );
+  const globalActionRow = new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(`bakeadmin_global_action:${actorId}`)
+      .setPlaceholder('Select a global bakeadmin action')
+      .addOptions(
+        { label: 'Refresh Dashboard', value: 'refresh_dashboard', description: 'Refresh global economy statistics.' },
+        { label: 'Start Event', value: 'start_event', description: 'Start a timed special cookie event for the server.' },
+        { label: 'Set Admin Log Channel', value: 'set_log_channel', description: 'Set channel for bakeadmin action logs.' },
+        { label: 'Reset Entire Economy', value: 'reset_economy', description: 'Reset ALL bakery economy data for this guild.' },
+      ),
+  );
+  return [targetSelectRow, globalActionRow];
+}
+
 function buildBakeAdminEmbed(guild, actorId, targetId) {
   const data = readState();
   const guildState = getGuildState(data, guild?.id ?? 'unknown_guild');
@@ -2499,7 +2606,7 @@ function buildBakeAdminEmbed(guild, actorId, targetId) {
     .filter((rarityId) => unlockedRarities.has(rarityId))
     .map((rarityId) => RARITY[rarityId].name)
     .join(' • ') || DEFAULT_UNLOCKED_RARITY_LABEL;
-  const activeEvent = getActiveEvent(guildState, now);
+  const activeEvent = getActiveBakeEvent(guildState, now);
   const eventLabel = activeEvent?.id === 'special_cookie_hunt' && Number.isFinite(activeEvent?.endsAt)
     ? `<t:${Math.floor(activeEvent.endsAt / 1000)}:R>`
     : 'None';
@@ -2825,6 +2932,9 @@ module.exports = {
   adminStartEvent,
   adminGrantRewardBox,
   adminResetUser,
+  adminResetGuildEconomy,
+  buildBakeAdminDashboardEmbed,
+  buildBakeAdminDashboardComponents,
   getUserDataEmbed,
   getGuildUserStates,
   isBakeAdminAuthorized,

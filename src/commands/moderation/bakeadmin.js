@@ -4,8 +4,6 @@ const {
   SlashCommandBuilder,
   MessageFlags,
   PermissionFlagsBits,
-  ActionRowBuilder,
-  UserSelectMenuBuilder,
 } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const economy = require('../../utils/bakeEconomy');
@@ -25,17 +23,11 @@ module.exports = {
       });
     }
 
+    const dashboardEmbed = economy.buildBakeAdminDashboardEmbed(interaction.guild, interaction.user.id);
+    const dashboardComponents = economy.buildBakeAdminDashboardComponents(interaction.user.id);
     return interaction.reply({
-      embeds: [embeds.info('Bake Admin', 'Select a target user to open the admin panel.', interaction.guild)],
-      components: [
-        new ActionRowBuilder().addComponents(
-          new UserSelectMenuBuilder()
-            .setCustomId(`bakeadmin_target_select:${interaction.user.id}`)
-            .setPlaceholder('Select target user')
-            .setMinValues(1)
-            .setMaxValues(1),
-        ),
-      ],
+      embeds: [dashboardEmbed],
+      components: dashboardComponents,
       flags: MessageFlags.Ephemeral,
     });
   },

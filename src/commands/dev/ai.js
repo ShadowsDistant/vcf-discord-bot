@@ -48,8 +48,6 @@ const MODERATION_CONFIRM_TTL_MS = 10 * 60 * 1000;
 
 const AI_MODELS = Object.freeze([
   { displayName: 'Gemma 4 31B', value: 'google/gemma-4-31b-it' },
-  { displayName: 'GLM 5', value: 'z-ai/glm5' },
-  { displayName: 'MiniMax M2.7', value: 'minimaxai/minimax-m2.7' },
 ]);
 const DEFAULT_MODEL = AI_MODELS[0].value;
 const MODEL_DISPLAY_NAME_BY_VALUE = new Map(AI_MODELS.map((entry) => [entry.value, entry.displayName]));
@@ -1914,17 +1912,18 @@ async function generateAiResponse({
   model,
   priorMessages,
 }) {
+  const selectedModel = AI_MODELS.some((entry) => entry.value === model) ? model : DEFAULT_MODEL;
   const apiKey = getNvidiaApiKey();
   if (!apiKey) {
     throw new Error('NVIDIA_API_KEY is not configured.');
   }
 
-  const modelDisplayName = getModelDisplayName(model);
+  const modelDisplayName = getModelDisplayName(selectedModel);
   const startedAt = Date.now();
 
   const completion = await runAiCompletion({
     apiKey,
-    model,
+    model: selectedModel,
     context: {
       ...buildInteractionContext(source),
       latestPrompt: prompt,
@@ -1969,7 +1968,7 @@ async function generateAiResponse({
     outputPayload,
     toolsPayload,
     completionMessages: completion.messages,
-    model,
+    model: selectedModel,
   };
 }
 
