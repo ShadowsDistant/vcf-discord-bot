@@ -180,8 +180,8 @@ function buildBakeOutcome(guild, userId) {
     });
   }
 
-  if (endedEvent?.id === 'special_cookie_hunt' && Number.isFinite(endedEvent.endedAt)) {
-    const endedAtTs = Math.floor(endedEvent.endedAt / 1000);
+  if (endedEvent?.id === 'special_cookie_hunt' && Number.isFinite(endedEvent.endsAt)) {
+    const endedAtTs = Math.floor(endedEvent.endsAt / 1000);
     embed.addFields({
       name: '⏱️ Event Ended: Special Cookie Hunt',
       value: `Ended at <t:${endedAtTs}:F> (<t:${endedAtTs}:R>).`,
@@ -303,8 +303,8 @@ module.exports = {
     if (outcome.specialCookieEvent) {
       await postSpecialCookieEvent(interaction.guild, interaction.user, outcome.specialCookieEvent);
     }
-    if (outcome.endedEvent?.id === 'special_cookie_hunt' && Number.isFinite(outcome.endedEvent.endedAt)) {
-      await postSpecialCookieHuntEnd(interaction.guild, outcome.endedEvent.endedAt);
+    if (outcome.endedEvent?.id === 'special_cookie_hunt' && Number.isFinite(outcome.endedEvent.endsAt)) {
+      await postSpecialCookieHuntEnd(interaction.guild, outcome.endedEvent.endsAt);
     }
     return;
   },

@@ -1338,7 +1338,7 @@ function bake(guildId, userId) {
     const previousEvent = guildState.settings?.bakeEvent ?? null;
     const activeEvent = getActiveBakeEvent(guildState, nowTs);
     const endedEvent = (!activeEvent && previousEvent && Number.isFinite(previousEvent.endsAt) && previousEvent.endsAt <= nowTs)
-      ? { id: previousEvent.id, endedAt: previousEvent.endsAt }
+      ? { id: previousEvent.id, endsAt: previousEvent.endsAt }
       : null;
     const passive = applyPassiveIncome(user, nowTs);
 

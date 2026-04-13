@@ -176,10 +176,10 @@ async function sendBakeAdminLog(interaction, targetUserId, action, details) {
   await channel.send({ embeds: [embed] }).catch(() => null);
 }
 
-async function sendSpecialCookieHuntStartLog(interaction, durationMinutes, endsAt) {
+async function sendSpecialCookieHuntStartLog(interaction, durationMinutes, startsAt, endsAt) {
   const channel = await interaction.guild.channels.fetch(SPECIAL_COOKIE_EVENT_CHANNEL_ID).catch(() => null);
   if (!channel || !channel.isTextBased()) return;
-  const startedAtTs = Math.floor(Date.now() / 1000);
+  const startedAtTs = Math.floor((Number.isFinite(startsAt) ? startsAt : Date.now()) / 1000);
   const endsAtTs = Math.floor(endsAt / 1000);
   const embed = new EmbedBuilder()
     .setColor(0xfee75c)
@@ -2239,7 +2239,7 @@ module.exports = {
           }
           const event = economy.adminStartEvent(interaction.guild.id, durationMinutes);
           await sendBakeAdminLog(interaction, targetId, 'Start Event', `Special Cookie Hunt for ${durationMinutes} minute(s)`);
-          await sendSpecialCookieHuntStartLog(interaction, durationMinutes, event.endsAt);
+          await sendSpecialCookieHuntStartLog(interaction, durationMinutes, event.startedAt, event.endsAt);
           return interaction.reply({
             embeds: [embeds.success(`Started **Special Cookie Hunt** for **${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}**.`, interaction.guild)],
             flags: MessageFlags.Ephemeral,
