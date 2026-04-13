@@ -5,6 +5,17 @@ const { PALETTE } = require('./embeds');
 
 const UPDATE_LOGS = [
   {
+    version: 'v1.3.0',
+    date: '2026-04-13',
+    changes: [
+      'Expanded `/ai` with operational tooling for user profile lookups, bakery summaries, and bot server listing.',
+      'Added native Discord AutoMod management tools in `/ai` (rule listing plus controlled create/toggle flows).',
+      'Introduced mandatory two-step AI moderation confirmation (`prepare` + exact `CONFIRM MODERATION <token>` execution).',
+      'Routed AI moderation execution through internal warning/DM/analytics paths and centralized moderation logging.',
+      'Improved update-log embed presentation with clearer sections, numbering, and release metadata.',
+    ],
+  },
+  {
     version: 'v1.2.0',
     date: '2026-04-12',
     changes: [
@@ -125,15 +136,19 @@ const UPDATE_LOGS = [
 
 function createUpdateEmbed(guild, currentBotVersion, entry, index = 0) {
   const isLatest = index === 0;
-  const titlePrefix = isLatest ? '📢 Latest Public Update' : '📜 Update Log';
+  const titlePrefix = isLatest ? '📢 Latest Public Update' : '📜 Public Update Log';
+  const changeLines = (entry?.changes ?? []).map((change, idx) => `${idx + 1}. ${change}`);
+  const sectionTitle = isLatest ? '### Highlights' : '### Changes';
   return new EmbedBuilder()
     .setColor(PALETTE.primary)
     .setTitle(`${titlePrefix} — ${entry.version}`)
-    .setDescription(entry.changes.map((change) => `• ${change}`).join('\n'))
+    .setDescription([sectionTitle, ...changeLines].join('\n'))
     .addFields(
       { name: 'Bot Version', value: `\`${currentBotVersion}\``, inline: true },
       { name: 'Log Version', value: `\`${entry.version}\``, inline: true },
-      { name: 'Date', value: entry.date, inline: true },
+      { name: 'Release Date', value: entry.date, inline: true },
+      { name: 'Entry', value: `#${index + 1} of ${UPDATE_LOGS.length}`, inline: true },
+      { name: 'Changes', value: `${changeLines.length}`, inline: true },
     )
     .setTimestamp()
     .setFooter({
