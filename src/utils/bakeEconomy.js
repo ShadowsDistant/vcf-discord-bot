@@ -1511,15 +1511,20 @@ function buildCpsBreakdownEmbed(guild, user) {
   // ── Active buffs (frenzy) ─────────────────────────────────────────────────
   const frenzy = (user.activeBuffs ?? []).find((buff) => buff.type === 'frenzy' && buff.expiresAt > nowTs);
   const frenzyMultiplier = frenzy ? 7 : 1;
+  const allianceBoost = Math.max(0, Number(user.allianceCpsBoost ?? 0));
 
   // ── Totals ────────────────────────────────────────────────────────────────
   const basePlusBoosted = buildingTotal + consumedBonus;
-  const totalCps = basePlusBoosted * globalMultiplier * (1 + kittenBonus) * frenzyMultiplier;
+  const totalBeforeAlliance = basePlusBoosted * globalMultiplier * (1 + kittenBonus) * frenzyMultiplier;
+  const totalCps = totalBeforeAlliance * (1 + allianceBoost);
 
   const embed = new EmbedBuilder()
     .setColor(0xf1c40f)
     .setTitle(`${cookieEmoji} CPS Breakdown`)
-    .setDescription(`**Total CPS: ${toCookieNumber(totalCps)}** cookies/second`)
+    .setDescription([
+      `Pre-alliance total: **${toCookieNumber(totalBeforeAlliance)}** CPS`,
+      `**Final total (all boosters applied): ${toCookieNumber(totalCps)} CPS**`,
+    ].join('\n'))
     .addFields(
       {
         name: `🏗️ Buildings (${toCookieNumber(buildingTotal)} CPS base)`,
@@ -1540,10 +1545,10 @@ function buildCpsBreakdownEmbed(guild, user) {
   if (frenzy) {
     embed.addFields({ name: '🌀 Frenzy Active', value: `×7 multiplier (expires <t:${Math.floor(frenzy.expiresAt / 1000)}:R>)`, inline: true });
   }
-  const allianceBoost = user.allianceCpsBoost ?? 0;
   if (allianceBoost > 0) {
     embed.addFields({ name: '🤝 Alliance Boost', value: `+${(allianceBoost * 100).toFixed(0)}% (leaderboard rank reward + upgrades)`, inline: true });
   }
+  embed.addFields({ name: '✅ Final Total (All Boosters)', value: `${toCookieNumber(totalCps)} CPS`, inline: false });
   embed.addFields({ name: '📊 Formula', value: `(Buildings + Boosts) × Global Multiplier × (1 + Kitten%) × Frenzy × (1 + Alliance%)`, inline: false });
 
   embed.setTimestamp();
@@ -1986,12 +1991,17 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
       );
     rows.push(new ActionRowBuilder().addComponents(raritySelect));
 
-    const itemOptions = Object.entries(user.inventory)
+    const filteredInventoryEntries = Object.entries(user.inventory)
       .filter(([, qty]) => qty > 0)
       .map(([itemId, qty]) => ({ itemId, qty, item: ITEM_MAP.get(itemId) }))
       .filter((entry) => entry.item)
       .filter((entry) => rarityFilter === 'all' || entry.item.rarity === rarityFilter)
-      .sort((a, b) => compareRarity(b.item.id, a.item.id) || (b.qty - a.qty) || a.item.name.localeCompare(b.item.name))
+      .sort((a, b) => compareRarity(b.item.id, a.item.id) || (b.qty - a.qty) || a.item.name.localeCompare(b.item.name));
+    const pageSize = 8;
+    const pageCount = Math.max(1, Math.ceil(filteredInventoryEntries.length / pageSize));
+    const page = Math.max(0, Math.min(Number.isFinite(options.page) ? options.page : 0, pageCount - 1));
+    const pageEntries = filteredInventoryEntries.slice(page * pageSize, page * pageSize + pageSize);
+    const itemOptions = pageEntries
       .map((entry) => ({
         label: entry.item.name.slice(0, 100),
         description: `${RARITY[entry.item.rarity].name} • Owned: ${toCookieNumber(entry.qty)}`.slice(0, 100),
@@ -2014,8 +2024,11 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
       .filter(Boolean)
       .slice(0, 25);
 
-    const remainingGiftSlots = Math.max(0, 25 - itemOptions.length);
-    const inventoryOptions = [...itemOptions, ...rewardGiftOptions.slice(0, remainingGiftSlots)];
+    const giftSlots = Math.min(rewardGiftOptions.length, 5);
+    const itemSlots = Math.max(0, 25 - giftSlots);
+    const limitedItemOptions = itemOptions.slice(0, itemSlots);
+    const remainingGiftSlots = Math.max(0, 25 - limitedItemOptions.length);
+    const inventoryOptions = [...limitedItemOptions, ...rewardGiftOptions.slice(0, remainingGiftSlots)];
     if (inventoryOptions.length) {
       rows.push(
         new ActionRowBuilder().addComponents(
@@ -2026,6 +2039,25 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
         ),
       );
     }
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`bakery_inventory_prev:${page}:${rarityFilter}`)
+          .setLabel('◀ Prev')
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(page <= 0),
+        new ButtonBuilder()
+          .setCustomId(`bakery_inventory_page:${page}`)
+          .setLabel(`Page ${page + 1}/${pageCount}`)
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(true),
+        new ButtonBuilder()
+          .setCustomId(`bakery_inventory_next:${page}:${rarityFilter}`)
+          .setLabel('Next ▶')
+          .setStyle(ButtonStyle.Secondary)
+          .setDisabled(page >= pageCount - 1),
+      ),
+    );
   }
 
   if (view === 'buildings') {
@@ -2866,12 +2898,14 @@ function deletePendingMessage(guildId, userId, messageId) {
 
 function buildMessagesEmbed(guild, user, page) {
   const pending = user.pendingMessages ?? [];
+  const unclaimedRewards = pending.filter((msg) => (msg.type === 'gift_box' || msg.type === 'gift_cookies') && !msg.claimed).length;
   const totalPages = Math.max(1, Math.ceil(pending.length / MESSAGES_PER_PAGE));
   const safePage = Math.max(0, Math.min(page, totalPages - 1));
   const pageMsgs = pending.slice(safePage * MESSAGES_PER_PAGE, safePage * MESSAGES_PER_PAGE + MESSAGES_PER_PAGE);
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
-    .setTitle('Messages & Notifications')
+    .setTitle('📬 Messages & Notifications')
+    .setDescription(`Total: **${pending.length}** • Unclaimed rewards: **${unclaimedRewards}**`)
     .setFooter({ text: `Page ${safePage + 1}/${totalPages} • ${pending.length} message(s) total` });
 
   if (pending.length === 0) {
@@ -2882,32 +2916,37 @@ function buildMessagesEmbed(guild, user, page) {
   const lines = pageMsgs.map((msg, idx) => {
     const num = safePage * MESSAGES_PER_PAGE + idx + 1;
     const ts = msg.createdAt ? `<t:${Math.floor(new Date(msg.createdAt).getTime() / 1000)}:R>` : '';
-    let icon, summary;
+    let icon, category, summary;
     if (msg.type === 'gift_box') {
       const box = REWARD_BOX_MAP.get(msg.rewardBoxId);
       icon = msg.claimed ? '✅' : '🎁';
+      category = 'Gift Box';
       const msgText = msg.message ? `: *${msg.message.slice(0, 80)}${msg.message.length > 80 ? '…' : ''}*` : '';
       summary = `×${msg.quantity} **${box?.name ?? msg.rewardBoxId}** from **${msg.from}**${msgText}${msg.claimed ? ' *(claimed)*' : ''}`;
     } else if (msg.type === 'gift_cookies') {
       icon = msg.claimed ? '✅' : '🍪';
+      category = 'Cookie Gift';
       const msgText = msg.message ? `: *${msg.message.slice(0, 80)}${msg.message.length > 80 ? '…' : ''}*` : '';
       summary = `**${toCookieNumber(msg.cookieAmount)}** cookies from **${msg.from}**${msgText}${msg.claimed ? ' *(claimed)*' : ''}`;
     } else if (msg.type === 'alliance_notification') {
       icon = '🤝';
+      category = 'Alliance';
       summary = msg.content ?? '(alliance notification)';
     } else if (msg.type === 'staff_message') {
       const typeIcon = msg.messageType === 'moderation' ? '⚠️' : msg.messageType === 'bakery' ? '🍪' : '🔔';
       icon = typeIcon;
+      category = 'Staff';
       const titlePart = msg.title ? `**${msg.title}**: ` : '';
       summary = `${titlePart}${(msg.content ?? '').slice(0, 200)} *(from ${msg.from ?? 'Staff'})*`;
     } else {
       icon = '📢';
+      category = 'Notification';
       summary = msg.content ?? msg.message ?? '(notification)';
     }
-    return `**${num}.** ${icon} ${summary} ${ts}`;
+    return `**#${num} • ${icon} ${category}**\n${summary}${ts ? `\n${ts}` : ''}`;
   });
 
-  embed.setDescription(lines.join('\n\n'));
+  embed.addFields({ name: 'Inbox', value: lines.join('\n\n').slice(0, 1024) });
   return embed;
 }
 
@@ -3309,18 +3348,22 @@ function getGuildUserStates(guildId) {
 }
 
 function getLeaderboardScore(userState, metricId) {
+  const allianceBoostMultiplier = 1 + Math.max(0, Number(userState?.allianceCpsBoost ?? 0));
   if (metricId === 'special') {
     const inventory = userState?.inventory ?? {};
-    return Number(inventory.perfectcookie ?? 0)
+    const baseScore = Number(inventory.perfectcookie ?? 0)
       + Number(inventory.goldcookie ?? 0)
       + Number(inventory.spoopiercookie ?? 0);
+    return baseScore * allianceBoostMultiplier;
   }
-  if (metricId === 'lifetime') return Number(userState?.cookiesBakedAllTime ?? 0);
+  if (metricId === 'lifetime') return Number(userState?.cookiesBakedAllTime ?? 0) * allianceBoostMultiplier;
   if (metricId === 'cps') {
     const safeUser = JSON.parse(JSON.stringify(userState ?? {}));
-    return Number(computeCps(safeUser, Date.now()) ?? 0);
+    safeUser.allianceCpsBoost = 0;
+    const baseScore = Number(computeCps(safeUser, Date.now()) ?? 0);
+    return baseScore * allianceBoostMultiplier;
   }
-  return Number(userState?.cookies ?? 0);
+  return Number(userState?.cookies ?? 0) * allianceBoostMultiplier;
 }
 
 function getBakeryLeaderboard(guildId, metricId = 'cookies') {

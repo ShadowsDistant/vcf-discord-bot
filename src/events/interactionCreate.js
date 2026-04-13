@@ -806,6 +806,17 @@ module.exports = {
         return interaction.update({ embeds: [embed], components });
       }
 
+      if (interaction.customId.startsWith('bakery_inventory_prev:') || interaction.customId.startsWith('bakery_inventory_next:')) {
+        const [, currentPageRaw, rarityFilterRaw] = interaction.customId.split(':');
+        const currentPage = Number.parseInt(currentPageRaw, 10) || 0;
+        const rarityFilter = rarityFilterRaw || 'all';
+        const targetPage = interaction.customId.startsWith('bakery_inventory_prev:') ? currentPage - 1 : currentPage + 1;
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'inventory', { page: targetPage, rarityFilter });
+        const components = economy.buildDashboardComponents(snapshot.user, 'inventory', { page: targetPage, rarityFilter, guild: interaction.guild });
+        return interaction.update({ embeds: [embed], components });
+      }
+
       if (interaction.customId === 'bakery_open_marketplace') {
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const market = economy.getMarketplaceEmbed(interaction.guild, snapshot.guildState, snapshot.user, 0, 'all');
