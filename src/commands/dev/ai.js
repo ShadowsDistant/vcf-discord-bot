@@ -1912,7 +1912,7 @@ async function generateAiResponse({
   model,
   priorMessages,
 }) {
-  const selectedModel = AI_MODELS.some((entry) => entry.value === model) ? model : DEFAULT_MODEL;
+  const selectedModel = AI_MODELS.find((entry) => entry.value === model)?.value ?? DEFAULT_MODEL;
   const apiKey = getNvidiaApiKey();
   if (!apiKey) {
     throw new Error('NVIDIA_API_KEY is not configured.');

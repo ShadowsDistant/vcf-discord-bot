@@ -614,23 +614,6 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
-        const remainingMs = bakeCommand.getCooldownRemainingMs(
-          interaction.guild.id,
-          interaction.user.id,
-          Date.now(),
-        );
-        if (remainingMs > 0) {
-          return interaction.reply({
-            embeds: [
-              embeds.warning(
-                `Slow down, baker. You can bake again in **${Math.ceil(remainingMs / 1000)}s**.`,
-                interaction.guild,
-              ),
-            ],
-            flags: MessageFlags.Ephemeral,
-          });
-        }
-        bakeCommand.touchCooldown(interaction.guild.id, interaction.user.id, Date.now());
         const outcome = bakeCommand.buildBakeOutcome(interaction.guild, interaction.user.id);
         await interaction.update(outcome.reply);
         if (outcome.specialCookieEvent) {
@@ -1951,8 +1934,8 @@ module.exports = {
         const targetId = interaction.values[0];
         const embed = economy.buildBakeAdminEmbed(interaction.guild, interaction.user.id, targetId);
         const userActionRows = economy.buildBakeAdminComponents(interaction.user.id, targetId);
-        const dashboardRows = economy.buildBakeAdminDashboardComponents(interaction.user.id);
-        const globalActionRow = dashboardRows[1] ? [dashboardRows[1]] : [];
+        const [, globalActionSelectRow] = economy.buildBakeAdminDashboardComponents(interaction.user.id);
+        const globalActionRow = globalActionSelectRow ? [globalActionSelectRow] : [];
         const components = [...userActionRows, ...globalActionRow];
         return interaction.update({ embeds: [embed], components });
       }
