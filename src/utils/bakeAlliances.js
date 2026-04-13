@@ -4,7 +4,6 @@ const db = require('./database');
 const economy = require('./bakeEconomy');
 
 const ALLIANCES_FILE = 'bake_alliances.json';
-const ECONOMY_FILE = 'bake_economy.json';
 const MAX_ALLIANCE_MEMBERS = 10;
 const MAX_WEEKLY_STATE_ENTRIES = 12;
 const MAX_TARGET_REDUCTION = 0.45;
@@ -153,9 +152,7 @@ function pickWeeklyChallenge(allianceId, ts = Date.now()) {
 }
 
 function getMemberLifetimeTotals(guildId, memberIds) {
-  const economyData = db.read(ECONOMY_FILE, {});
-  const economyGuild = economyData[guildId] ?? {};
-  const economyUsers = economyGuild.users ?? {};
+  const economyUsers = economy.getGuildUserStates(guildId);
   const totals = {};
   for (const userId of memberIds) {
     totals[userId] = Number(economyUsers[userId]?.cookiesBakedAllTime ?? 0);

@@ -71,6 +71,7 @@ const RARITY = {
 };
 
 const RARITY_ORDER = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic', 'celestial', 'secret'];
+const DEFAULT_UNLOCKED_RARITY_LABEL = ['common', 'uncommon'].map((rarityId) => RARITY[rarityId].name).join(' • ');
 const RARITY_EMOJI_CANDIDATES = {
   common: ['common', 'cookie_common', 'bake_common', 'cc_common'],
   uncommon: ['uncommon', 'cookie_uncommon', 'bake_uncommon', 'cc_uncommon'],
@@ -1487,7 +1488,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     );
     const rarest = user.rarestItemId ? ITEM_MAP.get(user.rarestItemId)?.name ?? 'Unknown' : 'None';
     embed.addFields({ name: 'Rarest baked item', value: rarest });
-    embed.addFields({ name: 'Current rarity pool', value: rarityLines.join(' • ') || 'Common • Uncommon' });
+    embed.addFields({ name: 'Current rarity pool', value: rarityLines.join(' • ') || DEFAULT_UNLOCKED_RARITY_LABEL });
     if (rankProgress.nextRank) {
       const requirementLines = Object.entries(rankProgress.nextRank.requirements)
         .map(([metric, target]) => `• ${getMetricLabel(metric)}: ${toCookieNumber(getMetricValue(user, metric))}/${toCookieNumber(target)}`)
@@ -2755,6 +2756,12 @@ function isUserBakeBanned(guildId, userId) {
   return Boolean(user.bakeBanned);
 }
 
+function getGuildUserStates(guildId) {
+  const data = readState();
+  const guildState = getGuildState(data, guildId);
+  return guildState.users ?? {};
+}
+
 function getLeaderboardScore(userState, metricId) {
   if (metricId === 'special') {
     const inventory = userState?.inventory ?? {};
@@ -2865,6 +2872,7 @@ module.exports = {
   adminGrantRewardBox,
   adminResetUser,
   getUserDataEmbed,
+  getGuildUserStates,
   isBakeAdminAuthorized,
   isUserBakeBanned,
   computeCps,

@@ -606,9 +606,9 @@ module.exports = {
       if (interaction.customId.startsWith('bakery_nav:')) {
         const requestedView = interaction.customId.split(':')[1];
         const view = requestedView === 'codex' ? 'guide' : requestedView;
-        const viewOptions = view === 'guide'
-          ? getGuideState(interaction.guild.id, interaction.user.id)
-          : (view === 'leaderboard' ? { metric: 'cookies' } : {});
+        let viewOptions = {};
+        if (view === 'guide') viewOptions = getGuideState(interaction.guild.id, interaction.user.id);
+        if (view === 'leaderboard') viewOptions = { metric: 'cookies' };
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, view, viewOptions);
         const components = economy.buildDashboardComponents(snapshot.user, view, { guild: interaction.guild, ...viewOptions });
@@ -1114,9 +1114,9 @@ module.exports = {
       if (interaction.customId === 'bakery_nav_select') {
         const requestedView = interaction.values[0] ?? 'home';
         const view = requestedView === 'codex' ? 'guide' : requestedView;
-        const viewOptions = view === 'guide'
-          ? getGuideState(interaction.guild.id, interaction.user.id)
-          : (view === 'leaderboard' ? { metric: 'cookies' } : {});
+        let viewOptions = {};
+        if (view === 'guide') viewOptions = getGuideState(interaction.guild.id, interaction.user.id);
+        if (view === 'leaderboard') viewOptions = { metric: 'cookies' };
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, view, viewOptions);
         const components = economy.buildDashboardComponents(snapshot.user, view, { guild: interaction.guild, ...viewOptions });

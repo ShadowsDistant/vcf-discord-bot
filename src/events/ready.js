@@ -74,11 +74,12 @@ async function processAllianceRewardDms(client) {
         : undefined,
     };
 
-    for (const memberId of notice.memberIds ?? []) {
+    const memberIds = notice.memberIds ?? [];
+    await Promise.allSettled(memberIds.map(async (memberId) => {
       const user = await client.users.fetch(memberId).catch(() => null);
-      if (!user) continue;
-      await user.send({ embeds: [embed] }).catch(() => null);
-    }
+      if (!user) return;
+      await user.send({ embeds: [embed] });
+    }));
   }
 }
 
@@ -112,7 +113,9 @@ module.exports = {
     if (typeof monthlyTimer.unref === 'function') monthlyTimer.unref();
 
     const allianceRewardTimer = setInterval(() => {
-      processAllianceRewardDms(client).catch(() => null);
+      processAllianceRewardDms(client).catch((error) => {
+        console.error('Alliance reward DM processing failed:', error);
+      });
     }, ALLIANCE_REWARD_TICK_MS);
     if (typeof allianceRewardTimer.unref === 'function') allianceRewardTimer.unref();
   },
