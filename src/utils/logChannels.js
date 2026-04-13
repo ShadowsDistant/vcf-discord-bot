@@ -8,6 +8,7 @@ const LOG_CHANNEL_IDS = {
   automod: '1384358117986402487',
   cookieLogs: '1492706903938043904',
   cookieEvents: '1492690923333746790',
+  modLog: '1381353087943442452',
 };
 
 async function fetchLogChannel(guild, key) {

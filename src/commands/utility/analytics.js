@@ -57,6 +57,76 @@ module.exports = {
     const period = interaction.options.getString('period') ?? '7d';
     const targetUser = interaction.options.getUser('user');
     const days = resolveDays(period);
+
+    // When a specific user is provided, show ONLY that user's data.
+    if (targetUser) {
+      const snapshot = economy.getUserSnapshot(interaction.guild.id, targetUser.id);
+      const u = snapshot.user;
+      const rank = economy.RANKS.find((r) => r.id === u.rankId);
+      const cps = economy.computeCps(u, Date.now());
+
+      const buildingLines = economy.BUILDINGS
+        .map((b) => {
+          const owned = u.buildings[b.id] ?? 0;
+          return owned > 0 ? `${b.name}: **×${owned}**` : null;
+        })
+        .filter(Boolean)
+        .join('\n') || 'None';
+
+      const embed = new EmbedBuilder()
+        .setColor(0x5865f2)
+        .setTitle(`📈 User Analytics — ${targetUser.tag}`)
+        .setDescription(`Detailed profile for ${targetUser} (Period: **${period}**)`)
+        .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
+        .addFields(
+          {
+            name: '🍪 Economy',
+            value: [
+              `Cookies: **${economy.toCookieNumber(u.cookies)}**`,
+              `CPS: **${economy.toCookieNumber(cps)}**/s`,
+              `Lifetime baked: **${economy.toCookieNumber(u.cookiesBakedAllTime)}**`,
+              `Lifetime spent: **${economy.toCookieNumber(u.cookiesSpent)}**`,
+              `Total bakes: **${economy.toCookieNumber(u.totalBakes)}**`,
+            ].join('\n'),
+            inline: true,
+          },
+          {
+            name: '📈 Progression',
+            value: [
+              `Rank: **${rank?.name ?? 'Unknown'}**`,
+              `Achievements: **${economy.getEarnedAchievementCount(u)}/${economy.ACHIEVEMENTS.length}**`,
+              `Upgrades: **${(u.upgrades ?? []).length}**`,
+              `Highest CPS: **${economy.toCookieNumber(u.highestCps ?? 0)}**`,
+              `Rarest item: **${u.rarestItemId ? (economy.ITEM_MAP.get(u.rarestItemId)?.name ?? u.rarestItemId) : 'None'}**`,
+            ].join('\n'),
+            inline: true,
+          },
+          {
+            name: '🏗️ Buildings',
+            value: buildingLines.slice(0, 1024),
+          },
+          {
+            name: '📊 Activity',
+            value: [
+              `Golden Cookies: **${economy.toCookieNumber(u.goldenCookiesClaimed ?? 0)}/${economy.toCookieNumber(u.goldenCookiesTriggered ?? 0)} claimed**`,
+              `Marketplace buys: **${economy.toCookieNumber(u.marketplaceBuys ?? 0)}**`,
+              `Marketplace sells: **${economy.toCookieNumber(u.marketplaceSells ?? 0)}**`,
+              `Bake banned: **${u.bakeBanned ? 'Yes' : 'No'}**`,
+              `Unique items: **${(u.uniqueItemsDiscovered ?? []).length}/${economy.ITEMS.length}**`,
+            ].join('\n'),
+            inline: false,
+          },
+        )
+        .setTimestamp()
+        .setFooter({
+          text: interaction.guild.name,
+          iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined,
+        });
+
+      return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    }
+
+    // Server-wide analytics
     const data = analytics.getAnalytics(interaction.guild.id, days);
     const modActions = data.modActions ?? { warn: 0, kick: 0, ban: 0 };
     const modTotal = Number(modActions.warn ?? 0) + Number(modActions.kick ?? 0) + Number(modActions.ban ?? 0);
@@ -89,18 +159,6 @@ module.exports = {
     const topAction = data.topAction
       ? `${data.topAction.action.toUpperCase()} (${data.topAction.count.toLocaleString()})`
       : 'No moderation actions.';
-    const specificUserSnapshot = targetUser ? economy.getUserSnapshot(interaction.guild.id, targetUser.id) : null;
-    const specificUserStats = specificUserSnapshot?.user ?? null;
-    const specificUserField = specificUserStats
-      ? [
-        `User: ${targetUser} (\`${targetUser.id}\`)`,
-        `Cookies: **${economy.toCookieNumber(specificUserStats.cookies)}**`,
-        `CPS: **${economy.toCookieNumber(economy.computeCps(specificUserStats, Date.now()))}**`,
-        `Lifetime baked: **${economy.toCookieNumber(specificUserStats.cookiesBakedAllTime)}**`,
-        `Total bakes: **${economy.toCookieNumber(specificUserStats.totalBakes)}**`,
-        `Achievements: **${(specificUserStats.milestones ?? []).length}/${economy.ACHIEVEMENTS.length}**`,
-      ].join('\n')
-      : null;
 
     const embed = new EmbedBuilder()
       .setColor(0x5865f2)
@@ -163,7 +221,6 @@ module.exports = {
           name: 'Busiest Hours',
           value: busyHours.slice(0, 1024),
         },
-        ...(specificUserField ? [{ name: 'Specific User Bakery Stats', value: specificUserField.slice(0, 1024) }] : []),
       )
       .setTimestamp()
       .setFooter({

@@ -73,9 +73,11 @@ async function ensureManagementAccess(interaction) {
 
 async function getShiftEligibleMembers(guild) {
   await guild.members.fetch().catch(() => null);
-  return guild.members.cache
+  // Collection does not have .slice(), so convert to array first.
+  return [...guild.members.cache
     .filter((member) => !member.user.bot && hasShiftAccessRole(member))
     .sort((a, b) => a.displayName.localeCompare(b.displayName))
+    .values()]
     // Discord select menus support up to 25 options.
     .slice(0, 25);
 }

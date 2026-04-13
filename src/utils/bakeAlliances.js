@@ -7,6 +7,21 @@ const ALLIANCES_FILE = 'bake_alliances.json';
 const MAX_ALLIANCE_MEMBERS = 10;
 const MAX_WEEKLY_STATE_ENTRIES = 12;
 const MAX_TARGET_REDUCTION = 0.45;
+const ALLIANCE_CREATE_COST = 100_000;
+
+const AUTOMOD_BLOCKED_WORDS = [
+  'nigger', 'nigga', 'faggot', 'retard', 'kike', 'spic', 'chink', 'tranny', 'cunt', 'whore',
+];
+
+function checkAutomod(text) {
+  const lower = String(text ?? '').toLowerCase();
+  for (const word of AUTOMOD_BLOCKED_WORDS) {
+    if (lower.includes(word)) {
+      return { ok: false, reason: 'Alliance name contains a blocked word.' };
+    }
+  }
+  return { ok: true, reason: '' };
+}
 
 const CHALLENGE_THEMES = [
   { id: 'flour-rush', name: 'Flour Rush' },
@@ -80,6 +95,60 @@ const ALLIANCE_STORE_UPGRADES = [
     emojiCandidates: ['Cookie_Clicker', 'achievement'],
     fallbackEmoji: '🥁',
     effects: { rewardMultiplier: 0.1, bonusAllianceCoins: 1 },
+  },
+  {
+    id: 'shared_flour_vault',
+    name: 'Shared Flour Vault',
+    description: 'Each member earns +5% more cookies per bake while in this alliance.',
+    cost: 18,
+    emojiCandidates: ['Cookie_dough', 'cookie_dough'],
+    fallbackEmoji: '🏛️',
+    effects: { bakeBonusMultiplier: 0.05 },
+  },
+  {
+    id: 'master_glazier',
+    name: 'Master Glazier',
+    description: '-12% weekly challenge target. Precision counts.',
+    cost: 20,
+    emojiCandidates: ['Builder', 'Augmenter'],
+    fallbackEmoji: '🎯',
+    effects: { targetMultiplierReduction: 0.12 },
+  },
+  {
+    id: 'golden_rolling_pin',
+    name: 'Golden Rolling Pin',
+    description: '+25% challenge reward cookies plus +3 alliance coins on completion.',
+    cost: 25,
+    emojiCandidates: ['Fortune_cookie', 'GoldenCookie'],
+    fallbackEmoji: '🥇',
+    effects: { rewardMultiplier: 0.25, bonusAllianceCoins: 3 },
+  },
+  {
+    id: 'sugar_syndicate',
+    name: 'Sugar Syndicate',
+    description: '+8% CPS boost for all members while in an alliance.',
+    cost: 30,
+    emojiCandidates: ['CookieProduction10', 'Augmenter'],
+    fallbackEmoji: '⚡',
+    effects: { allianceCpsBoost: 0.08 },
+  },
+  {
+    id: 'iron_spatula',
+    name: 'Iron Spatula',
+    description: '-15% weekly challenge target. Toughened bakers need less motivation.',
+    cost: 22,
+    emojiCandidates: ['hammer_wrench', 'Builder'],
+    fallbackEmoji: '🔧',
+    effects: { targetMultiplierReduction: 0.15 },
+  },
+  {
+    id: 'royal_oven_crest',
+    name: 'Royal Oven Crest',
+    description: '+200,000 flat challenge reward cookies plus +5% bonus.',
+    cost: 35,
+    emojiCandidates: ['Cookie_Clicker', 'trophy'],
+    fallbackEmoji: '👑',
+    effects: { flatRewardBonus: 200_000, rewardMultiplier: 0.05 },
   },
 ];
 
@@ -292,7 +361,15 @@ function createAlliance(guildId, ownerId, name) {
   const allianceName = sanitized.value.slice(0, 40);
   if (!allianceName) return { ok: false, reason: 'Alliance name cannot be empty.' };
 
-  return db.update(ALLIANCES_FILE, {}, (data) => {
+  const automod = checkAutomod(allianceName);
+  if (!automod.ok) return { ok: false, reason: automod.reason };
+
+  const userState = economy.getUserSnapshot(guildId, ownerId);
+  if (userState.user.cookies < ALLIANCE_CREATE_COST) {
+    return { ok: false, reason: `Creating an alliance costs ${economy.toCookieNumber(ALLIANCE_CREATE_COST)} cookies. You do not have enough.` };
+  }
+
+  const result = db.update(ALLIANCES_FILE, {}, (data) => {
     const guild = getGuildState(data, guildId);
     if (guild.userAlliance[ownerId]) return { ok: false, reason: 'You are already in an alliance.' };
 
@@ -315,6 +392,16 @@ function createAlliance(guildId, ownerId, name) {
     guild.userAlliance[ownerId] = allianceId;
     return { ok: true, alliance: guild.alliances[allianceId] };
   });
+
+  if (result.ok) {
+    economy.adminGiveCookies(guildId, ownerId, -ALLIANCE_CREATE_COST);
+    economy.addPendingMessage(guildId, ownerId, {
+      type: 'alliance_notification',
+      content: `You created alliance **${result.alliance.name}**.`,
+    });
+  }
+
+  return result;
 }
 
 function listAlliances(guildId) {
@@ -333,7 +420,7 @@ function joinAlliance(guildId, userId, allianceIdOrName) {
   const value = String(allianceIdOrName ?? '').trim();
   if (!value) return { ok: false, reason: 'Alliance identifier is required.' };
 
-  return db.update(ALLIANCES_FILE, {}, (data) => {
+  const result = db.update(ALLIANCES_FILE, {}, (data) => {
     const guild = getGuildState(data, guildId);
     if (guild.userAlliance[userId]) return { ok: false, reason: 'You are already in an alliance.' };
 
@@ -357,10 +444,19 @@ function joinAlliance(guildId, userId, allianceIdOrName) {
     guild.userAlliance[userId] = alliance.id;
     return { ok: true, alliance };
   });
+
+  if (result.ok && !result.pendingApproval) {
+    economy.addPendingMessage(guildId, userId, {
+      type: 'alliance_notification',
+      content: `You joined alliance **${result.alliance.name}**.`,
+    });
+  }
+
+  return result;
 }
 
 function leaveAlliance(guildId, userId) {
-  return db.update(ALLIANCES_FILE, {}, (data) => {
+  const result = db.update(ALLIANCES_FILE, {}, (data) => {
     const guild = getGuildState(data, guildId);
     const allianceId = guild.userAlliance[userId];
     if (!allianceId) return { ok: false, reason: 'You are not in an alliance.' };
@@ -385,6 +481,15 @@ function leaveAlliance(guildId, userId) {
 
     return { ok: true, alliance };
   });
+
+  if (result.ok) {
+    economy.addPendingMessage(guildId, userId, {
+      type: 'alliance_notification',
+      content: `You left alliance **${result.alliance.name}**.`,
+    });
+  }
+
+  return result;
 }
 
 function renameAlliance(guildId, actorId, newName) {
@@ -393,6 +498,9 @@ function renameAlliance(guildId, actorId, newName) {
   if (!sanitized.ok) return { ok: false, reason: sanitized.reason };
   const allianceName = sanitized.value.slice(0, 40);
   if (!allianceName) return { ok: false, reason: 'Alliance name cannot be empty.' };
+
+  const automod = checkAutomod(allianceName);
+  if (!automod.ok) return { ok: false, reason: automod.reason };
 
   return db.update(ALLIANCES_FILE, {}, (data) => {
     const guild = getGuildState(data, guildId);
@@ -427,8 +535,8 @@ function transferAllianceOwnership(guildId, actorId, targetUserId) {
   });
 }
 
-function removeAllianceMember(guildId, actorId, targetUserId) {
-  return db.update(ALLIANCES_FILE, {}, (data) => {
+function removeAllianceMember(guildId, actorId, targetUserId, reason = '') {
+  const result = db.update(ALLIANCES_FILE, {}, (data) => {
     const guild = getGuildState(data, guildId);
     const allianceId = guild.userAlliance?.[actorId];
     if (!allianceId) return { ok: false, reason: 'You are not in an alliance.' };
@@ -442,8 +550,18 @@ function removeAllianceMember(guildId, actorId, targetUserId) {
     alliance.members = alliance.members.filter((memberId) => memberId !== targetUserId);
     alliance.joinRequests = (alliance.joinRequests ?? []).filter((entry) => entry.userId !== targetUserId);
     delete guild.userAlliance[targetUserId];
-    return { ok: true, alliance };
+    return { ok: true, alliance, targetUserId };
   });
+
+  if (result.ok) {
+    const reasonText = reason ? ` **Reason:** ${reason}` : '';
+    economy.addPendingMessage(guildId, result.targetUserId, {
+      type: 'alliance_notification',
+      content: `You were kicked from alliance **${result.alliance.name}**.${reasonText}`,
+    });
+  }
+
+  return result;
 }
 
 function setAllianceJoinApproval(guildId, actorId, enabled) {
@@ -461,7 +579,7 @@ function setAllianceJoinApproval(guildId, actorId, enabled) {
 }
 
 function resolveAllianceJoinRequest(guildId, actorId, targetUserId, approve) {
-  return db.update(ALLIANCES_FILE, {}, (data) => {
+  const result = db.update(ALLIANCES_FILE, {}, (data) => {
     const guild = getGuildState(data, guildId);
     const allianceId = guild.userAlliance?.[actorId];
     if (!allianceId) return { ok: false, reason: 'You are not in an alliance.' };
@@ -485,6 +603,15 @@ function resolveAllianceJoinRequest(guildId, actorId, targetUserId, approve) {
     }
     return { ok: true, approved: false, alliance };
   });
+
+  if (result.ok && result.approved) {
+    economy.addPendingMessage(guildId, targetUserId, {
+      type: 'alliance_notification',
+      content: `Your join request to **${result.alliance.name}** was approved! Welcome to the alliance.`,
+    });
+  }
+
+  return result;
 }
 
 function getMemberAlliance(guildId, userId) {
@@ -520,6 +647,19 @@ function getAllianceLeaderboard(guildId) {
   });
 
   return entries.sort((a, b) => b.cpsTotal - a.cpsTotal);
+}
+
+const ALLIANCE_RANK_BOOSTS = [0.10, 0.05, 0.03];
+
+function getAllianceRankBoosts(guildId, userId) {
+  const leaderboard = getAllianceLeaderboard(guildId);
+  const data = db.read(ALLIANCES_FILE, {});
+  const guild = data[guildId];
+  const allianceId = guild?.userAlliance?.[userId];
+  if (!allianceId) return { rank: null, cpsBoostMultiplier: 0 };
+  const rank = leaderboard.findIndex((entry) => entry.id === allianceId);
+  if (rank < 0 || rank >= ALLIANCE_RANK_BOOSTS.length) return { rank: rank + 1 || null, cpsBoostMultiplier: 0 };
+  return { rank: rank + 1, cpsBoostMultiplier: ALLIANCE_RANK_BOOSTS[rank] };
 }
 
 function getAllianceWithChallenge(guildId, userId) {
@@ -573,6 +713,16 @@ function getAllianceWithChallenge(guildId, userId) {
       allianceName: result.alliance?.name ?? 'Alliance',
       challengeName: result.challenge?.challenge?.name ?? 'Weekly Challenge',
     };
+  }
+
+  // Cache CPS boost (rank boost + sugar_syndicate upgrade boost) onto the user's economy state
+  if (result.alliance) {
+    const rankBoost = getAllianceRankBoosts(guildId, userId);
+    const upgradeBoost = result.alliance.upgrades.includes('sugar_syndicate') ? 0.08 : 0;
+    economy.setUserAllianceCpsBoost(guildId, userId, rankBoost.cpsBoostMultiplier + upgradeBoost);
+    result.allianceRankBoost = rankBoost;
+  } else {
+    economy.setUserAllianceCpsBoost(guildId, userId, 0);
   }
 
   return result;
@@ -662,8 +812,11 @@ function adminDeleteAlliance(guildId, allianceIdOrName) {
 
 module.exports = {
   MAX_ALLIANCE_MEMBERS,
+  ALLIANCE_CREATE_COST,
   WEEKLY_ALLIANCE_CHALLENGES,
   ALLIANCE_STORE_UPGRADES,
+  ALLIANCE_RANK_BOOSTS,
+  checkAutomod,
   createAlliance,
   listAlliances,
   joinAlliance,
@@ -673,6 +826,7 @@ module.exports = {
   removeAllianceMember,
   getMemberAlliance,
   getAllianceLeaderboard,
+  getAllianceRankBoosts,
   getAllianceWithChallenge,
   processAllianceChallengeRewards,
   buyAllianceUpgrade,

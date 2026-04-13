@@ -4,7 +4,7 @@ const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('disc
 const embeds = require('../../utils/embeds');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
 const analytics = require('../../utils/analytics');
-const { sendModerationActionDm } = require('../../utils/moderationNotifications');
+const { sendModerationActionDm, sendModLog } = require('../../utils/moderationNotifications');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -19,6 +19,7 @@ module.exports = {
       o
         .setName('reason')
         .setDescription('Reason for the kick. Start typing to see preset reasons.')
+        .setRequired(true)
         .setAutocomplete(true),
     ),
 
@@ -32,7 +33,7 @@ module.exports = {
     }
 
     const target = interaction.options.getUser('user');
-    const reason = interaction.options.getString('reason') ?? 'No reason provided.';
+    const reason = interaction.options.getString('reason');
 
     const member = await interaction.guild.members.fetch(target.id).catch(() => null);
 
@@ -67,6 +68,13 @@ module.exports = {
       });
       await member.kick(`${interaction.user.tag}: ${reason}`);
       analytics.recordModAction(interaction.guild.id, 'kick', Date.now());
+      await sendModLog({
+        guild: interaction.guild,
+        target,
+        moderator: interaction.user,
+        action: 'Kick',
+        reason,
+      });
       return interaction.reply({
         embeds: [
           embeds.modAction({
