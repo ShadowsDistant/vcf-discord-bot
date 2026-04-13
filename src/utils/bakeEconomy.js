@@ -17,6 +17,8 @@ const db = require('./database');
 
 const ECONOMY_FILE = 'bake_economy.json';
 const PASSIVE_CAP_MS = 24 * 60 * 60 * 1000;
+const MESSAGES_PER_PAGE = 8;
+const MAX_PENDING_MESSAGES = 50;
 const MARKET_LISTING_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const MARKET_FEE_RATE = 0.05;
 const BASE_GOLDEN_CHANCE = 0.02;
@@ -809,6 +811,7 @@ function getUserState(guildState, userId) {
   if (!Array.isArray(user.rankRewardsClaimed)) user.rankRewardsClaimed = [];
   if (typeof user.bakeBanned !== 'boolean') user.bakeBanned = false;
   if (!user.rewardGifts || typeof user.rewardGifts !== 'object') user.rewardGifts = {};
+  if (!Array.isArray(user.pendingMessages)) user.pendingMessages = [];
   if (!RANK_INDEX.has(user.rankId)) {
     const inferredIndex = getHighestUnlockedRankIndex(user);
     user.rankId = RANKS[inferredIndex].id;
@@ -1214,9 +1217,17 @@ function computeCps(user, nowTs = Date.now()) {
   const frenzy = (user.activeBuffs ?? []).find((buff) => buff.type === 'frenzy' && buff.expiresAt > nowTs);
   const frenzyMultiplier = frenzy ? 7 : 1;
 
-  const total = (buildingCps + consumedBonus) * globalMultiplier * (1 + kittenBonus) * frenzyMultiplier;
+  const total = (buildingCps + consumedBonus) * globalMultiplier * (1 + kittenBonus) * frenzyMultiplier * (1 + (user.allianceCpsBoost ?? 0));
   user.highestCps = Math.max(user.highestCps ?? 0, total);
   return total;
+}
+
+function setUserAllianceCpsBoost(guildId, userId, boost) {
+  const data = readState();
+  const guildState = getGuildState(data, guildId);
+  const user = getUserState(guildState, userId);
+  user.allianceCpsBoost = Math.max(0, Number(boost) || 0);
+  writeState(data);
 }
 
 function applyPassiveIncome(user, nowTs = Date.now()) {
@@ -1529,7 +1540,11 @@ function buildCpsBreakdownEmbed(guild, user) {
   if (frenzy) {
     embed.addFields({ name: '🌀 Frenzy Active', value: `×7 multiplier (expires <t:${Math.floor(frenzy.expiresAt / 1000)}:R>)`, inline: true });
   }
-  embed.addFields({ name: '📊 Formula', value: `(Buildings + Boosts) × Global Multiplier × (1 + Kitten%) × Frenzy`, inline: false });
+  const allianceBoost = user.allianceCpsBoost ?? 0;
+  if (allianceBoost > 0) {
+    embed.addFields({ name: '🤝 Alliance Boost', value: `+${(allianceBoost * 100).toFixed(0)}% (leaderboard rank reward + upgrades)`, inline: true });
+  }
+  embed.addFields({ name: '📊 Formula', value: `(Buildings + Boosts) × Global Multiplier × (1 + Kitten%) × Frenzy × (1 + Alliance%)`, inline: false });
 
   embed.setTimestamp();
   if (guild) {
@@ -1640,14 +1655,9 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
 
     if (entries.length === 0 && rewardGiftEntries.length === 0) {
       embed.setDescription('Inventory currently empty. Keep baking, crumb warrior.');
-      // Still show gift messages even if inventory is empty
-      const recentMessages = (user.giftMessages ?? []).slice(-3).reverse();
-      if (recentMessages.length > 0) {
-        const msgLines = recentMessages.map((msg) => {
-          const box = REWARD_BOX_MAP.get(msg.rewardBoxId);
-          return `📨 **From ${msg.from}**: ${msg.message.slice(0, 80)}${msg.message.length > 80 ? '…' : ''} *(×${msg.quantity} ${box?.name ?? msg.rewardBoxId})*`;
-        }).join('\n');
-        embed.addFields({ name: '📬 Recent Gift Messages', value: msgLines.slice(0, 1024) });
+      const pendingGifts = (user.pendingMessages ?? []).filter((m) => !m.claimed && (m.type === 'gift_box' || m.type === 'gift_cookies'));
+      if (pendingGifts.length > 0) {
+        embed.addFields({ name: '📬 Pending Gifts', value: `You have **${pendingGifts.length}** unclaimed gift(s)! Use \`/messages\` to claim them.` });
       }
     } else {
       const page = Math.max(0, Math.min(options.page ?? 0, Math.floor((entries.length - 1) / 8)));
@@ -1668,14 +1678,9 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
       });
       embed.setFooter({ text: `Page ${page + 1}/${Math.max(1, Math.ceil(entries.length / 8))}` });
 
-      // Show up to 3 most recent gift messages
-      const recentMessages = (user.giftMessages ?? []).slice(-3).reverse();
-      if (recentMessages.length > 0) {
-        const msgLines = recentMessages.map((msg) => {
-          const box = REWARD_BOX_MAP.get(msg.rewardBoxId);
-          return `📨 **From ${msg.from}**: ${msg.message.slice(0, 80)}${msg.message.length > 80 ? '…' : ''} *(×${msg.quantity} ${box?.name ?? msg.rewardBoxId})*`;
-        }).join('\n');
-        embed.addFields({ name: '📬 Recent Gift Messages', value: msgLines.slice(0, 1024) });
+      const pendingGifts = (user.pendingMessages ?? []).filter((m) => !m.claimed && (m.type === 'gift_box' || m.type === 'gift_cookies'));
+      if (pendingGifts.length > 0) {
+        embed.addFields({ name: '📬 Pending Gifts', value: `You have **${pendingGifts.length}** unclaimed gift(s)! Use \`/messages\` to claim them.` });
       }
     }
   }
@@ -2688,33 +2693,35 @@ function adminGrantRewardBox(guildId, targetUserId, rewardBoxId, quantity) {
 }
 
 /**
- * Grants a reward gift box to a single user with an optional admin message
- * stored in the user's giftMessages array.
+ * Stores a gift box as a pending message for a single user.
+ * The gift is only granted to rewardGifts when the user claims it via /messages.
  */
 function adminGrantRewardBoxWithMessage(guildId, targetUserId, rewardBoxId, quantity, message, senderTag) {
   const { data, target } = adminEnsureTarget(guildId, targetUserId);
   if (!REWARD_BOX_MAP.has(rewardBoxId)) return false;
   if (!Number.isInteger(quantity) || quantity <= 0) return false;
-  target.rewardGifts[rewardBoxId] = (target.rewardGifts[rewardBoxId] ?? 0) + quantity;
-  if (message) {
-    if (!Array.isArray(target.giftMessages)) target.giftMessages = [];
-    target.giftMessages.push({
-      id: Date.now(),
-      from: senderTag ?? 'Admin',
-      rewardBoxId,
-      quantity,
-      message: String(message).slice(0, 500),
-      receivedAt: new Date().toISOString(),
-    });
-    // Cap stored messages at 20 most recent
-    if (target.giftMessages.length > 20) target.giftMessages = target.giftMessages.slice(-20);
+  if (!Array.isArray(target.pendingMessages)) target.pendingMessages = [];
+  target.pendingMessages.push({
+    id: Date.now(),
+    type: 'gift_box',
+    from: senderTag ?? 'Admin',
+    message: message ? String(message).slice(0, 500) : '',
+    rewardBoxId,
+    quantity,
+    createdAt: new Date().toISOString(),
+    claimed: false,
+  });
+  if (target.pendingMessages.length > MAX_PENDING_MESSAGES) {
+    const firstClaimedIdx = target.pendingMessages.findIndex((m) => m.claimed);
+    if (firstClaimedIdx >= 0) target.pendingMessages.splice(firstClaimedIdx, 1);
+    else target.pendingMessages.shift();
   }
   writeState(data);
   return true;
 }
 
 /**
- * Grants a reward gift box to every tracked user in the guild.
+ * Stores a pending gift box message for every tracked user in the guild.
  * Returns the number of users gifted.
  */
 function adminGiftAllUsers(guildId, rewardBoxId, quantity, message, senderTag) {
@@ -2723,27 +2730,230 @@ function adminGiftAllUsers(guildId, rewardBoxId, quantity, message, senderTag) {
   const data = readState();
   const guildState = getGuildState(data, guildId);
   const users = Object.values(guildState.users ?? {});
+  let msgId = Date.now();
   for (const user of users) {
-    user.rewardGifts[rewardBoxId] = (user.rewardGifts[rewardBoxId] ?? 0) + quantity;
-    if (message) {
-      if (!Array.isArray(user.giftMessages)) user.giftMessages = [];
-      user.giftMessages.push({
-        id: Date.now(),
-        from: senderTag ?? 'Admin',
-        rewardBoxId,
-        quantity,
-        message: String(message).slice(0, 500),
-        receivedAt: new Date().toISOString(),
-      });
-      if (user.giftMessages.length > 20) user.giftMessages = user.giftMessages.slice(-20);
+    if (!Array.isArray(user.pendingMessages)) user.pendingMessages = [];
+    user.pendingMessages.push({
+      id: msgId++,
+      type: 'gift_box',
+      from: senderTag ?? 'Admin',
+      message: message ? String(message).slice(0, 500) : '',
+      rewardBoxId,
+      quantity,
+      createdAt: new Date().toISOString(),
+      claimed: false,
+    });
+    if (user.pendingMessages.length > MAX_PENDING_MESSAGES) {
+      const firstClaimedIdx = user.pendingMessages.findIndex((m) => m.claimed);
+      if (firstClaimedIdx >= 0) user.pendingMessages.splice(firstClaimedIdx, 1);
+      else user.pendingMessages.shift();
     }
   }
   writeState(data);
   return users.length;
 }
 
-function adminResetUser(guildId, targetUserId) {
+function adminGiftCookies(guildId, targetUserId, amount, message, senderTag) {
+  const { data, target } = adminEnsureTarget(guildId, targetUserId);
+  if (!Number.isInteger(amount) || amount <= 0) return false;
+  if (!Array.isArray(target.pendingMessages)) target.pendingMessages = [];
+  target.pendingMessages.push({
+    id: Date.now(),
+    type: 'gift_cookies',
+    from: senderTag ?? 'Admin',
+    message: message ? String(message).slice(0, 500) : '',
+    cookieAmount: amount,
+    createdAt: new Date().toISOString(),
+    claimed: false,
+  });
+  if (target.pendingMessages.length > MAX_PENDING_MESSAGES) {
+    const firstClaimedIdx = target.pendingMessages.findIndex((m) => m.claimed);
+    if (firstClaimedIdx >= 0) target.pendingMessages.splice(firstClaimedIdx, 1);
+    else target.pendingMessages.shift();
+  }
+  writeState(data);
+  return true;
+}
+
+function addPendingMessage(guildId, userId, messageData) {
   const data = readState();
+  const guildState = getGuildState(data, guildId);
+  const user = getUserState(guildState, userId);
+  user.pendingMessages.push({
+    id: Date.now(),
+    createdAt: new Date().toISOString(),
+    claimed: false,
+    ...messageData,
+  });
+  if (user.pendingMessages.length > MAX_PENDING_MESSAGES) {
+    const firstClaimedIdx = user.pendingMessages.findIndex((m) => m.claimed);
+    if (firstClaimedIdx >= 0) user.pendingMessages.splice(firstClaimedIdx, 1);
+    else user.pendingMessages.shift();
+  }
+  writeState(data);
+}
+
+function claimPendingMessage(guildId, userId, messageId) {
+  const data = readState();
+  const guildState = getGuildState(data, guildId);
+  const user = getUserState(guildState, userId);
+  const msg = user.pendingMessages.find((m) => m.id === messageId);
+  if (!msg) return { ok: false, reason: 'Message not found.' };
+  if (msg.claimed) return { ok: false, reason: 'Already claimed.' };
+  if (msg.type !== 'gift_box' && msg.type !== 'gift_cookies') {
+    return { ok: false, reason: 'This message has nothing to claim.' };
+  }
+  msg.claimed = true;
+  let reward = null;
+  if (msg.type === 'gift_box') {
+    if (!REWARD_BOX_MAP.has(msg.rewardBoxId)) {
+      writeState(data);
+      return { ok: false, reason: 'Unknown reward box type.' };
+    }
+    user.rewardGifts[msg.rewardBoxId] = (user.rewardGifts[msg.rewardBoxId] ?? 0) + msg.quantity;
+    reward = { rewardBoxId: msg.rewardBoxId, quantity: msg.quantity };
+  } else if (msg.type === 'gift_cookies') {
+    user.cookies += msg.cookieAmount;
+    user.cookiesBakedAllTime += msg.cookieAmount;
+    reward = { cookieAmount: msg.cookieAmount };
+  }
+  writeState(data);
+  return { ok: true, type: msg.type, reward };
+}
+
+function claimAllPendingMessages(guildId, userId) {
+  const data = readState();
+  const guildState = getGuildState(data, guildId);
+  const user = getUserState(guildState, userId);
+  const claimed = [];
+  for (const msg of user.pendingMessages) {
+    if (msg.claimed) continue;
+    if (msg.type !== 'gift_box' && msg.type !== 'gift_cookies') continue;
+    msg.claimed = true;
+    if (msg.type === 'gift_box' && REWARD_BOX_MAP.has(msg.rewardBoxId)) {
+      user.rewardGifts[msg.rewardBoxId] = (user.rewardGifts[msg.rewardBoxId] ?? 0) + msg.quantity;
+      claimed.push({ type: 'gift_box', rewardBoxId: msg.rewardBoxId, quantity: msg.quantity });
+    } else if (msg.type === 'gift_cookies') {
+      user.cookies += msg.cookieAmount;
+      user.cookiesBakedAllTime += msg.cookieAmount;
+      claimed.push({ type: 'gift_cookies', cookieAmount: msg.cookieAmount });
+    }
+  }
+  writeState(data);
+  return claimed;
+}
+
+function deletePendingMessage(guildId, userId, messageId) {
+  const data = readState();
+  const guildState = getGuildState(data, guildId);
+  const user = getUserState(guildState, userId);
+  const idx = user.pendingMessages.findIndex((m) => m.id === messageId);
+  if (idx === -1) return false;
+  user.pendingMessages.splice(idx, 1);
+  writeState(data);
+  return true;
+}
+
+function buildMessagesEmbed(guild, user, page) {
+  const pending = user.pendingMessages ?? [];
+  const totalPages = Math.max(1, Math.ceil(pending.length / MESSAGES_PER_PAGE));
+  const safePage = Math.max(0, Math.min(page, totalPages - 1));
+  const pageMsgs = pending.slice(safePage * MESSAGES_PER_PAGE, safePage * MESSAGES_PER_PAGE + MESSAGES_PER_PAGE);
+  const cookieEmoji = getCookieEmoji(guild);
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle(`${cookieEmoji} Messages & Notifications`)
+    .setFooter({ text: `Page ${safePage + 1}/${totalPages} • ${pending.length} message(s) total` });
+
+  if (pending.length === 0) {
+    embed.setDescription('Your inbox is empty. Gift notifications, cookies, and alliance updates will appear here.');
+    return embed;
+  }
+
+  const lines = pageMsgs.map((msg, idx) => {
+    const num = safePage * MESSAGES_PER_PAGE + idx + 1;
+    const ts = msg.createdAt ? `<t:${Math.floor(new Date(msg.createdAt).getTime() / 1000)}:R>` : '';
+    let icon, summary;
+    if (msg.type === 'gift_box') {
+      const box = REWARD_BOX_MAP.get(msg.rewardBoxId);
+      icon = msg.claimed ? '✅' : '🎁';
+      const msgText = msg.message ? `: *${msg.message.slice(0, 80)}${msg.message.length > 80 ? '…' : ''}*` : '';
+      summary = `×${msg.quantity} **${box?.name ?? msg.rewardBoxId}** from **${msg.from}**${msgText}${msg.claimed ? ' *(claimed)*' : ''}`;
+    } else if (msg.type === 'gift_cookies') {
+      icon = msg.claimed ? '✅' : '🍪';
+      const msgText = msg.message ? `: *${msg.message.slice(0, 80)}${msg.message.length > 80 ? '…' : ''}*` : '';
+      summary = `**${toCookieNumber(msg.cookieAmount)}** cookies from **${msg.from}**${msgText}${msg.claimed ? ' *(claimed)*' : ''}`;
+    } else {
+      icon = '📢';
+      summary = msg.message ?? '(notification)';
+    }
+    return `**${num}.** ${icon} ${summary} ${ts}`;
+  });
+
+  embed.setDescription(lines.join('\n\n'));
+  return embed;
+}
+
+function buildMessagesComponents(user, page) {
+  const pending = user.pendingMessages ?? [];
+  const totalPages = Math.max(1, Math.ceil(pending.length / MESSAGES_PER_PAGE));
+  const safePage = Math.max(0, Math.min(page, totalPages - 1));
+  const pageMsgs = pending.slice(safePage * MESSAGES_PER_PAGE, safePage * MESSAGES_PER_PAGE + MESSAGES_PER_PAGE);
+
+  const rows = [];
+  // Pair messages 2 per action row: [Claim N] [Dismiss N] [Claim N+1] [Dismiss N+1]
+  for (let i = 0; i < pageMsgs.length && rows.length < 4; i += 2) {
+    const btns = [];
+    for (let j = i; j < Math.min(i + 2, pageMsgs.length); j++) {
+      const msg = pageMsgs[j];
+      const label = `#${safePage * MESSAGES_PER_PAGE + j + 1}`;
+      const isClaimable = (msg.type === 'gift_box' || msg.type === 'gift_cookies') && !msg.claimed;
+      if (isClaimable) {
+        btns.push(
+          new ButtonBuilder()
+            .setCustomId(`messages_claim:${safePage}:${msg.id}`)
+            .setLabel(`Claim ${label}`)
+            .setStyle(ButtonStyle.Success),
+        );
+      }
+      btns.push(
+        new ButtonBuilder()
+          .setCustomId(`messages_delete:${safePage}:${msg.id}`)
+          .setLabel(isClaimable ? `Dismiss ${label}` : `Delete ${label}`)
+          .setStyle(ButtonStyle.Danger),
+      );
+    }
+    if (btns.length > 0) rows.push(new ActionRowBuilder().addComponents(btns));
+  }
+
+  const hasUnclaimed = pending.some(
+    (m) => (m.type === 'gift_box' || m.type === 'gift_cookies') && !m.claimed,
+  );
+
+  const navRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`messages_page:${safePage - 1}`)
+      .setLabel('◀ Prev')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(safePage <= 0),
+    new ButtonBuilder()
+      .setCustomId(`messages_page:${safePage + 1}`)
+      .setLabel('Next ▶')
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(safePage >= totalPages - 1),
+    new ButtonBuilder()
+      .setCustomId('messages_claim_all')
+      .setLabel('🎁 Claim All')
+      .setStyle(ButtonStyle.Primary)
+      .setDisabled(!hasUnclaimed),
+  );
+  rows.push(navRow);
+
+  return rows;
+}
+
+function adminResetUser(guildId, targetUserId) {
   const guildState = getGuildState(data, guildId);
   guildState.users[targetUserId] = getDefaultUserState(targetUserId);
   writeState(data);
@@ -3154,6 +3364,7 @@ module.exports = {
   getEarnedAchievementCount,
   getUserSnapshot,
   saveUserSnapshot,
+  setUserAllianceCpsBoost,
   buildDashboardEmbed,
   buildDashboardComponents,
   buildCpsBreakdownEmbed,
@@ -3195,6 +3406,7 @@ module.exports = {
   adminGrantRewardBox,
   adminGrantRewardBoxWithMessage,
   adminGiftAllUsers,
+  adminGiftCookies,
   adminResetUser,
   adminResetGuildEconomy,
   buildBakeAdminDashboardEmbed,
@@ -3222,4 +3434,10 @@ module.exports = {
   COOKIE_EVENT_DEFINITIONS,
   startRandomCookieEvent,
   GIFT_BOX_OPTION_PREFIX,
+  addPendingMessage,
+  claimPendingMessage,
+  claimAllPendingMessages,
+  deletePendingMessage,
+  buildMessagesEmbed,
+  buildMessagesComponents,
 };

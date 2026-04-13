@@ -233,6 +233,7 @@ function getComponentExpiryMs(customId) {
   if (
     customId?.startsWith('bakery_')
     || customId?.startsWith('market_')
+    || customId?.startsWith('messages_')
     || customId === 'updates_log_select'
   ) {
     return COMPONENT_EXPIRY_LONG_MS;
@@ -590,6 +591,80 @@ module.exports = {
       }
       if (allianceCommand.isAllianceButtonCustomId(interaction.customId)) {
         return allianceCommand.handleAllianceButton(interaction);
+      }
+
+      if (interaction.customId.startsWith('messages_page:')) {
+        const pageNum = Number.parseInt(interaction.customId.split(':')[1], 10) || 0;
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildMessagesEmbed(interaction.guild, snapshot.user, pageNum);
+        const components = economy.buildMessagesComponents(snapshot.user, pageNum);
+        return interaction.update({ embeds: [embed], components });
+      }
+
+      if (interaction.customId.startsWith('messages_claim:')) {
+        const parts = interaction.customId.split(':');
+        const currentPage = Number.parseInt(parts[1], 10) || 0;
+        const messageId = Number.parseInt(parts[2], 10);
+        const result = economy.claimPendingMessage(interaction.guild.id, interaction.user.id, messageId);
+        if (!result.ok) {
+          return interaction.reply({
+            embeds: [embeds.warning(result.reason, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        let replyText = '✅ Reward claimed!';
+        if (result.type === 'gift_box') {
+          const box = economy.REWARD_BOXES.find((b) => b.id === result.reward.rewardBoxId);
+          replyText = `✅ Claimed **${result.reward.quantity}x ${box?.name ?? result.reward.rewardBoxId}** — open it from your bakery inventory!`;
+        } else if (result.type === 'gift_cookies') {
+          replyText = `✅ Claimed **${economy.toCookieNumber(result.reward.cookieAmount)}** cookies!`;
+        }
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildMessagesEmbed(interaction.guild, snapshot.user, currentPage);
+        const components = economy.buildMessagesComponents(snapshot.user, currentPage);
+        embed.addFields({ name: 'Claimed', value: replyText });
+        return interaction.update({ embeds: [embed], components });
+      }
+
+      if (interaction.customId === 'messages_claim_all') {
+        const claimed = economy.claimAllPendingMessages(interaction.guild.id, interaction.user.id);
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const embed = economy.buildMessagesEmbed(interaction.guild, snapshot.user, 0);
+        const components = economy.buildMessagesComponents(snapshot.user, 0);
+        if (claimed.length === 0) {
+          embed.addFields({ name: 'Claim All', value: 'No unclaimed rewards found.' });
+        } else {
+          const boxTotals = new Map();
+          let cookieTotal = 0;
+          for (const r of claimed) {
+            if (r.type === 'gift_box') {
+              boxTotals.set(r.rewardBoxId, (boxTotals.get(r.rewardBoxId) ?? 0) + r.quantity);
+            } else if (r.type === 'gift_cookies') {
+              cookieTotal += r.cookieAmount;
+            }
+          }
+          const lines = [];
+          for (const [boxId, qty] of boxTotals) {
+            const box = economy.REWARD_BOXES.find((b) => b.id === boxId);
+            lines.push(`🎁 **${qty}x ${box?.name ?? boxId}**`);
+          }
+          if (cookieTotal > 0) lines.push(`🍪 **${economy.toCookieNumber(cookieTotal)} cookies**`);
+          embed.addFields({ name: `✅ Claimed ${claimed.length} reward(s)`, value: lines.join('\n') || 'Done!' });
+        }
+        return interaction.update({ embeds: [embed], components });
+      }
+
+      if (interaction.customId.startsWith('messages_delete:')) {
+        const parts = interaction.customId.split(':');
+        const currentPage = Number.parseInt(parts[1], 10) || 0;
+        const messageId = Number.parseInt(parts[2], 10);
+        economy.deletePendingMessage(interaction.guild.id, interaction.user.id, messageId);
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const totalPages = Math.max(1, Math.ceil(snapshot.user.pendingMessages.length / 8));
+        const safePage = Math.max(0, Math.min(currentPage, totalPages - 1));
+        const embed = economy.buildMessagesEmbed(interaction.guild, snapshot.user, safePage);
+        const components = economy.buildMessagesComponents(snapshot.user, safePage);
+        return interaction.update({ embeds: [embed], components });
       }
 
       if (interaction.customId.startsWith('bakery_nav:')) {
