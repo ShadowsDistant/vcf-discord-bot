@@ -1328,7 +1328,7 @@ async function runTool(context, name, args) {
     if (latestPrompt !== expectedPhrase) {
       return {
         ok: false,
-        error: `Confirmation phrase mismatch. User must send exactly: CONFIRM MODERATION ${confirmationToken}`,
+        error: `Confirmation phrase mismatch. User must send exactly: CONFIRM MODERATION ${confirmationToken.toUpperCase()}`,
       };
     }
 
@@ -1356,7 +1356,6 @@ async function runTool(context, name, args) {
 
       if (pending.action === 'timeout') {
         if (!target?.moderatable) {
-          pendingModerationConfirmations.delete(key);
           return { ok: false, error: 'I cannot timeout that user due to role hierarchy/permissions.' };
         }
         await sendModerationActionDm({
@@ -1372,7 +1371,6 @@ async function runTool(context, name, args) {
 
       if (pending.action === 'kick') {
         if (!target?.kickable) {
-          pendingModerationConfirmations.delete(key);
           return { ok: false, error: 'I cannot kick that user due to role hierarchy/permissions.' };
         }
         await sendModerationActionDm({
