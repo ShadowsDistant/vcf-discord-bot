@@ -1476,7 +1476,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     const unlockedRarities = getUnlockedRarities(user, new Date(nowTs));
     const rarityLines = RARITY_ORDER
       .filter((rarityId) => unlockedRarities.has(rarityId))
-      .map((rarityId) => `${getRarityEmoji(rarityId, guild)} ${RARITY[rarityId].name}`);
+      .map((rarityId) => RARITY[rarityId].name);
     embed.setDescription('Numbers. So many numbers. Delicious numbers.');
     embed.addFields(
       { name: 'Total bakes', value: toCookieNumber(user.totalBakes), inline: true },
@@ -2482,34 +2482,52 @@ function buildBakeAdminEmbed(guild, actorId, targetId) {
   const data = readState();
   const guildState = getGuildState(data, guild?.id ?? 'unknown_guild');
   const target = getUserState(guildState, targetId);
+  const now = Date.now();
   const targetCps = computeCps(target, Date.now());
+  const rank = RANKS[RANK_INDEX.get(target.rankId) ?? 0] ?? null;
+  const unlockedRarities = getUnlockedRarities(target, new Date(now));
+  const unlockedRarityLabel = RARITY_ORDER
+    .filter((rarityId) => unlockedRarities.has(rarityId))
+    .map((rarityId) => RARITY[rarityId].name)
+    .join(' • ') || DEFAULT_UNLOCKED_RARITY_LABEL;
+  const activeEvent = getActiveEvent(guildState, now);
+  const eventLabel = activeEvent?.id === 'special_cookie_hunt' && Number.isFinite(activeEvent?.endsAt)
+    ? `<t:${Math.floor(activeEvent.endsAt / 1000)}:R>`
+    : 'None';
   const embed = new EmbedBuilder()
     .setColor(0xed4245)
     .setTitle('🛠️ Bake Admin Dashboard')
-    .setDescription(`Operator <@${actorId}> managing <@${targetId}>`)
+    .setDescription(`Detailed baking profile for <@${targetId}> (\`${targetId}\`).`)
     .addFields(
       {
-        name: 'Target Snapshot',
+        name: 'Economy',
         value: [
           `Cookies: **${toCookieNumber(target.cookies)}**`,
           `CPS: **${toCookieNumber(targetCps)}**`,
-          `Bakes: **${toCookieNumber(target.totalBakes)}**`,
-          `Rank: **${RANKS[RANK_INDEX.get(target.rankId) ?? 0]?.name ?? 'Unknown'}**`,
+          `Cookies baked: **${toCookieNumber(target.cookiesBakedAllTime)}**`,
+          `Cookies spent: **${toCookieNumber(target.cookiesSpent)}**`,
         ].join('\n'),
         inline: true,
       },
       {
-        name: 'Control Groups',
+        name: 'Progression',
         value: [
-          '💰 Economy: cookies, items, buildings, upgrades, rank',
-          '🎁 Progression: achievements, reward boxes, golden cookies',
-          '🧭 Governance: bake bans, alliance admin, event control, user reset',
+          `Rank: **${getRankEmoji(rank ?? target.rankId, guild)} ${rank?.name ?? 'Unknown'}**`,
+          `Achievements: **${getEarnedAchievementCount(target)}/${ACHIEVEMENTS.length}**`,
+          `Rarity pool: **${unlockedRarityLabel}**`,
+          `Rarest item: **${target.rarestItemId ? (ITEM_MAP.get(target.rarestItemId)?.name ?? target.rarestItemId) : 'None'}**`,
         ].join('\n'),
         inline: true,
       },
       {
-        name: 'Usage',
-        value: 'Pick an action from the menu below, complete prompts, then refresh to verify target state.',
+        name: 'Activity',
+        value: [
+          `Total bakes: **${toCookieNumber(target.totalBakes)}**`,
+          `Golden Cookies: **${toCookieNumber(target.goldenCookiesClaimed)}/${toCookieNumber(target.goldenCookiesTriggered)} claimed**`,
+          `Marketplace: **${toCookieNumber(target.marketplaceBuys)} buys • ${toCookieNumber(target.marketplaceSells)} sells**`,
+          `Bake banned: **${target.bakeBanned ? 'Yes' : 'No'}**`,
+          `Active event ends: **${eventLabel}**`,
+        ].join('\n'),
       },
     )
     .setTimestamp();
@@ -2526,18 +2544,18 @@ function buildBakeAdminComponents(actorId, targetId) {
     .addOptions(
       { label: 'Give Cookies', value: 'give_cookies', description: 'Add cookies directly to the target.' },
       { label: 'Remove Cookies', value: 'remove_cookies', description: 'Subtract cookies from the target.' },
-      { label: 'Give Item', value: 'give_item', description: 'Grant inventory items by ID or name.' },
+      { label: 'Give Item', value: 'give_item', description: 'Grant inventory items from a picker.' },
       { label: 'Unlock Upgrade', value: 'unlock_upgrade', description: 'Unlock one upgrade for the target.' },
-      { label: 'Set Building Count', value: 'set_building', description: 'Set ownership count for a building.' },
+      { label: 'Set Building Count', value: 'set_building', description: 'Set ownership count from a building picker.' },
       { label: 'Grant Achievement', value: 'grant_achievement', description: 'Force-unlock one achievement.' },
-      { label: 'Set Rank', value: 'set_rank', description: 'Set target rank by ID or name.' },
+      { label: 'Set Rank', value: 'set_rank', description: 'Set target rank from the rank picker.' },
       { label: 'Grant Reward Gift Box', value: 'grant_reward_box', description: 'Grant a reward gift box quantity.' },
       { label: 'Trigger Golden Cookie', value: 'trigger_golden', description: 'Force a Golden Cookie on next bake.' },
       { label: 'Start Event', value: 'start_event', description: 'Start a timed special cookie event.' },
       { label: 'Ban Bake Commands', value: 'ban_bake', description: 'Block target from baking commands.' },
       { label: 'Unban Bake Commands', value: 'unban_bake', description: 'Restore target bake command access.' },
-      { label: 'Alliance: Grant Upgrade', value: 'alliance_add_upgrade', description: 'Grant alliance store upgrade.' },
-      { label: 'Alliance: Delete Alliance', value: 'alliance_delete', description: 'Delete alliance by ID or name.' },
+      { label: 'Alliance: Grant Upgrade', value: 'alliance_add_upgrade', description: 'Grant alliance store upgrade via pickers.' },
+      { label: 'Alliance: Delete Alliance', value: 'alliance_delete', description: 'Delete alliance via picker and confirm.' },
       { label: 'Reset User', value: 'reset_user', description: 'Reset target baking profile to defaults.' },
       { label: 'View User Data', value: 'view_user', description: 'Open target user data embed.' },
       { label: 'Set Admin Log Channel', value: 'set_log_channel', description: 'Set channel for bakeadmin logs.' },
@@ -2554,44 +2572,6 @@ function modalForAdminAction(actorId, targetId, action) {
     ));
     return modal;
   }
-  if (action === 'give_item') {
-    modal.setTitle('Give Item');
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(new TextInputBuilder()
-        .setCustomId('itemId')
-        .setLabel('Item ID or item name')
-        .setPlaceholder('e.g. chocolate_chip_cookie or Chocolate Chip Cookie')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true)),
-      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('quantity').setLabel('Quantity').setStyle(TextInputStyle.Short).setRequired(true)),
-    );
-    return modal;
-  }
-  if (action === 'set_building') {
-    modal.setTitle('Set Building Count');
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(new TextInputBuilder()
-        .setCustomId('buildingId')
-        .setLabel('Building ID or building name')
-        .setPlaceholder('e.g. wizardTower or Wizard Tower')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true)),
-      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('count').setLabel('Count').setStyle(TextInputStyle.Short).setRequired(true)),
-    );
-    return modal;
-  }
-  if (action === 'set_log_channel') {
-    modal.setTitle('Set Log Channel');
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(new TextInputBuilder()
-        .setCustomId('value')
-        .setLabel('Channel mention or ID')
-        .setPlaceholder('#logs or 123456789012345678')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true)),
-    );
-    return modal;
-  }
   if (action === 'start_event') {
     modal.setTitle('Start Bake Event');
     modal.addComponents(
@@ -2599,41 +2579,6 @@ function modalForAdminAction(actorId, targetId, action) {
         .setCustomId('durationMinutes')
         .setLabel('Event duration (minutes)')
         .setPlaceholder('e.g. 30')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true)),
-    );
-    return modal;
-  }
-  if (action === 'alliance_add_upgrade') {
-    modal.setTitle('Alliance: Grant Upgrade');
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(new TextInputBuilder()
-        .setCustomId('alliance')
-        .setLabel('Alliance ID or name')
-        .setPlaceholder('e.g. 1 or Dough Dynasty')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true)),
-      new ActionRowBuilder().addComponents(new TextInputBuilder()
-        .setCustomId('upgrade')
-        .setLabel('Upgrade ID or name')
-        .setPlaceholder('e.g. council_oven_aura')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true)),
-    );
-    return modal;
-  }
-  if (action === 'alliance_delete') {
-    modal.setTitle('Alliance: Delete');
-    modal.addComponents(
-      new ActionRowBuilder().addComponents(new TextInputBuilder()
-        .setCustomId('alliance')
-        .setLabel('Alliance ID or name')
-        .setPlaceholder('e.g. 1 or Dough Dynasty')
-        .setStyle(TextInputStyle.Short)
-        .setRequired(true)),
-      new ActionRowBuilder().addComponents(new TextInputBuilder()
-        .setCustomId('confirm')
-        .setLabel('Type DELETE to confirm')
         .setStyle(TextInputStyle.Short)
         .setRequired(true)),
     );

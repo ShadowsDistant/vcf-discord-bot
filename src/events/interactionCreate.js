@@ -40,6 +40,7 @@ const DEFAULT_GUIDE_SECTION = 'info';
 const BAKERY_RENAME_TTL_MS = 10 * 60 * 1000;
 const GUIDE_STATE_TTL_MS = 60 * 60 * 1000;
 const SPECIAL_COOKIE_EVENT_CHANNEL_ID = '1492690923333746790';
+const BAKE_COMMANDS_CHANNEL_URL = 'https://discord.com/channels/1345804368263385170/1492310367869862089';
 const REPORTS_CHANNEL_ID = '1492689950540435637';
 const REPORTS_PING_ROLE_ID = '1425569078596337745';
 const REPORT_COOLDOWN_MS = 15 * 60 * 1000;
@@ -177,22 +178,33 @@ async function sendBakeAdminLog(interaction, targetUserId, action, details) {
 async function sendSpecialCookieHuntStartLog(interaction, durationMinutes, endsAt) {
   const channel = await interaction.guild.channels.fetch(SPECIAL_COOKIE_EVENT_CHANNEL_ID).catch(() => null);
   if (!channel || !channel.isTextBased()) return;
+  const startedAtTs = Math.floor(Date.now() / 1000);
   const endsAtTs = Math.floor(endsAt / 1000);
   const embed = new EmbedBuilder()
     .setColor(0xfee75c)
-    .setTitle('🎉 Special Cookie Hunt Started')
+    .setTitle('🍪🎉 Special Cookie Hunt is Live!')
     .setDescription([
-      `Started by <@${interaction.user.id}>.`,
-      'Special cookie drops are now boosted for all bakers.',
-      `Duration: **${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}**`,
-      `Ends: <t:${endsAtTs}:R>`,
+      `Hosted by <@${interaction.user.id}>`,
+      'Special cookie drops are boosted for everyone during this event.',
+      `Run your bake commands here: <#1492310367869862089>`,
     ].join('\n'))
+    .addFields(
+      { name: 'Starts', value: `<t:${startedAtTs}:F> (<t:${startedAtTs}:R>)`, inline: true },
+      { name: 'Ends', value: `<t:${endsAtTs}:F> (<t:${endsAtTs}:R>)`, inline: true },
+      { name: 'Duration', value: `**${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}**`, inline: true },
+    )
     .setTimestamp()
     .setFooter({
       text: interaction.guild.name,
       iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined,
     });
-  await channel.send({ embeds: [embed] }).catch(() => null);
+  const actions = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setStyle(ButtonStyle.Link)
+      .setLabel('Open Bake Commands Channel')
+      .setURL(BAKE_COMMANDS_CHANNEL_URL),
+  );
+  await channel.send({ embeds: [embed], components: [actions] }).catch(() => null);
 }
 
 function getErrorDetails(err) {
@@ -227,53 +239,25 @@ function isComponentExpired(interaction, nowTs = Date.now()) {
   return (nowTs - createdTs) > getComponentExpiryMs(interaction.customId);
 }
 
-function normalizeLookupValue(value) {
-  return String(value ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+function chunkSelectOptions(options, size = MAX_SELECT_MENU_OPTIONS) {
+  const chunks = [];
+  for (let idx = 0; idx < options.length; idx += size) {
+    chunks.push(options.slice(idx, idx + size));
+  }
+  return chunks;
 }
 
-function resolveItemId(input) {
-  const raw = String(input ?? '').trim();
-  const byId = raw.toLowerCase();
-  if (economy.ITEM_MAP.has(byId)) return byId;
-  const normalized = normalizeLookupValue(raw);
-  if (!normalized) return null;
-  const found = economy.ITEMS.find((item) =>
-    normalizeLookupValue(item.id) === normalized || normalizeLookupValue(item.name) === normalized);
-  return found?.id ?? null;
-}
-
-function resolveBuildingId(input) {
-  const raw = String(input ?? '').trim();
-  const exact = economy.BUILDINGS.find((building) => building.id === raw || building.name === raw);
-  if (exact) return exact.id;
-  const normalized = normalizeLookupValue(raw);
-  if (!normalized) return null;
-  const found = economy.BUILDINGS.find((building) =>
-    normalizeLookupValue(building.id) === normalized || normalizeLookupValue(building.name) === normalized);
-  return found?.id ?? null;
-}
-
-function resolveAllianceUpgradeId(input) {
-  const raw = String(input ?? '').trim();
-  const byId = raw.toLowerCase();
-  const direct = alliances.ALLIANCE_STORE_UPGRADES.find((upgrade) => upgrade.id === byId);
-  if (direct) return direct.id;
-  const normalized = normalizeLookupValue(raw);
-  if (!normalized) return null;
-  const found = alliances.ALLIANCE_STORE_UPGRADES.find((upgrade) =>
-    normalizeLookupValue(upgrade.id) === normalized || normalizeLookupValue(upgrade.name) === normalized);
-  return found?.id ?? null;
-}
-
-function parseMentionOrId(input, type) {
-  const raw = String(input ?? '').trim();
-  if (!raw) return null;
-  const mentionPattern = type === 'channel' ? /^<#(\d+)>$/ : /^<@&(\d+)>$/;
-  const mentionMatch = raw.match(mentionPattern);
-  if (mentionMatch) return mentionMatch[1];
-  const idMatch = raw.match(/^(\d+)$/);
-  if (idMatch) return idMatch[1];
-  return null;
+function buildPagedStringSelectRows({ customIdPrefix, placeholderBase, options }) {
+  const optionChunks = chunkSelectOptions(options, MAX_SELECT_MENU_OPTIONS).slice(0, 5);
+  return optionChunks.map((chunk, chunkIndex) =>
+    new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId(`${customIdPrefix}:${chunkIndex}`)
+        .setPlaceholder(optionChunks.length > 1 ? `${placeholderBase} (${chunkIndex + 1}/${optionChunks.length})` : placeholderBase)
+        .setMinValues(1)
+        .setMaxValues(1)
+        .addOptions(chunk),
+    ));
 }
 
 function getReportCooldownKey(guildId, userId) {
@@ -1340,9 +1324,98 @@ module.exports = {
           });
         }
         const action = interaction.values[0];
-        if (['give_cookies', 'remove_cookies', 'give_item', 'set_building', 'start_event', 'alliance_add_upgrade', 'alliance_delete'].includes(action)) {
+        if (['give_cookies', 'remove_cookies', 'start_event'].includes(action)) {
           const modal = economy.modalForAdminAction(actorId, targetId, action);
           return interaction.showModal(modal);
+        }
+        if (action === 'give_item') {
+          const options = economy.ITEMS
+            .map((item) => ({
+              label: item.name.slice(0, 100),
+              value: item.id,
+              description: `ID: ${item.id}`.slice(0, 100),
+              emoji: economy.getItemEmoji(item, interaction.guild),
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+          const components = buildPagedStringSelectRows({
+            customIdPrefix: `bakeadmin_item_select:${actorId}:${targetId}`,
+            placeholderBase: 'Select item',
+            options,
+          });
+          return interaction.reply({
+            embeds: [embeds.info('Give Item', 'Select an item, then enter the quantity to grant.', interaction.guild)],
+            components,
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'set_building') {
+          const options = economy.BUILDINGS
+            .map((building) => ({
+              label: building.name.slice(0, 100),
+              value: building.id,
+              description: `ID: ${building.id}`.slice(0, 100),
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+          const components = buildPagedStringSelectRows({
+            customIdPrefix: `bakeadmin_building_select:${actorId}:${targetId}`,
+            placeholderBase: 'Select building',
+            options,
+          });
+          return interaction.reply({
+            embeds: [embeds.info('Set Building Count', 'Select a building, then enter the new count.', interaction.guild)],
+            components,
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'alliance_add_upgrade') {
+          const allianceOptions = alliances.listAlliances(interaction.guild.id)
+            .map((alliance) => ({
+              label: alliance.name.slice(0, 100),
+              value: alliance.id,
+              description: `ID ${alliance.id} • Members ${alliance.members.length}`.slice(0, 100),
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+          if (!allianceOptions.length) {
+            return interaction.reply({
+              embeds: [embeds.warning('No alliances found to manage.', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          const components = buildPagedStringSelectRows({
+            customIdPrefix: `bakeadmin_alliance_upgrade_alliance_select:${actorId}:${targetId}`,
+            placeholderBase: 'Select alliance',
+            options: allianceOptions,
+          });
+          return interaction.reply({
+            embeds: [embeds.info('Alliance: Grant Upgrade', 'Select the alliance to update.', interaction.guild)],
+            components,
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'alliance_delete') {
+          const allianceOptions = alliances.listAlliances(interaction.guild.id)
+            .map((alliance) => ({
+              label: alliance.name.slice(0, 100),
+              value: alliance.id,
+              description: `ID ${alliance.id} • Members ${alliance.members.length}`.slice(0, 100),
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+          if (!allianceOptions.length) {
+            return interaction.reply({
+              embeds: [embeds.warning('No alliances found to delete.', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          const components = buildPagedStringSelectRows({
+            customIdPrefix: `bakeadmin_alliance_delete_select:${actorId}:${targetId}`,
+            placeholderBase: 'Select alliance to delete',
+            options: allianceOptions,
+          });
+          return interaction.reply({
+            embeds: [embeds.warning('Select an alliance, then confirm deletion in the next step.', interaction.guild)],
+            components,
+            flags: MessageFlags.Ephemeral,
+          });
         }
         if (action === 'set_log_channel') {
           return interaction.reply({
@@ -1493,6 +1566,157 @@ module.exports = {
           embeds: [embeds.success(`Unlocked upgrade \`${upgradeId}\` for <@${targetId}>.`, interaction.guild)],
           flags: MessageFlags.Ephemeral,
         });
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_item_select:')) {
+        const [, actorId, targetId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const itemId = interaction.values[0];
+        const item = economy.ITEM_MAP.get(itemId);
+        if (!item) {
+          return interaction.reply({
+            embeds: [embeds.error('Invalid item selection.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const modal = new ModalBuilder()
+          .setCustomId(`bakeadmin_item_quantity_modal:${actorId}:${targetId}:${itemId}`)
+          .setTitle(`Give ${item.name}`)
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('quantity')
+                .setLabel('Quantity')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true),
+            ),
+          );
+        return interaction.showModal(modal);
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_building_select:')) {
+        const [, actorId, targetId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const buildingId = interaction.values[0];
+        const building = economy.BUILDINGS.find((entry) => entry.id === buildingId);
+        if (!building) {
+          return interaction.reply({
+            embeds: [embeds.error('Invalid building selection.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const modal = new ModalBuilder()
+          .setCustomId(`bakeadmin_building_count_modal:${actorId}:${targetId}:${buildingId}`)
+          .setTitle(`Set ${building.name} Count`)
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('count')
+                .setLabel('Count')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true),
+            ),
+          );
+        return interaction.showModal(modal);
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_alliance_upgrade_alliance_select:')) {
+        const [, actorId, targetId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const allianceId = interaction.values[0];
+        const alliance = alliances.listAlliances(interaction.guild.id).find((entry) => entry.id === allianceId);
+        if (!alliance) {
+          return interaction.reply({
+            embeds: [embeds.error('Unknown alliance selection.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const components = buildPagedStringSelectRows({
+          customIdPrefix: `bakeadmin_alliance_upgrade_select:${actorId}:${targetId}:${allianceId}`,
+          placeholderBase: 'Select upgrade',
+          options: alliances.ALLIANCE_STORE_UPGRADES
+            .map((upgrade) => ({
+              label: upgrade.name.slice(0, 100),
+              value: upgrade.id,
+              description: `ID: ${upgrade.id}`.slice(0, 100),
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label)),
+        });
+        return interaction.reply({
+          embeds: [embeds.info('Alliance: Grant Upgrade', `Selected alliance: **${alliance.name}** (\`${alliance.id}\`).`, interaction.guild)],
+          components,
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_alliance_upgrade_select:')) {
+        const [, actorId, targetId, allianceId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const upgradeId = interaction.values[0];
+        const result = alliances.adminGrantAllianceUpgrade(interaction.guild.id, allianceId, upgradeId);
+        if (!result.ok) {
+          return interaction.reply({
+            embeds: [embeds.error(result.reason, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const upgrade = result.upgrade;
+        await sendBakeAdminLog(interaction, targetId, 'Alliance: Grant Upgrade', `${result.alliance.name} (${result.alliance.id}) -> ${upgrade?.name ?? upgradeId}`);
+        return interaction.reply({
+          embeds: [embeds.success(`Granted alliance upgrade **${upgrade?.name ?? upgradeId}** to **${result.alliance.name}** (\`${result.alliance.id}\`).`, interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_alliance_delete_select:')) {
+        const [, actorId, targetId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const allianceId = interaction.values[0];
+        const alliance = alliances.listAlliances(interaction.guild.id).find((entry) => entry.id === allianceId);
+        if (!alliance) {
+          return interaction.reply({
+            embeds: [embeds.error('Unknown alliance selection.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const modal = new ModalBuilder()
+          .setCustomId(`bakeadmin_alliance_delete_modal:${actorId}:${targetId}:${alliance.id}`)
+          .setTitle(`Delete ${alliance.name}`)
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('confirm')
+                .setLabel('Type DELETE to confirm')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true),
+            ),
+          );
+        return interaction.showModal(modal);
       }
 
       if (interaction.customId.startsWith('bakeadmin_achievement_select:')) {
@@ -1876,6 +2100,93 @@ module.exports = {
         });
       }
 
+      if (interaction.customId.startsWith('bakeadmin_item_quantity_modal:')) {
+        const [, actorId, targetId, itemId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin modal is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const quantity = Number.parseInt(interaction.fields.getTextInputValue('quantity').trim(), 10);
+        if (!Number.isInteger(quantity) || quantity <= 0) {
+          return interaction.reply({
+            embeds: [embeds.error('Quantity must be a positive integer.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const ok = economy.adminGiveItem(interaction.guild.id, targetId, itemId, quantity);
+        if (!ok) {
+          return interaction.reply({
+            embeds: [embeds.error('Could not grant that item.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        await sendBakeAdminLog(interaction, targetId, 'Give Item', `${itemId} x${quantity}`);
+        return interaction.reply({
+          embeds: [embeds.success(`Gave **${quantity}x ${economy.ITEM_MAP.get(itemId)?.name ?? itemId}** to <@${targetId}>.`, interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_building_count_modal:')) {
+        const [, actorId, targetId, buildingId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin modal is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const count = Number.parseInt(interaction.fields.getTextInputValue('count').trim(), 10);
+        if (!Number.isInteger(count) || count < 0) {
+          return interaction.reply({
+            embeds: [embeds.error('Count must be a non-negative integer.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const ok = economy.adminSetBuilding(interaction.guild.id, targetId, buildingId, count);
+        if (!ok) {
+          return interaction.reply({
+            embeds: [embeds.error('Could not set that building count.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        await sendBakeAdminLog(interaction, targetId, 'Set Building Count', `${buildingId}=${count}`);
+        return interaction.reply({
+          embeds: [embeds.success(`Set **${buildingId}** to **${count}** for <@${targetId}>.`, interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_alliance_delete_modal:')) {
+        const [, actorId, targetId, allianceId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin modal is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const confirm = interaction.fields.getTextInputValue('confirm').trim();
+        if (confirm !== 'DELETE') {
+          return interaction.reply({
+            embeds: [embeds.warning('Delete cancelled. Type `DELETE` exactly to confirm.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const result = alliances.adminDeleteAlliance(interaction.guild.id, allianceId);
+        if (!result.ok) {
+          return interaction.reply({
+            embeds: [embeds.error(result.reason, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        await sendBakeAdminLog(interaction, targetId, 'Alliance: Delete', `${result.allianceName} (${result.allianceId}), members removed: ${result.memberCount}`);
+        return interaction.reply({
+          embeds: [embeds.success(`Deleted alliance **${result.allianceName}** (\`${result.allianceId}\`).`, interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
       if (interaction.customId.startsWith('bakeadmin_modal:')) {
         const [, actorId, targetId, action] = interaction.customId.split(':');
         if (actorId !== interaction.user.id) {
@@ -1898,64 +2209,6 @@ module.exports = {
           await sendBakeAdminLog(interaction, targetId, action === 'remove_cookies' ? 'Remove Cookies' : 'Give Cookies', `${delta} cookies`);
           return interaction.reply({
             embeds: [embeds.success(`${delta >= 0 ? 'Gave' : 'Removed'} **${economy.toCookieNumber(Math.abs(delta))}** cookies ${delta >= 0 ? 'to' : 'from'} <@${targetId}>.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
-          });
-        }
-        if (action === 'give_item') {
-          const itemId = resolveItemId(interaction.fields.getTextInputValue('itemId'));
-          const quantity = Number.parseInt(interaction.fields.getTextInputValue('quantity').trim(), 10);
-          if (!Number.isInteger(quantity) || quantity <= 0) {
-            return interaction.reply({
-              embeds: [embeds.error('Quantity must be a positive integer.', interaction.guild)],
-              flags: MessageFlags.Ephemeral,
-            });
-          }
-          const ok = economy.adminGiveItem(interaction.guild.id, targetId, itemId, quantity);
-          if (!ok) {
-            return interaction.reply({
-              embeds: [embeds.error('Invalid item. Use item ID or full item name.', interaction.guild)],
-              flags: MessageFlags.Ephemeral,
-            });
-          }
-          await sendBakeAdminLog(interaction, targetId, 'Give Item', `${itemId} x${quantity}`);
-          return interaction.reply({
-            embeds: [embeds.success(`Gave **${quantity}x ${economy.ITEM_MAP.get(itemId).name}** to <@${targetId}>.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
-          });
-        }
-        if (action === 'set_building') {
-          const buildingId = resolveBuildingId(interaction.fields.getTextInputValue('buildingId'));
-          const count = Number.parseInt(interaction.fields.getTextInputValue('count').trim(), 10);
-          if (!Number.isInteger(count) || count < 0) {
-            return interaction.reply({
-              embeds: [embeds.error('Count must be a non-negative integer.', interaction.guild)],
-              flags: MessageFlags.Ephemeral,
-            });
-          }
-          const ok = economy.adminSetBuilding(interaction.guild.id, targetId, buildingId, count);
-          if (!ok) {
-            return interaction.reply({
-              embeds: [embeds.error('Invalid building. Use building ID or full building name.', interaction.guild)],
-              flags: MessageFlags.Ephemeral,
-            });
-          }
-          await sendBakeAdminLog(interaction, targetId, 'Set Building Count', `${buildingId}=${count}`);
-          return interaction.reply({
-            embeds: [embeds.success(`Set **${buildingId}** to **${count}** for <@${targetId}>.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
-          });
-        }
-        if (action === 'set_log_channel') {
-          const channelId = parseMentionOrId(interaction.fields.getTextInputValue('value'), 'channel');
-          if (!channelId || !interaction.guild.channels.cache.has(channelId)) {
-            return interaction.reply({
-              embeds: [embeds.error('Invalid channel. Use a channel mention like `#logs` or a channel ID.', interaction.guild)],
-              flags: MessageFlags.Ephemeral,
-            });
-          }
-          economy.setAdminLogChannel(interaction.guild.id, channelId);
-          return interaction.reply({
-            embeds: [embeds.success(`Set bake admin log channel to <#${channelId}>.`, interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
@@ -1988,57 +2241,6 @@ module.exports = {
           await sendSpecialCookieHuntStartLog(interaction, durationMinutes, event.endsAt);
           return interaction.reply({
             embeds: [embeds.success(`Started **Special Cookie Hunt** for **${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}**.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
-          });
-        }
-        if (action === 'alliance_add_upgrade') {
-          const allianceValue = interaction.fields.getTextInputValue('alliance').trim();
-          const upgradeId = resolveAllianceUpgradeId(interaction.fields.getTextInputValue('upgrade'));
-          if (!allianceValue) {
-            return interaction.reply({
-              embeds: [embeds.error('Alliance ID or name is required.', interaction.guild)],
-              flags: MessageFlags.Ephemeral,
-            });
-          }
-          if (!upgradeId) {
-            return interaction.reply({
-              embeds: [embeds.error('Unknown alliance upgrade. Use a valid upgrade ID or name.', interaction.guild)],
-              flags: MessageFlags.Ephemeral,
-            });
-          }
-          const result = alliances.adminGrantAllianceUpgrade(interaction.guild.id, allianceValue, upgradeId);
-          if (!result.ok) {
-            return interaction.reply({
-              embeds: [embeds.error(result.reason, interaction.guild)],
-              flags: MessageFlags.Ephemeral,
-            });
-          }
-          const upgrade = result.upgrade;
-          await sendBakeAdminLog(interaction, targetId, 'Alliance: Grant Upgrade', `${result.alliance.name} (${result.alliance.id}) -> ${upgrade?.name ?? upgradeId}`);
-          return interaction.reply({
-            embeds: [embeds.success(`Granted alliance upgrade **${upgrade?.name ?? upgradeId}** to **${result.alliance.name}** (\`${result.alliance.id}\`).`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
-          });
-        }
-        if (action === 'alliance_delete') {
-          const allianceValue = interaction.fields.getTextInputValue('alliance').trim();
-          const confirm = interaction.fields.getTextInputValue('confirm').trim();
-          if (confirm !== 'DELETE') {
-            return interaction.reply({
-              embeds: [embeds.warning('Delete cancelled. Type `DELETE` exactly to confirm.', interaction.guild)],
-              flags: MessageFlags.Ephemeral,
-            });
-          }
-          const result = alliances.adminDeleteAlliance(interaction.guild.id, allianceValue);
-          if (!result.ok) {
-            return interaction.reply({
-              embeds: [embeds.error(result.reason, interaction.guild)],
-              flags: MessageFlags.Ephemeral,
-            });
-          }
-          await sendBakeAdminLog(interaction, targetId, 'Alliance: Delete', `${result.allianceName} (${result.allianceId}), members removed: ${result.memberCount}`);
-          return interaction.reply({
-            embeds: [embeds.success(`Deleted alliance **${result.allianceName}** (\`${result.allianceId}\`).`, interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
