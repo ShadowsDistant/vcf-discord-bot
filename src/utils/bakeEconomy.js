@@ -27,6 +27,9 @@ const BASE_GOLDEN_CHANCE = 0.02;
 const BURNT_BAKE_CHANCE = 0.08;
 const BUILDING_SELL_REFUND_RATE = 0.5;
 const BUILDING_COST_GROWTH = 1.18;
+const VCF_PROFILE_TAG_CPS_BOOST = 0.05;
+const VCF_PROFILE_TAG_MANUAL_CLICK_BONUS = 5;
+const VCF_PROFILE_TAG_REGEX = /(^|[^a-z0-9])vcf([^a-z0-9]|$)/i;
 const MAX_DISPLAYED_GIFT_BOXES = 6;
 const GIFT_BOX_OPTION_PREFIX = 'gift:';
 const BAKE_ADMIN_ROLE_ID = '1492510387579654205';
@@ -790,6 +793,7 @@ function getDefaultUserState(userId) {
     forceGoldenCookieOnNextBake: false,
     isServerBooster: false,
     boosterCpsBoost: 0,
+    hasVcfProfileTag: false,
     allianceBoostDetails: {
       rankBoost: 0,
       upgradeBoost: 0,
@@ -826,6 +830,7 @@ function getUserState(guildState, userId) {
   if (!Array.isArray(user.pendingMessages)) user.pendingMessages = [];
   if (typeof user.isServerBooster !== 'boolean') user.isServerBooster = false;
   user.boosterCpsBoost = user.isServerBooster ? 0.1 : 0;
+  if (typeof user.hasVcfProfileTag !== 'boolean') user.hasVcfProfileTag = false;
   if (!user.allianceBoostDetails || typeof user.allianceBoostDetails !== 'object') {
     user.allianceBoostDetails = {
       rankBoost: 0,
@@ -1274,7 +1279,8 @@ function computeCps(user, nowTs = Date.now()) {
 
   const allianceBoost = Math.max(0, Number(user.allianceCpsBoost ?? 0));
   const boosterBoost = Math.max(0, Number(user.boosterCpsBoost ?? 0));
-  const total = (buildingCps + consumedBonus) * globalMultiplier * (1 + kittenBonus) * frenzyMultiplier * (1 + allianceBoost + boosterBoost);
+  const vcfTagBoost = user.hasVcfProfileTag ? VCF_PROFILE_TAG_CPS_BOOST : 0;
+  const total = (buildingCps + consumedBonus) * globalMultiplier * (1 + kittenBonus) * frenzyMultiplier * (1 + allianceBoost + boosterBoost + vcfTagBoost);
   user.highestCps = Math.max(user.highestCps ?? 0, total);
   return total;
 }
@@ -1318,6 +1324,31 @@ function setUserBoosterStatus(guildId, userId, isBooster) {
     user.allianceBoostDetails = {};
   }
   user.allianceBoostDetails.personalBoosterBoost = user.boosterCpsBoost;
+  writeState(data);
+}
+
+function hasVcfProfileTag(...values) {
+  return values.some((value) => typeof value === 'string' && VCF_PROFILE_TAG_REGEX.test(value));
+}
+
+function inferVcfProfileTagStatus(memberLike, userLike = null) {
+  return hasVcfProfileTag(
+    memberLike?.displayName,
+    memberLike?.nickname,
+    memberLike?.nick,
+    memberLike?.user?.username,
+    memberLike?.user?.globalName,
+    userLike?.username,
+    userLike?.globalName,
+    userLike?.tag,
+  );
+}
+
+function setUserVcfTagStatus(guildId, userId, hasVcfTag) {
+  const data = readState();
+  const guildState = getGuildState(data, guildId);
+  const user = getUserState(guildState, userId);
+  user.hasVcfProfileTag = Boolean(hasVcfTag);
   writeState(data);
 }
 
@@ -1384,6 +1415,7 @@ function getManualBakeYield(user, nowTs = Date.now()) {
   let base = 1;
   if (hasUpgrade(user, 'fingers_crossed')) base += 1;
   if (hasUpgrade(user, 'ladyfingers')) base += 3;
+  if (user.hasVcfProfileTag) base += VCF_PROFILE_TAG_MANUAL_CLICK_BONUS;
   if (hasUpgrade(user, 'ritual_rolling_pins')) base += Math.floor(computeCps(user, nowTs) * 0.005);
   if (user.clickFrenzyCharges > 0 && user.clickFrenzyExpiresAt > nowTs) {
     user.clickFrenzyCharges -= 1;
@@ -1608,6 +1640,7 @@ function buildCpsBreakdownEmbed(guild, user) {
   const frenzyMultiplier = frenzy ? 7 : 1;
   const allianceBoost = Math.max(0, Number(user.allianceCpsBoost ?? 0));
   const boosterBoost = Math.max(0, Number(user.boosterCpsBoost ?? 0));
+  const vcfTagBoost = user.hasVcfProfileTag ? VCF_PROFILE_TAG_CPS_BOOST : 0;
   const boostDetails = user.allianceBoostDetails ?? {};
   const boosterCount = Math.max(0, Number(boostDetails.allianceBoosterCount ?? 0));
   const boosterAllianceBoost = Math.max(0, Number(boostDetails.allianceBoosterBoost ?? 0));
@@ -1617,7 +1650,7 @@ function buildCpsBreakdownEmbed(guild, user) {
   // ── Totals ────────────────────────────────────────────────────────────────
   const basePlusBoosted = buildingTotal + consumedBonus;
   const totalBeforeAlliance = basePlusBoosted * globalMultiplier * (1 + kittenBonus) * frenzyMultiplier;
-  const totalCps = totalBeforeAlliance * (1 + allianceBoost + boosterBoost);
+  const totalCps = totalBeforeAlliance * (1 + allianceBoost + boosterBoost + vcfTagBoost);
 
   const embed = new EmbedBuilder()
     .setColor(0xf1c40f)
@@ -1646,6 +1679,9 @@ function buildCpsBreakdownEmbed(guild, user) {
   if (frenzy) {
     embed.addFields({ name: '🌀 Frenzy Active', value: `×7 multiplier (expires <t:${Math.floor(frenzy.expiresAt / 1000)}:R>)`, inline: true });
   }
+  if (vcfTagBoost > 0) {
+    embed.addFields({ name: '🏷️ VCF Profile Bonus', value: `+${(vcfTagBoost * 100).toFixed(0)}% CPS`, inline: true });
+  }
   if (allianceBoost > 0 || boosterBoost > 0) {
     embed.addFields({ name: '🤝 Alliance Boost', value: `+${(allianceBoost * 100).toFixed(0)}% (rank + alliance upgrades + alliance boosters)`, inline: true });
     if (rankBoost > 0 || upgradeBoost > 0 || boosterAllianceBoost > 0 || boosterBoost > 0) {
@@ -1658,7 +1694,7 @@ function buildCpsBreakdownEmbed(guild, user) {
     }
   }
   embed.addFields({ name: '✅ Final Total (All Boosters)', value: `${toCookieNumber(totalCps)} CPS`, inline: false });
-  embed.addFields({ name: '📊 Formula', value: `(Buildings + Boosts) × Global Multiplier × (1 + Kitten%) × Frenzy × (1 + Alliance% + Booster%)`, inline: false });
+  embed.addFields({ name: '📊 Formula', value: `(Buildings + Boosts) × Global Multiplier × (1 + Kitten%) × Frenzy × (1 + Alliance% + Booster% + VCF%)`, inline: false });
 
   embed.setTimestamp();
   if (guild) {
@@ -3605,6 +3641,8 @@ module.exports = {
   setAllianceCpsBoostBatch,
   setUserAllianceCpsBoost,
   setUserBoosterStatus,
+  setUserVcfTagStatus,
+  inferVcfProfileTagStatus,
   buildDashboardEmbed,
   buildDashboardComponents,
   buildCpsBreakdownEmbed,

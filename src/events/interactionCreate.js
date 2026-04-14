@@ -496,6 +496,8 @@ module.exports = {
         if (typeof hasBoosterRole === 'boolean') {
           economy.setUserBoosterStatus(interaction.guildId, interaction.user.id, hasBoosterRole);
         }
+        const hasVcfProfileTag = economy.inferVcfProfileTagStatus(interaction.member, interaction.user);
+        economy.setUserVcfTagStatus(interaction.guildId, interaction.user.id, hasVcfProfileTag);
       }
       if (interaction.isButton()) {
       if (isComponentExpired(interaction)) {
