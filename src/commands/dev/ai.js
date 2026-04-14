@@ -14,7 +14,7 @@ const {
   TextInputStyle,
 } = require('discord.js');
 const OpenAI = require('openai');
-const { isDevUser } = require('../../utils/roles');
+const { canUseDevCommand } = require('../../utils/roles');
 const db = require('../../utils/database');
 const analytics = require('../../utils/analytics');
 const { sendModerationActionDm, sendModLog } = require('../../utils/moderationNotifications');
@@ -24,7 +24,6 @@ const { formatDuration } = require('../../utils/helpers');
 // ── Constants ───────────────────────────────────────────────────────────────────
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY ?? '';
 const NVIDIA_API_BASE = 'https://integrate.api.nvidia.com/v1';
-const AI_ACCESS_ROLE_ID = '1493414609678499890';
 const MAX_TOKENS = 4096;
 const TEMPERATURE = 1.0;
 const TOP_P = 1.0;
@@ -53,7 +52,6 @@ const CONVINCE_MIN_ARGUMENT_WORDS = 8;
 const THINKING_MAX_LINES = 3;
 const THINKING_MAX_LINE_LENGTH = 220;
 const LOADING_EMOJI = '<a:loading:1493407458180468996>';
-const AI_HARDCODED_ALLOW_IDS = new Set(['1272344731526889544']);
 const AI_REVIEW_BUTTON_ID = 'ai_review_details';
 const AI_OUTPUT_BUTTON_ID = 'ai_output_view';
 const AI_CONTINUE_BUTTON_ID = 'ai_continue_conversation';
@@ -918,34 +916,13 @@ function normalizeToolCalls(toolCalls) {
 }
 
 /**
- * Determine if user can access /ai.
- * @param {string} userId
- * @returns {boolean}
- */
-function isAiAllowedUser(userId) {
-  const id = String(userId);
-  return isDevUser(id) || AI_HARDCODED_ALLOW_IDS.has(id);
-}
-
-/**
- * Determine if a member has the AI access role.
- * @param {import('discord.js').GuildMember|import('discord.js').APIInteractionGuildMember|null|undefined} member
- * @returns {boolean}
- */
-function hasAiAccessRole(member) {
-  const roleCache = member?.roles?.cache;
-  if (!roleCache) return false;
-  return roleCache.has(AI_ACCESS_ROLE_ID);
-}
-
-/**
  * Determine if user/member can access /ai.
- * @param {string} userId
- * @param {import('discord.js').GuildMember|import('discord.js').APIInteractionGuildMember|null|undefined} [member]
+ * @param {import('discord.js').GuildMember|import('discord.js').APIInteractionGuildMember|null|undefined} member
+ * @param {import('discord.js').Guild|null} guild
  * @returns {boolean}
  */
-function canUseAiCommand(userId, member) {
-  return isAiAllowedUser(userId) || hasAiAccessRole(member);
+function canUseAiCommand(member, guild) {
+  return canUseDevCommand(member, guild, 'ai');
 }
 
 /**
@@ -2883,13 +2860,13 @@ module.exports = {
 
   async execute(interaction) {
     // ── Auth check ────────────────────────────────────────────────────────────
-    if (!canUseAiCommand(interaction.user.id, interaction.member)) {
+    if (!canUseAiCommand(interaction.member, interaction.guild)) {
       return interaction.reply({
         embeds: [
           new EmbedBuilder()
             .setColor(0xed4245)
             .setTitle('Access Denied')
-            .setDescription('You need developer access or the AI access role to use this command.')
+            .setDescription('You must be in the developer team to use this command.')
             .setTimestamp(),
         ],
         flags: MessageFlags.Ephemeral,

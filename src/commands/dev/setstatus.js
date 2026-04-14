@@ -2,8 +2,7 @@
 
 const { SlashCommandBuilder, ActivityType, MessageFlags } = require('discord.js');
 const embeds = require('../../utils/embeds');
-
-const DEV_USER_ID = process.env.DEV_USER_ID ?? '757698506411475005';
+const { canUseDevCommand } = require('../../utils/roles');
 
 const STATUS_CHOICES = [
   { name: 'Online', value: 'online' },
@@ -52,9 +51,9 @@ module.exports = {
     ),
 
   async execute(interaction) {
-    if (interaction.user.id !== DEV_USER_ID) {
+    if (!canUseDevCommand(interaction.member, interaction.guild, 'setstatus')) {
       return interaction.reply({
-        embeds: [embeds.error('This command is restricted to the bot developer.', interaction.guild ?? null)],
+        embeds: [embeds.error('This command requires Developer role or higher in the developer team.', interaction.guild ?? null)],
         flags: MessageFlags.Ephemeral,
       });
     }

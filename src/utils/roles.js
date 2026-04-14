@@ -28,6 +28,8 @@ const ROLE_IDS = {
     assistantDevelopmentManager: '1456708048784457748',
   },
 };
+const DEV_TEAM_ROLE_ID = process.env.DEV_TEAM_ROLE_ID ?? '1380606884385521714';
+const DEV_ELEVATED_ROLE_ID = String(process.env.DEV_ELEVATED_ROLE_ID ?? '').trim();
 
 const MODERATION_ROLE_IDS = new Set(Object.values(ROLE_IDS.moderation));
 const SID_ROLE_IDS = new Set(Object.values(ROLE_IDS.sid));
@@ -100,6 +102,20 @@ function memberHasAnyRole(member, roleIds) {
   return [...roleIds].some((roleId) => member.roles.cache.has(roleId));
 }
 
+function getMemberRoleIds(member) {
+  const roleCache = member?.roles?.cache;
+  if (roleCache?.size) return roleCache.map((role) => role.id);
+  const roleIds = member?.roles;
+  if (Array.isArray(roleIds)) return roleIds.map((id) => String(id));
+  return [];
+}
+
+function memberHasRoleId(member, roleId) {
+  if (!roleId) return false;
+  const target = String(roleId);
+  return getMemberRoleIds(member).includes(target);
+}
+
 function getMemberDepartments(member) {
   return Object.values(DEPARTMENTS).filter((dept) => memberHasAnyRole(member, dept.roleIds));
 }
@@ -120,13 +136,46 @@ function hasShiftAccessRole(member) {
   return hasModerationAccessRole(member) || hasManagementAccessRole(member);
 }
 
-function isDevUser(userId) {
-  const configured = String(process.env.DEV_USER_ID ?? '')
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-  const allowed = configured.length ? configured : ['757698506411475005'];
-  return allowed.includes(String(userId));
+function isDevTeamMember(member) {
+  return memberHasRoleId(member, DEV_TEAM_ROLE_ID);
+}
+
+function hasRoleAtOrAbove(member, guild, roleId) {
+  const guildRoles = guild?.roles?.cache;
+  if (!guildRoles?.size) return false;
+  const thresholdRole = guildRoles.get(String(roleId));
+  if (!thresholdRole) return false;
+  return getMemberRoleIds(member)
+    .map((memberRoleId) => guildRoles.get(memberRoleId))
+    .filter(Boolean)
+    .some((role) => role.position >= thresholdRole.position);
+}
+
+function hasRoleAbove(member, guild, roleId) {
+  const guildRoles = guild?.roles?.cache;
+  if (!guildRoles?.size) return false;
+  const thresholdRole = guildRoles.get(String(roleId));
+  if (!thresholdRole) return false;
+  return getMemberRoleIds(member)
+    .map((memberRoleId) => guildRoles.get(memberRoleId))
+    .filter(Boolean)
+    .some((role) => role.position > thresholdRole.position);
+}
+
+function hasDeveloperLevelAccess(member, guild) {
+  if (!isDevTeamMember(member)) return false;
+  if (DEV_ELEVATED_ROLE_ID) {
+    return hasRoleAtOrAbove(member, guild, DEV_ELEVATED_ROLE_ID);
+  }
+  return hasRoleAbove(member, guild, DEV_TEAM_ROLE_ID);
+}
+
+function canUseDevCommand(member, guild, commandName) {
+  if (!isDevTeamMember(member)) return false;
+  if (commandName === 'setstatus' || commandName === 'servers') {
+    return hasDeveloperLevelAccess(member, guild);
+  }
+  return true;
 }
 
 module.exports = {
@@ -146,5 +195,7 @@ module.exports = {
   hasManagementAccessRole,
   hasLeadOverseerRole,
   hasShiftAccessRole,
-  isDevUser,
+  isDevTeamMember,
+  hasDeveloperLevelAccess,
+  canUseDevCommand,
 };
