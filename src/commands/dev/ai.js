@@ -34,6 +34,7 @@ const FIELDS_MAX = 25;
 const MAX_LINK_BUTTONS = 10;
 const NO_RESPONSE_TEXT = '*(No response)*';
 const CHUNK_NEWLINE_SPLIT_THRESHOLD = 0.5;
+const LOADING_EMOJI = '<:loading:1493407458180468996>';
 const AI_HARDCODED_ALLOW_IDS = new Set(['1272344731526889544']);
 const AI_REVIEW_BUTTON_ID = 'ai_review_details';
 const AI_OUTPUT_BUTTON_ID = 'ai_output_view';
@@ -45,7 +46,7 @@ const AI_CONTINUE_PROMPT_INPUT_ID = 'ai_continue_prompt';
 const AI_UI_BUTTON_PREFIX = 'ai_ui_button:';
 const AI_UI_SELECT_PREFIX = 'ai_ui_select:';
 const AI_UI_MODAL_PREFIX = 'ai_ui_modal:';
-const AI_MODEL_LABEL = 'Valley AI (GPT OSS 120B)';
+const AI_MODEL_LABEL = 'Valley AI';
 const AI_SESSIONS = new Map();
 const MAX_CUSTOM_ID_BASE_LENGTH = 48; // keeps prefixed custom IDs within Discord's 100-char limit
 const MAX_CONVERSATION_MESSAGES = 60;
@@ -56,7 +57,7 @@ const aiClient = new OpenAI({
 });
 
 // ── System prompt ────────────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `You are Valley AI (model: GPT OSS 120B), created by shadowsdistant.
+const SYSTEM_PROMPT = `You are Valley AI, created by shadowsdistant.
 You are an assistant operating inside VCF (Valley Correctional Facility), a roleplay faction for the Roblox game Valley Prison.
 You have access to Discord management tools and a web search tool.
 
@@ -1396,7 +1397,8 @@ function buildReviewEmbed(stats, toolsUsed) {
     .setTitle('🧾 AI Review')
     .setDescription('Diagnostics for this AI response.')
     .addFields(
-      { name: 'Model', value: `${AI_MODEL_LABEL} • ${MODEL}`, inline: false },
+      { name: 'Assistant', value: AI_MODEL_LABEL, inline: false },
+      { name: 'Runtime Model', value: MODEL, inline: false },
       { name: 'TTFT', value: stats.ttftMs != null ? `${stats.ttftMs} ms` : 'N/A', inline: true },
       { name: 'Total Time', value: `${stats.totalMs} ms`, inline: true },
       { name: 'Iterations', value: String(stats.iterations), inline: true },
@@ -1791,8 +1793,8 @@ function attachReviewHandler(replyMsg, interaction, session) {
 function buildProcessingEmbed(status = 'Thinking…') {
   return new EmbedBuilder()
     .setColor(DEFAULT_COLOR)
-    .setTitle('⏳ Processing')
-    .setDescription(status)
+    .setTitle(`${LOADING_EMOJI} Processing`)
+    .setDescription(`${LOADING_EMOJI} ${status}`)
     .setTimestamp();
 }
 
@@ -1818,7 +1820,7 @@ function buildErrorEmbed(message, statusCode) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('ai')
-    .setDescription('[Dev] Send a prompt to Valley AI (GPT OSS 120B) with Discord tools and web search.')
+    .setDescription('[Dev] Send a prompt to Valley AI with Discord tools and web search.')
     .addStringOption((o) =>
       o
         .setName('prompt')
