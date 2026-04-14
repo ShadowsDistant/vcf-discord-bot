@@ -614,6 +614,9 @@ Edit the `.env` file with your credentials:
 DISCORD_TOKEN=your_bot_token_here
 CLIENT_ID=your_application_client_id_here
 
+# Optional — deploy commands to one guild for immediate updates while developing
+GUILD_ID=your_server_id
+
 # Optional — Discord user ID allowed to use developer commands
 # Defaults to the bot owner ID if not set
 DEV_USER_ID=your_discord_user_id
@@ -626,6 +629,7 @@ NVIDIA_API_KEY=your_nvidia_api_key
 |---|---|---|
 | `DISCORD_TOKEN` | ✅ | Your bot's secret token from the Developer Portal |
 | `CLIENT_ID` | ✅ | Your application's client/application ID |
+| `GUILD_ID` | ❌ | If set, deploys commands to that guild (fast propagation for testing) instead of global |
 | `REQUIRED_BAKE_COMMANDS` | ❌ | Comma-separated slash command names required by deploy validation (e.g. `bake,bakery,marketplace,bakeadmin`) |
 | `DEV_USER_ID` | ❌ | Discord user ID(s) permitted to use dev commands (comma-separated supported) |
 | `NVIDIA_API_KEY` | ❌ | NVIDIA Build API key used by `/ai` via `https://integrate.api.nvidia.com/v1` |
@@ -640,7 +644,8 @@ You must deploy slash commands before they appear in Discord. Run:
 npm run deploy
 ```
 
-- Commands are registered globally and may take up to **1 hour** to propagate to all servers.
+- By default, commands are registered globally and may take up to **1 hour** to propagate to all servers.
+- For immediate updates while testing, set `GUILD_ID` in `.env` and run `npm run deploy` again to deploy to only that guild.
 - Deployment also clears legacy guild-scoped command registrations to prevent old slash commands from lingering.
 - Optional `REQUIRED_BAKE_COMMANDS` can enforce that specific command names exist before deployment succeeds.
 
