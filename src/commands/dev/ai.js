@@ -29,8 +29,32 @@ const TEMPERATURE = 1.0;
 const TOP_P = 1.0;
 const MAX_ITERATIONS = 10;
 const AI_REQUEST_TIMEOUT_MS = 60_000;
-const SAFETY_MODEL = 'nvidia/llama-3.1-nemotron-safety-guard-8b-v3';
+const SAFETY_MODEL = 'nvidia/nemotron-content-safety-reasoning-4b';
 const SAFETY_MAX_TOKENS = 1024;
+const SAFETY_CLASSIFIER_TAXONOMY = [
+  'S1: Violence.',
+  'S2: Sexual.',
+  'S3: Criminal Planning/Confessions.',
+  'S4: Guns and Illegal Weapons.',
+  'S5: Controlled/Regulated Substances.',
+  'S6: Suicide and Self Harm.',
+  'S7: Sexual (minor).',
+  'S8: Hate/Identity Hate.',
+  'S9: PII/Privacy.',
+  'S10: Harassment.',
+  'S11: Threat.',
+  'S12: Profanity.',
+  'S13: Needs Caution.',
+  'S14: Manipulation.',
+  'S15: Fraud/Deception.',
+  'S16: Malware.',
+  'S17: High Risk Gov Decision Making.',
+  'S18: Political/Misinformation/Conspiracy.',
+  'S19: Copyright/Trademark/Plagiarism.',
+  'S20: Unauthorized Advice.',
+  'S21: Illegal Activity.',
+  'S22: Immoral/Unethical.',
+].join('\n');
 const DEFAULT_COLOR = 0x99aab5; // default grey
 const MAX_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000;
 const CONFIRMATION_TIMEOUT_MS = 30_000;
@@ -907,6 +931,42 @@ function getLatestUserMessage(messages) {
     if (messages[i]?.role === 'user') return String(messages[i].content ?? '');
   }
   return '';
+}
+
+/**
+ * Build the classifier prompt for NVIDIA content-safety reasoning model.
+ * @param {string} userPrompt
+ * @param {string|null} assistantResponse
+ * @returns {string}
+ */
+function buildSafetyClassifierPrompt(userPrompt, assistantResponse) {
+  const promptText = String(userPrompt ?? '').trim() || 'None';
+  const responseText = assistantResponse == null ? 'None' : String(assistantResponse).trim() || 'None';
+  return [
+    'You are a classifier for analyzing interactions between humans and LLMs.',
+    "Given a request from a human user and a response from an LLM assistant, determine: 1) whether the human user's request is harmful, 2) whether the AI assistant's response is a refusal, and 3) whether the AI assistant's response is harmful.",
+    'Use the taxonomy to determine whether the prompt and response fall into any harmful categories.',
+    '',
+    'Taxonomy:',
+    SAFETY_CLASSIFIER_TAXONOMY,
+    '',
+    'Output ONLY the following lines, exactly in this format:',
+    'Prompt harm: harmful|unharmful',
+    'Prompt rule: comma-separated category IDs (e.g., S3,S21) or None',
+    'Reason: brief reason for prompt classification',
+    'Prompt severity: low|medium|high|none',
+    'Response refusal: yes|no',
+    'Response harm: harmful|unharmful',
+    'Response rule: comma-separated category IDs (e.g., S3,S21) or None',
+    'Response reason: brief reason for response classification',
+    'Response severity: low|medium|high|none',
+    '',
+    'Human user:',
+    promptText,
+    '',
+    'AI assistant:',
+    responseText,
+  ].join('\n');
 }
 
 /**
@@ -2059,14 +2119,14 @@ async function callNvidiaApi(messages, settings) {
 async function runSafetyFilter(input) {
   const userPrompt = String(input?.prompt ?? '').trim();
   const assistantResponse = input?.response == null ? null : String(input.response).trim();
+  const classifierPrompt = buildSafetyClassifierPrompt(userPrompt, assistantResponse);
 
   const payload = {
     model: SAFETY_MODEL,
     messages: [
-      { role: 'user', content: userPrompt || 'None' },
-      { role: 'assistant', content: assistantResponse ?? 'None' },
+      { role: 'user', content: classifierPrompt },
     ],
-    temperature: 1,
+    temperature: 0,
     top_p: 1,
     max_tokens: SAFETY_MAX_TOKENS,
     stream: false,
