@@ -2182,11 +2182,17 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
     rows.push(new ActionRowBuilder().addComponents(buildingMenu));
     const selectedBuilding = options.buildingId ?? 'cursor';
     const selectedOwned = user.buildings[selectedBuilding] ?? 0;
+    const buyPrice1 = getBuildingPrice(selectedBuilding, selectedOwned, 1) ?? Number.POSITIVE_INFINITY;
+    const buyPrice10 = getBuildingPrice(selectedBuilding, selectedOwned, 10) ?? Number.POSITIVE_INFINITY;
+    const buyPrice100 = getBuildingPrice(selectedBuilding, selectedOwned, 100) ?? Number.POSITIVE_INFINITY;
+    const canAfford1 = Number(user.cookies) >= buyPrice1;
+    const canAfford10 = Number(user.cookies) >= buyPrice10;
+    const canAfford100 = Number(user.cookies) >= buyPrice100;
     rows.push(
         new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`bakery_build_buy:${selectedBuilding}:1`).setLabel('Buy x1').setStyle(ButtonStyle.Success).setEmoji(getButtonEmoji(options.guild, ['cookie', 'plain_cookie'], '🛍️')),
-          new ButtonBuilder().setCustomId(`bakery_build_buy:${selectedBuilding}:10`).setLabel('Buy x10').setStyle(ButtonStyle.Success).setEmoji(getButtonEmoji(options.guild, ['cookie', 'plain_cookie'], '🛍️')),
-          new ButtonBuilder().setCustomId(`bakery_build_buy:${selectedBuilding}:100`).setLabel('Buy x100').setStyle(ButtonStyle.Success).setEmoji(getButtonEmoji(options.guild, ['cookie', 'plain_cookie'], '🛍️')),
+          new ButtonBuilder().setCustomId(`bakery_build_buy:${selectedBuilding}:1`).setLabel('Buy x1').setStyle(ButtonStyle.Success).setDisabled(!canAfford1).setEmoji(getButtonEmoji(options.guild, ['cookie', 'plain_cookie'], '🛍️')),
+          new ButtonBuilder().setCustomId(`bakery_build_buy:${selectedBuilding}:10`).setLabel('Buy x10').setStyle(ButtonStyle.Success).setDisabled(!canAfford10).setEmoji(getButtonEmoji(options.guild, ['cookie', 'plain_cookie'], '🛍️')),
+          new ButtonBuilder().setCustomId(`bakery_build_buy:${selectedBuilding}:100`).setLabel('Buy x100').setStyle(ButtonStyle.Success).setDisabled(!canAfford100).setEmoji(getButtonEmoji(options.guild, ['cookie', 'plain_cookie'], '🛍️')),
         ),
       );
     rows.push(
