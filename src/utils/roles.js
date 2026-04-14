@@ -201,7 +201,7 @@ function isAdminOrOwner(member, guild) {
   return isGuildOwner(member, guild) || hasAdministratorPermission(member);
 }
 
-function canUseDevCommand(member, guild, commandName) {
+function canUseDevCommand(member, _guild, _commandName) {
   const memberId = String(member?.id ?? member?.user?.id ?? '').trim();
   if (!memberId) return false;
   return DEV_USER_IDS.has(memberId);
