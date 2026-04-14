@@ -34,13 +34,15 @@ const FIELDS_MAX = 25;
 const MAX_LINK_BUTTONS = 10;
 const NO_RESPONSE_TEXT = '*(No response)*';
 const CHUNK_NEWLINE_SPLIT_THRESHOLD = 0.5;
-const LOADING_EMOJI = '<:loading:1493407458180468996>';
+const LOADING_EMOJI = '<a:loading:1493407458180468996>';
 const AI_HARDCODED_ALLOW_IDS = new Set(['1272344731526889544']);
 const AI_REVIEW_BUTTON_ID = 'ai_review_details';
 const AI_OUTPUT_BUTTON_ID = 'ai_output_view';
 const AI_CONTINUE_BUTTON_ID = 'ai_continue_conversation';
 const AI_PAGE_PREV_BUTTON_ID = 'ai_page_prev';
 const AI_PAGE_NEXT_BUTTON_ID = 'ai_page_next';
+const AI_TURN_PREV_BUTTON_ID = 'ai_turn_prev';
+const AI_TURN_NEXT_BUTTON_ID = 'ai_turn_next';
 const AI_CONTINUE_MODAL_ID = 'ai_continue_modal';
 const AI_CONTINUE_PROMPT_INPUT_ID = 'ai_continue_prompt';
 const AI_UI_BUTTON_PREFIX = 'ai_ui_button:';
@@ -91,7 +93,9 @@ Guidelines:
 - If useful, include 0-10 link_buttons using valid https/http URLs.
 - You may include interactive buttons/select menus/modal buttons to collect input from the user when helpful.
 - Respect Discord limits: max 5 action rows, max 5 buttons per row, max 25 select options, max 5 modal fields.
-- Interactions collected from buttons/select menus/modals are stored as context and will be processed on the next "Continue" prompt.
+- Prefer select_menus when asking the user to choose from a finite set of options.
+- Select-menu interactions are sent back immediately as user context and should be treated as the user's answer.
+- Button/modal interactions are stored as context and can be processed on the next "Continue" prompt.
 - If output is paginated, image_url is shown on the first page.
 - Keep responses concise and useful.`;
 
@@ -1410,14 +1414,38 @@ function buildReviewEmbed(stats, toolsUsed) {
 }
 
 /**
+ * Get the active turn object from a session.
+ * @param {object} session
+ * @returns {object}
+ */
+function getActiveTurn(session) {
+  if (Array.isArray(session.turns) && session.turns.length > 0) {
+    const clamped = Math.min(Math.max(0, session.turnIndex ?? 0), session.turns.length - 1);
+    return session.turns[clamped];
+  }
+  return {
+    outputEmbeds: session.outputEmbeds ?? [],
+    reviewEmbed: session.reviewEmbed,
+    linkButtons: session.linkButtons ?? [],
+    uiRows: session.uiRows ?? [],
+    uiState: session.uiState ?? { buttons: {}, selects: {}, modals: {} },
+    pageIndex: session.pageIndex ?? 0,
+    viewMode: session.viewMode ?? 'output',
+  };
+}
+
+/**
  * Build interactive components for output/review pages.
- * @param {{viewMode:'output'|'review',pageIndex:number,outputEmbeds:EmbedBuilder[],linkButtons:Array<{label:string,url:string}>,uiRows:ActionRowBuilder[]}} state
+ * @param {object} session
  * @returns {ActionRowBuilder[]}
  */
-function buildFinalComponents(state) {
-  const mode = state.viewMode ?? 'output';
-  const pageCount = Math.max(1, state.outputEmbeds?.length ?? 1);
-  const pageIndex = Math.min(Math.max(0, state.pageIndex ?? 0), pageCount - 1);
+function buildFinalComponents(session) {
+  const turn = getActiveTurn(session);
+  const mode = turn.viewMode ?? 'output';
+  const pageCount = Math.max(1, turn.outputEmbeds?.length ?? 1);
+  const pageIndex = Math.min(Math.max(0, turn.pageIndex ?? 0), pageCount - 1);
+  const turnCount = Math.max(1, session.turns?.length ?? 1);
+  const turnIndex = Math.min(Math.max(0, session.turnIndex ?? 0), turnCount - 1);
   const rows = [];
 
   const controls = new ActionRowBuilder().addComponents(
@@ -1431,34 +1459,51 @@ function buildFinalComponents(state) {
       .setLabel('Continue'),
   );
 
-  if (mode === 'output' && pageCount > 1) {
+  if (turnCount > 1) {
     controls.addComponents(
       new ButtonBuilder()
-        .setCustomId(AI_PAGE_PREV_BUTTON_ID)
+        .setCustomId(AI_TURN_PREV_BUTTON_ID)
         .setStyle(ButtonStyle.Secondary)
-        .setLabel('Prev')
-        .setDisabled(pageIndex === 0),
+        .setLabel('Prev Message')
+        .setDisabled(turnIndex === 0),
       new ButtonBuilder()
-        .setCustomId(AI_PAGE_NEXT_BUTTON_ID)
+        .setCustomId(AI_TURN_NEXT_BUTTON_ID)
         .setStyle(ButtonStyle.Secondary)
-        .setLabel('Next')
-        .setDisabled(pageIndex >= pageCount - 1),
+        .setLabel('Next Message')
+        .setDisabled(turnIndex >= turnCount - 1),
     );
   }
   rows.push(controls);
 
-  if (mode === 'output' && Array.isArray(state.uiRows)) {
-    for (const row of state.uiRows) {
+  if (mode === 'output' && pageCount > 1 && rows.length < 5) {
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(AI_PAGE_PREV_BUTTON_ID)
+          .setStyle(ButtonStyle.Secondary)
+          .setLabel('Prev Page')
+          .setDisabled(pageIndex === 0),
+        new ButtonBuilder()
+          .setCustomId(AI_PAGE_NEXT_BUTTON_ID)
+          .setStyle(ButtonStyle.Secondary)
+          .setLabel('Next Page')
+          .setDisabled(pageIndex >= pageCount - 1),
+      ),
+    );
+  }
+
+  if (mode === 'output' && Array.isArray(turn.uiRows)) {
+    for (const row of turn.uiRows) {
       if (rows.length >= 5) break;
       rows.push(row);
     }
   }
 
   let index = 0;
-  while (mode === 'output' && index < state.linkButtons?.length && rows.length < 5) {
+  while (mode === 'output' && index < turn.linkButtons?.length && rows.length < 5) {
     const row = new ActionRowBuilder();
-    while (index < state.linkButtons.length && row.components.length < 5) {
-      const item = state.linkButtons[index++];
+    while (index < turn.linkButtons.length && row.components.length < 5) {
+      const item = turn.linkButtons[index++];
       row.addComponents(
         new ButtonBuilder()
           .setStyle(ButtonStyle.Link)
@@ -1614,8 +1659,9 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed) {
  * @returns {EmbedBuilder}
  */
 function getActiveEmbed(session) {
-  if (session.viewMode === 'review') return session.reviewEmbed;
-  return session.outputEmbeds[session.pageIndex] ?? session.outputEmbeds[0];
+  const turn = getActiveTurn(session);
+  if (turn.viewMode === 'review') return turn.reviewEmbed;
+  return turn.outputEmbeds[turn.pageIndex] ?? turn.outputEmbeds[0];
 }
 
 /**
@@ -1637,22 +1683,36 @@ function attachReviewHandler(replyMsg, interaction, session) {
     }
 
     if (i.customId === AI_REVIEW_BUTTON_ID) {
-      session.viewMode = 'review';
+      const turn = getActiveTurn(session);
+      turn.viewMode = 'review';
       await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
       return;
     }
     if (i.customId === AI_OUTPUT_BUTTON_ID) {
-      session.viewMode = 'output';
+      const turn = getActiveTurn(session);
+      turn.viewMode = 'output';
       await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
       return;
     }
     if (i.customId === AI_PAGE_PREV_BUTTON_ID) {
-      if (session.viewMode === 'output') session.pageIndex = Math.max(0, session.pageIndex - 1);
+      const turn = getActiveTurn(session);
+      if (turn.viewMode === 'output') turn.pageIndex = Math.max(0, turn.pageIndex - 1);
       await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
       return;
     }
     if (i.customId === AI_PAGE_NEXT_BUTTON_ID) {
-      if (session.viewMode === 'output') session.pageIndex = Math.min(session.outputEmbeds.length - 1, session.pageIndex + 1);
+      const turn = getActiveTurn(session);
+      if (turn.viewMode === 'output') turn.pageIndex = Math.min(turn.outputEmbeds.length - 1, turn.pageIndex + 1);
+      await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
+      return;
+    }
+    if (i.customId === AI_TURN_PREV_BUTTON_ID) {
+      if (Array.isArray(session.turns) && session.turns.length > 0) session.turnIndex = Math.max(0, session.turnIndex - 1);
+      await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
+      return;
+    }
+    if (i.customId === AI_TURN_NEXT_BUTTON_ID) {
+      if (Array.isArray(session.turns) && session.turns.length > 0) session.turnIndex = Math.min(session.turns.length - 1, session.turnIndex + 1);
       await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
       return;
     }
@@ -1696,13 +1756,16 @@ function attachReviewHandler(replyMsg, interaction, session) {
 
       try {
         const result = await runAiTurn(interaction, replyMsg, session.messages, session.toolsUsed);
-        session.outputEmbeds = result.outputEmbeds;
-        session.reviewEmbed = result.reviewEmbed;
-        session.linkButtons = result.linkButtons;
-        session.uiRows = result.uiRows;
-        session.uiState = result.uiState;
-        session.pageIndex = 0;
-        session.viewMode = 'output';
+        session.turns.push({
+          outputEmbeds: result.outputEmbeds,
+          reviewEmbed: result.reviewEmbed,
+          linkButtons: result.linkButtons,
+          uiRows: result.uiRows,
+          uiState: result.uiState,
+          pageIndex: 0,
+          viewMode: 'output',
+        });
+        session.turnIndex = session.turns.length - 1;
         await replyMsg.edit({
           embeds: [getActiveEmbed(session)],
           components: buildFinalComponents(session),
@@ -1719,7 +1782,9 @@ function attachReviewHandler(replyMsg, interaction, session) {
     }
 
     if (i.customId.startsWith(AI_UI_BUTTON_PREFIX)) {
-      const button = session.uiState.buttons[i.customId];
+      const turn = getActiveTurn(session);
+      const uiState = turn.uiState ?? { buttons: {}, selects: {}, modals: {} };
+      const button = uiState.buttons[i.customId];
       if (!button) return i.reply({ content: 'Button configuration is unavailable.', flags: MessageFlags.Ephemeral }).catch(() => null);
       session.messages.push({ role: 'user', content: `UI button clicked: ${button.id}` });
       await i.reply({
@@ -1730,19 +1795,48 @@ function attachReviewHandler(replyMsg, interaction, session) {
     }
 
     if (i.customId.startsWith(AI_UI_SELECT_PREFIX)) {
-      const select = session.uiState.selects[i.customId];
+      const turn = getActiveTurn(session);
+      const uiState = turn.uiState ?? { buttons: {}, selects: {}, modals: {} };
+      const select = uiState.selects[i.customId];
       if (!select) return i.reply({ content: 'Select menu configuration is unavailable.', flags: MessageFlags.Ephemeral }).catch(() => null);
       const values = i.values?.join(', ') || 'none';
       session.messages.push({ role: 'user', content: `UI select used: ${select.id} -> ${values}` });
-      await i.reply({
-        content: `Captured selection for \`${select.id}\`: ${values}\nClick **Continue** to let Valley AI use it.`,
-        flags: MessageFlags.Ephemeral,
+      session.busy = true;
+      await i.update({
+        embeds: [buildProcessingEmbed(`Processing selection \`${select.id}\`…`)],
+        components: [],
       }).catch(() => null);
+      try {
+        const result = await runAiTurn(interaction, replyMsg, session.messages, session.toolsUsed);
+        session.turns.push({
+          outputEmbeds: result.outputEmbeds,
+          reviewEmbed: result.reviewEmbed,
+          linkButtons: result.linkButtons,
+          uiRows: result.uiRows,
+          uiState: result.uiState,
+          pageIndex: 0,
+          viewMode: 'output',
+        });
+        session.turnIndex = session.turns.length - 1;
+        await replyMsg.edit({
+          embeds: [getActiveEmbed(session)],
+          components: buildFinalComponents(session),
+        });
+      } catch (err) {
+        await replyMsg.edit({
+          embeds: [buildErrorEmbed(err.message, err.status)],
+          components: [],
+        }).catch(() => null);
+      } finally {
+        session.busy = false;
+      }
       return;
     }
 
     if (i.customId.startsWith(AI_UI_MODAL_PREFIX)) {
-      const modalDef = session.uiState.modals[i.customId];
+      const turn = getActiveTurn(session);
+      const uiState = turn.uiState ?? { buttons: {}, selects: {}, modals: {} };
+      const modalDef = uiState.modals[i.customId];
       if (!modalDef) return i.reply({ content: 'Modal configuration is unavailable.', flags: MessageFlags.Ephemeral }).catch(() => null);
       const modalCustomId = `${i.customId}:submit`;
       const modal = new ModalBuilder()
@@ -1881,13 +1975,16 @@ module.exports = {
       allowedUserId: interaction.user.id,
       messages,
       toolsUsed,
-      outputEmbeds: result.outputEmbeds,
-      reviewEmbed: result.reviewEmbed,
-      linkButtons: result.linkButtons,
-      uiRows: result.uiRows,
-      uiState: result.uiState,
-      pageIndex: 0,
-      viewMode: 'output',
+      turns: [{
+        outputEmbeds: result.outputEmbeds,
+        reviewEmbed: result.reviewEmbed,
+        linkButtons: result.linkButtons,
+        uiRows: result.uiRows,
+        uiState: result.uiState,
+        pageIndex: 0,
+        viewMode: 'output',
+      }],
+      turnIndex: 0,
       busy: false,
     };
 
