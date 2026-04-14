@@ -28,6 +28,7 @@ const TEMPERATURE = 1.0;
 const TOP_P = 1.0;
 const MAX_ITERATIONS = 10;
 const DEFAULT_COLOR = 0x99aab5; // default grey
+const MAX_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000;
 const CONFIRMATION_TIMEOUT_MS = 30_000;
 const REVIEW_TIMEOUT_MS = 15 * 60_000;
 const MODAL_SUBMIT_TIMEOUT_MS = 120_000;
@@ -990,7 +991,7 @@ async function searchGuildMembers(guild, query, limit = 10) {
   const needle = String(query ?? '').trim().toLowerCase();
   if (!needle) return [];
   const max = Math.min(25, Math.max(1, Number.parseInt(limit, 10) || 10));
-  const fetched = await guild.members.fetch({ query: needle.slice(0, 32), limit: 100 }).catch(() => null);
+  const fetched = await guild.members.fetch({ query: needle.slice(0, 32), limit: max }).catch(() => null);
   const members = fetched ? [...fetched.values()] : [];
   const scoreOf = (member) => {
     const username = String(member?.user?.username ?? '').toLowerCase();
@@ -1225,7 +1226,7 @@ async function executeTool(toolName, args, interaction) {
     case 'timeout_member': {
       const member = await guild.members.fetch(args.user_id);
       if (!member) throw new Error('Member not found.');
-      const ms = Math.min(args.duration_seconds * 1000, 28 * 24 * 60 * 60 * 1000);
+      const ms = Math.min(args.duration_seconds * 1000, MAX_TIMEOUT_MS);
       await member.timeout(ms, args.reason ?? undefined);
       return { success: true };
     }

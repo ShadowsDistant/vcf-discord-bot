@@ -1,5 +1,6 @@
 'use strict';
 
+const { randomUUID } = require('node:crypto');
 const {
   ActionRowBuilder,
   ButtonBuilder,
@@ -169,7 +170,7 @@ function setPendingGiftQuickSellSelection(guildId, userId, rewardBoxId, grants) 
     if (!itemId || !Number.isInteger(quantity) || quantity <= 0) continue;
     dropQuantities[itemId] = (dropQuantities[itemId] ?? 0) + quantity;
   }
-  const token = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const token = randomUUID();
   pendingGiftQuickSellSelections.set(`${guildId}:${userId}:${token}`, {
     rewardBoxId,
     dropQuantities,
