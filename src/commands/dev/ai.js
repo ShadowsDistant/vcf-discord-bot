@@ -24,13 +24,12 @@ const { formatDuration } = require('../../utils/helpers');
 // ── Constants ───────────────────────────────────────────────────────────────────
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY ?? '';
 const NVIDIA_API_BASE = 'https://integrate.api.nvidia.com/v1';
-const NVIDIA_CHAT_COMPLETIONS_URL = `${NVIDIA_API_BASE}/chat/completions`;
 const MAX_TOKENS = 4096;
 const TEMPERATURE = 1.0;
 const TOP_P = 1.0;
 const MAX_ITERATIONS = 10;
 const AI_REQUEST_TIMEOUT_MS = 60_000;
-const SAFETY_MODEL = 'nvidia/nemotron-content-safety-reasoning-4b';
+const SAFETY_MODEL = 'nvidia/llama-3.1-nemotron-safety-guard-8b-v3';
 const SAFETY_MAX_TOKENS = 1024;
 const DEFAULT_COLOR = 0x99aab5; // default grey
 const MAX_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000;
@@ -2037,41 +2036,27 @@ ${assistantResponse ?? 'None'}`;
   };
 
   let timeoutId;
-  const controller = new AbortController();
   try {
     const timeoutPromise = new Promise((_, reject) => {
       timeoutId = setTimeout(() => {
-        controller.abort();
-        reject(createTimeoutError('Safety filter request timed out after 60 seconds with no response.'));
+        const timeoutError = createTimeoutError('Safety filter request timed out after 60 seconds with no response.');
+        timeoutError.isSafetyTimeout = true;
+        reject(timeoutError);
       }, AI_REQUEST_TIMEOUT_MS);
     });
-    const requestPromise = fetch(NVIDIA_CHAT_COMPLETIONS_URL, {
-      method: 'POST',
-      headers: {
-        accept: 'application/json',
-        'content-type': 'application/json',
-        authorization: `Bearer ${NVIDIA_API_KEY}`,
-      },
-      body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
-    const response = await Promise.race([requestPromise, timeoutPromise]);
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      throw Object.assign(new Error(`Safety filter API error ${response.status}: ${response.statusText}`), {
-        status: response.status,
-        body,
-      });
-    }
-    const data = await response.json();
+    const data = await Promise.race([
+      aiClient.chat.completions.create(payload),
+      timeoutPromise,
+    ]);
     const raw = String(data?.choices?.[0]?.message?.content ?? '').trim();
     if (!raw) throw new Error('Safety filter returned an empty response.');
     return parseSafetyOutput(raw);
   } catch (error) {
-    if (error?.name === 'AbortError') {
-      throw createTimeoutError('Safety filter request timed out after 60 seconds with no response.');
-    }
-    throw error;
+    if (error?.isSafetyTimeout) throw error;
+    const status = error?.status ?? error?.code ?? undefined;
+    const apiBody = error?.error ? JSON.stringify(error.error) : '';
+    const context = status ? `Safety filter API error ${status}` : 'Safety filter request failed';
+    throw Object.assign(new Error(`${context}: ${error?.message ?? 'Unknown error'}`), { status, body: apiBody });
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
   }
