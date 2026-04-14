@@ -2524,6 +2524,29 @@ function sellInventoryItem(guildId, userId, itemId, sellAll = false) {
   return { ok: true, amount, value, item };
 }
 
+function sellInventoryItemQuantity(guildId, userId, itemId, quantity) {
+  const amountRequested = Number.parseInt(quantity, 10);
+  if (!Number.isInteger(amountRequested) || amountRequested <= 0) {
+    return { ok: false, reason: 'Invalid quantity.' };
+  }
+  const data = readState();
+  const guildState = getGuildState(data, guildId);
+  const user = getUserState(guildState, userId);
+  const qty = user.inventory[itemId] ?? 0;
+  if (qty <= 0) return { ok: false, reason: 'You do not own that item.' };
+  const item = ITEM_MAP.get(itemId);
+  if (!item) return { ok: false, reason: 'Unknown item.' };
+  const amount = Math.min(qty, amountRequested);
+  if (amount <= 0) return { ok: false, reason: 'Nothing to sell.' };
+  const value = item.baseValue * RARITY[item.rarity].valueMultiplier * amount;
+  user.inventory[itemId] -= amount;
+  if (user.inventory[itemId] <= 0) delete user.inventory[itemId];
+  user.cookies += value;
+  user.cookiesBakedAllTime += value;
+  writeState(data);
+  return { ok: true, amount, value, item };
+}
+
 function consumeInventoryItem(guildId, userId, itemId) {
   const data = readState();
   const guildState = getGuildState(data, guildId);
@@ -3540,6 +3563,7 @@ module.exports = {
   buyUpgrade,
   sellUpgrade,
   sellInventoryItem,
+  sellInventoryItemQuantity,
   consumeInventoryItem,
   openRewardGift,
   inspectItem,

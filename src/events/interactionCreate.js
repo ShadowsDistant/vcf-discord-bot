@@ -1,5 +1,6 @@
 'use strict';
 
+const { randomUUID } = require('node:crypto');
 const {
   ActionRowBuilder,
   ButtonBuilder,
@@ -69,11 +70,14 @@ const MAX_PENDING_RENAME_SELECTIONS = 2_000;
 const MAX_GUIDE_VIEW_SELECTIONS = 5_000;
 const STAFF_MESSAGE_SELECTION_TTL_MS = 10 * 60 * 1000;
 const MAX_PENDING_STAFF_MESSAGE_SELECTIONS = 2_000;
+const GIFT_QUICK_SELL_TTL_MS = 15 * 60 * 1000;
+const MAX_PENDING_GIFT_QUICK_SELLS = 5_000;
 const SERVER_BOOSTER_ROLE_ID = '1357082479931949310';
 const pendingBakeryRenameSelections = new Map();
 const guideViewSelections = new Map();
 const reportCooldowns = new Map();
 const pendingStaffMessageSelections = new Map();
+const pendingGiftQuickSellSelections = new Map();
 
 function prunePendingBakeryRenameSelections(now = Date.now()) {
   const expiredKeys = [...pendingBakeryRenameSelections.entries()]
@@ -140,6 +144,48 @@ function getPendingStaffMessageSelection(guildId, actorId) {
 
 function clearPendingStaffMessageSelection(guildId, actorId) {
   pendingStaffMessageSelections.delete(`${guildId}:${actorId}`);
+}
+
+function prunePendingGiftQuickSellSelections(now = Date.now()) {
+  const expiredKeys = [...pendingGiftQuickSellSelections.entries()]
+    .filter(([, entry]) => (entry?.expiresAt ?? 0) <= now)
+    .map(([key]) => key);
+  for (const key of expiredKeys) pendingGiftQuickSellSelections.delete(key);
+  if (pendingGiftQuickSellSelections.size > MAX_PENDING_GIFT_QUICK_SELLS) {
+    const overflow = pendingGiftQuickSellSelections.size - MAX_PENDING_GIFT_QUICK_SELLS;
+    const oldestKeys = [...pendingGiftQuickSellSelections.entries()]
+      .sort((a, b) => (a[1]?.expiresAt ?? 0) - (b[1]?.expiresAt ?? 0))
+      .slice(0, overflow)
+      .map(([key]) => key);
+    for (const key of oldestKeys) pendingGiftQuickSellSelections.delete(key);
+  }
+}
+
+function setPendingGiftQuickSellSelection(guildId, userId, rewardBoxId, grants) {
+  prunePendingGiftQuickSellSelections();
+  const dropQuantities = {};
+  for (const grant of grants ?? []) {
+    const itemId = String(grant?.itemId ?? '').trim();
+    const quantity = Number.parseInt(grant?.quantity, 10);
+    if (!itemId || !Number.isInteger(quantity) || quantity <= 0) continue;
+    dropQuantities[itemId] = (dropQuantities[itemId] ?? 0) + quantity;
+  }
+  const token = randomUUID();
+  pendingGiftQuickSellSelections.set(`${guildId}:${userId}:${token}`, {
+    rewardBoxId,
+    dropQuantities,
+    expiresAt: Date.now() + GIFT_QUICK_SELL_TTL_MS,
+  });
+  return token;
+}
+
+function popPendingGiftQuickSellSelection(guildId, userId, token) {
+  prunePendingGiftQuickSellSelections();
+  const key = `${guildId}:${userId}:${token}`;
+  const entry = pendingGiftQuickSellSelections.get(key);
+  if (!entry) return null;
+  pendingGiftQuickSellSelections.delete(key);
+  return entry;
 }
 
 function encodeBroadcastAudience(audience) {
@@ -222,8 +268,13 @@ const guideStatePruneTimer = setInterval(
   () => pruneGuideStateSelections(Date.now()),
   60_000,
 );
+const giftQuickSellPruneTimer = setInterval(
+  () => prunePendingGiftQuickSellSelections(Date.now()),
+  60_000,
+);
 if (typeof renameSelectionPruneTimer.unref === 'function') renameSelectionPruneTimer.unref();
 if (typeof guideStatePruneTimer.unref === 'function') guideStatePruneTimer.unref();
+if (typeof giftQuickSellPruneTimer.unref === 'function') giftQuickSellPruneTimer.unref();
 
 function buildInventoryItemSelectOptions(user, guild) {
   return Object.entries(user.inventory ?? {})
@@ -789,24 +840,32 @@ module.exports = {
       }
 
       if (interaction.customId.startsWith('bakery_gift_sell_all:')) {
-        // Quick sell all items currently in the user's inventory that came from opening a gift box.
-        // We sell all sellable items in the user's full inventory at once.
-        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
-        const user = snapshot.user;
+        const [, rewardBoxId, token] = interaction.customId.split(':');
+        const pendingSell = token ? popPendingGiftQuickSellSelection(interaction.guild.id, interaction.user.id, token) : null;
+        if (!pendingSell || pendingSell.rewardBoxId !== rewardBoxId) {
+          return interaction.reply({
+            embeds: [embeds.warning('Quick sell expired or invalid for this gift opening. Open a gift box again to quick-sell its drops.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
         let totalEarned = 0;
         let itemsSold = 0;
-        for (const itemId of Object.keys(user.inventory ?? {})) {
-          const qty = user.inventory[itemId] ?? 0;
-          if (qty <= 0) continue;
-          const result = economy.sellInventoryItem(interaction.guild.id, interaction.user.id, itemId, true);
+        for (const [itemId, quantity] of Object.entries(pendingSell.dropQuantities ?? {})) {
+          const result = economy.sellInventoryItemQuantity(interaction.guild.id, interaction.user.id, itemId, quantity);
           if (result.ok) {
             totalEarned += result.value ?? 0;
-            itemsSold += qty;
+            itemsSold += result.amount ?? 0;
           }
+        }
+        if (itemsSold <= 0) {
+          return interaction.reply({
+            embeds: [embeds.warning('No sellable drops from that gift opening were found in your inventory.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
         }
         return interaction.reply({
           embeds: [
-            embeds.success(`Sold **${economy.toCookieNumber(itemsSold)}** item(s) from your inventory for **${economy.toCookieNumber(totalEarned)}** cookies.`, interaction.guild),
+            embeds.success(`Sold **${economy.toCookieNumber(itemsSold)}** item(s) from that gift opening for **${economy.toCookieNumber(totalEarned)}** cookies.`, interaction.guild),
           ],
           flags: MessageFlags.Ephemeral,
         });
@@ -1478,9 +1537,9 @@ module.exports = {
               { name: '💰 Total Value', value: `**${economy.toCookieNumber(totalValue)}** cookies`, inline: true },
             )
             .setTimestamp();
-          const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+          const quickSellToken = setPendingGiftQuickSellSelection(interaction.guild.id, interaction.user.id, rewardBoxId, result.grants);
           const quickSellRow = new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`bakery_gift_sell_all:${rewardBoxId}`).setLabel('Quick Sell All Drops').setStyle(ButtonStyle.Success).setEmoji('💸'),
+            new ButtonBuilder().setCustomId(`bakery_gift_sell_all:${rewardBoxId}:${quickSellToken}`).setLabel('Quick Sell All Drops').setStyle(ButtonStyle.Success).setEmoji('💸'),
             new ButtonBuilder().setCustomId('bakery_nav:inventory').setLabel('View Inventory').setStyle(ButtonStyle.Secondary).setEmoji('🎒'),
           );
           return interaction.reply({ embeds: [openingEmbed], components: [quickSellRow], flags: MessageFlags.Ephemeral });
@@ -1531,8 +1590,9 @@ module.exports = {
             { name: '💰 Total Value', value: `**${economy.toCookieNumber(totalValue)}** cookies`, inline: true },
           )
           .setTimestamp();
+        const quickSellToken = setPendingGiftQuickSellSelection(interaction.guild.id, interaction.user.id, rewardBoxId, result.grants);
         const quickSellRow = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(`bakery_gift_sell_all:${rewardBoxId}`).setLabel('Quick Sell All Drops').setStyle(ButtonStyle.Success).setEmoji('💸'),
+          new ButtonBuilder().setCustomId(`bakery_gift_sell_all:${rewardBoxId}:${quickSellToken}`).setLabel('Quick Sell All Drops').setStyle(ButtonStyle.Success).setEmoji('💸'),
           new ButtonBuilder().setCustomId('bakery_nav:inventory').setLabel('View Inventory').setStyle(ButtonStyle.Secondary).setEmoji('🎒'),
         );
         return interaction.reply({ embeds: [openingEmbed], components: [quickSellRow], flags: MessageFlags.Ephemeral });

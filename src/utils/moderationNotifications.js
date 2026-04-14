@@ -53,12 +53,13 @@ async function sendModLog({ guild, target, moderator, action, reason, extra } = 
   const channel = await fetchLogChannel(guild, 'modLog');
   if (!channel) return;
 
-  const colorByAction = { Warn: 0xfee75c, Kick: 0xff6b35, Ban: 0xed4245 };
-  const emojiByAction = { Warn: '⚠️', Kick: '👟', Ban: '🔨' };
+  const colorByAction = { Warn: 0xfee75c, Kick: 0xff6b35, Ban: 0xed4245, Timeout: 0x5865f2 };
+  const emojiByAction = { Warn: '⚠️', Kick: '👟', Ban: '🔨', Timeout: '⏳' };
+  const titleByAction = { Warn: 'Member Warned', Kick: 'Member Kicked', Ban: 'Member Banned', Timeout: 'Member Timed Out' };
 
   const embed = new EmbedBuilder()
     .setColor(colorByAction[action] ?? 0xed4245)
-    .setTitle(`${emojiByAction[action] ?? '🛡️'} Member ${action}ned`)
+    .setTitle(`${emojiByAction[action] ?? '🛡️'} ${titleByAction[action] ?? `Member ${action}`}`)
     .setThumbnail(target?.displayAvatarURL({ dynamic: true }) ?? null)
     .addFields(
       { name: 'Member', value: `${target} (\`${target?.tag}\`)`, inline: true },

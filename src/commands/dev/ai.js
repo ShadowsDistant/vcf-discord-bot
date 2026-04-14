@@ -15,6 +15,11 @@ const {
 } = require('discord.js');
 const OpenAI = require('openai');
 const { isDevUser } = require('../../utils/roles');
+const db = require('../../utils/database');
+const analytics = require('../../utils/analytics');
+const { sendModerationActionDm, sendModLog } = require('../../utils/moderationNotifications');
+const economy = require('../../utils/bakeEconomy');
+const { formatDuration } = require('../../utils/helpers');
 
 // ── Constants ───────────────────────────────────────────────────────────────────
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY ?? '';
@@ -24,7 +29,9 @@ const MAX_TOKENS = 4096;
 const TEMPERATURE = 1.0;
 const TOP_P = 1.0;
 const MAX_ITERATIONS = 10;
+const AI_REQUEST_TIMEOUT_MS = 60_000;
 const DEFAULT_COLOR = 0x99aab5; // default grey
+const MAX_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000;
 const CONFIRMATION_TIMEOUT_MS = 30_000;
 const REVIEW_TIMEOUT_MS = 15 * 60_000;
 const MODAL_SUBMIT_TIMEOUT_MS = 120_000;
@@ -37,6 +44,9 @@ const MAX_LINK_BUTTONS = 10;
 const NO_RESPONSE_TEXT = '*(No response)*';
 const THINKING_SECTION_HEADING = '### Thinking';
 const CHUNK_NEWLINE_SPLIT_THRESHOLD = 0.5;
+const ROBLOX_USERS_API_BASE = 'https://users.roblox.com';
+const ROBLOX_GROUPS_API_BASE = 'https://groups.roblox.com';
+const ROBLOX_GAMES_API_BASE = 'https://games.roblox.com';
 const LOADING_EMOJI = '<a:loading:1493407458180468996>';
 const AI_HARDCODED_ALLOW_IDS = new Set(['1272344731526889544']);
 const AI_REVIEW_BUTTON_ID = 'ai_review_details';
@@ -148,7 +158,7 @@ Guidelines:
 - Use Discord markdown in description and field values (**bold**, *italic*, \`code\`, \\n for line breaks).
 - Use fields for structured/tabular data and set inline true/false intentionally; do not duplicate the same list both as fields and bullets in description.
 - Format Discord entities as mentions when relevant: <@user_id>, <#channel_id>, <@&role_id>.
-- Keep responses concise without filler.
+- Keep responses very brief by default: 1–3 short sentences and no more than 5 bullets unless the user explicitly asks for detail.
 
 Tool Usage:
 - If the answer is known, answer directly without tools.
@@ -156,6 +166,8 @@ Tool Usage:
 - If a tool errors, report it clearly and do not retry with identical args.
 - You may call multiple tools in one turn when needed; synthesize results into one cohesive response and note discrepancies if results conflict.
 - Use search_web only for current/web lookup requests or information you cannot answer from memory.
+- For moderation requests with incomplete names (e.g. "warn somoto"), use member search tools first; if multiple matches are plausible, present a select menu of candidates or ask the user to confirm the top match before taking action.
+- Always collect a clear reason before any moderation action (warn/kick/ban/timeout). If missing, ask for one before using tools.
 
 Interactive Components:
 - Only add components when they provide clear interaction value (not decoration).
@@ -173,6 +185,7 @@ const DANGEROUS_TOOLS = new Set([
   'ban_member',
   'kick_member',
   'timeout_member',
+  'warn_member',
   'delete_message',
   'create_role',
   'delete_role',
@@ -302,6 +315,21 @@ const TOOL_SCHEMAS = [
   {
     type: 'function',
     function: {
+      name: 'search_members',
+      description: 'Search guild members by partial username/display name and return best matches.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Partial username/display name to search for.' },
+          limit: { type: 'number', description: 'Maximum matches to return (1–25). Defaults to 10.' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'get_guild_info',
       description: 'Get information about the current Discord guild/server.',
       parameters: { type: 'object', properties: {} },
@@ -406,7 +434,7 @@ const TOOL_SCHEMAS = [
           reason: { type: 'string', description: 'The reason for the ban. Optional.' },
           delete_message_days: { type: 'number', description: 'Number of days of messages to delete (0–7). Optional, defaults to 0.' },
         },
-        required: ['user_id'],
+        required: ['user_id', 'reason'],
       },
     },
   },
@@ -421,7 +449,7 @@ const TOOL_SCHEMAS = [
           user_id: { type: 'string', description: 'The Discord user ID of the member to kick.' },
           reason: { type: 'string', description: 'The reason for the kick. Optional.' },
         },
-        required: ['user_id'],
+        required: ['user_id', 'reason'],
       },
     },
   },
@@ -437,7 +465,167 @@ const TOOL_SCHEMAS = [
           duration_seconds: { type: 'number', description: 'The timeout duration in seconds (max 2419200 = 28 days).' },
           reason: { type: 'string', description: 'The reason for the timeout. Optional.' },
         },
-        required: ['user_id', 'duration_seconds'],
+        required: ['user_id', 'duration_seconds', 'reason'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'warn_member',
+      description: 'Issue a warning to a member and record it in moderation logs/analytics. DANGEROUS — requires confirmation.',
+      parameters: {
+        type: 'object',
+        properties: {
+          user_id: { type: 'string', description: 'The Discord user ID of the member to warn. Preferred when known.' },
+          user_query: { type: 'string', description: 'Optional partial username/display name when user_id is unknown.' },
+          reason: { type: 'string', description: 'Reason for the warning.' },
+        },
+        required: ['reason'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_roblox_players',
+      description: 'Search Roblox players by username/display name.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query for Roblox players.' },
+          limit: { type: 'number', description: 'Maximum results (1–10). Defaults to 5.' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_roblox_groups',
+      description: 'Search Roblox groups by name.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query for Roblox groups.' },
+          limit: { type: 'number', description: 'Maximum results (1–10). Defaults to 5.' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_roblox_games',
+      description: 'Search Roblox games/experiences by name.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query for Roblox games.' },
+          limit: { type: 'number', description: 'Maximum results (1–10). Defaults to 5.' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_member_warnings',
+      description: 'Fetch warning history for a guild member.',
+      parameters: {
+        type: 'object',
+        properties: {
+          user_id: { type: 'string', description: 'The Discord user ID of the member. Preferred when known.' },
+          user_query: { type: 'string', description: 'Optional partial username/display name when user_id is unknown.' },
+          limit: { type: 'number', description: 'Optional max warnings to return (1–25). Defaults to 10.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_member_bakery_data',
+      description: 'Fetch bakery/economy profile data for a guild member.',
+      parameters: {
+        type: 'object',
+        properties: {
+          user_id: { type: 'string', description: 'The Discord user ID of the member. Preferred when known.' },
+          user_query: { type: 'string', description: 'Optional partial username/display name when user_id is unknown.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_voice_channels',
+      description: 'List voice and stage channels with occupancy counts.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_member_voice_state',
+      description: 'Get a member’s current voice-channel state.',
+      parameters: {
+        type: 'object',
+        properties: {
+          user_id: { type: 'string', description: 'The Discord user ID of the member.' },
+        },
+        required: ['user_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'move_member_to_voice',
+      description: 'Move a member to another voice/stage channel.',
+      parameters: {
+        type: 'object',
+        properties: {
+          user_id: { type: 'string', description: 'The Discord user ID of the member.' },
+          channel_id: { type: 'string', description: 'Target voice or stage channel ID.' },
+          reason: { type: 'string', description: 'Optional reason for audit logs.' },
+        },
+        required: ['user_id', 'channel_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'disconnect_member_voice',
+      description: 'Disconnect a member from voice (moves them out of VC).',
+      parameters: {
+        type: 'object',
+        properties: {
+          user_id: { type: 'string', description: 'The Discord user ID of the member.' },
+          reason: { type: 'string', description: 'Optional reason for audit logs.' },
+        },
+        required: ['user_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_member_voice_state',
+      description: 'Set server mute/deafen state for a member in voice.',
+      parameters: {
+        type: 'object',
+        properties: {
+          user_id: { type: 'string', description: 'The Discord user ID of the member.' },
+          mute: { type: 'boolean', description: 'Optional server mute state.' },
+          deaf: { type: 'boolean', description: 'Optional server deafen state.' },
+          reason: { type: 'string', description: 'Optional reason for audit logs.' },
+        },
+        required: ['user_id'],
       },
     },
   },
@@ -832,46 +1020,252 @@ function stripHtmlTags(str) {
 }
 
 /**
- * Fetch the top 5 web search results from DuckDuckGo's HTML endpoint.
- * @param {string} query
- * @returns {Promise<Array<{title:string, url:string, snippet:string}>>}
+ * Fetch text from a URL with a hard timeout.
+ * @param {string} url
+ * @param {object} [options]
+ * @param {number} [timeoutMs]
+ * @returns {Promise<string>}
  */
-async function duckDuckGoSearch(query) {
-  const url = 'https://html.duckduckgo.com/html/';
-  const body = `q=${encodeURIComponent(query)}&b=&kl=`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept-Language': 'en-US,en;q=0.9',
-    },
-    body,
-  });
-  const html = await res.text();
+async function fetchTextWithTimeout(url, options = {}, timeoutMs = 15_000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    if (!res.ok) throw new Error(`Request failed (${res.status}).`);
+    return await res.text();
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
-  const titleMatches = [...html.matchAll(/<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)];
-  const snippetMatches = [...html.matchAll(/<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g)];
-
+/**
+ * Extract web results from DuckDuckGo HTML.
+ * @param {string} html
+ * @returns {Array<{title:string,url:string,snippet:string}>}
+ */
+function extractDuckDuckGoHtmlResults(html) {
+  const blocks = [...html.matchAll(/<div[^>]+class="[^"]*\bresult\b[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/g)];
   const results = [];
-  const count = Math.min(5, titleMatches.length);
-  for (let i = 0; i < count; i++) {
-    const rawHref = titleMatches[i][1];
+
+  for (const match of blocks) {
+    if (results.length >= 5) break;
+    const block = match[1] ?? '';
+    const linkMatch = block.match(/<a[^>]+class="[^"]*\bresult__a\b[^"]*"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+    if (!linkMatch) continue;
+
+    const rawHref = linkMatch[1];
     let resolvedUrl = rawHref;
     try {
-      const parsed = new URL(rawHref, 'https://html.duckduckgo.com');
+      const parsed = new URL(rawHref, 'https://duckduckgo.com/html/');
       const uddg = parsed.searchParams.get('uddg');
       if (uddg) resolvedUrl = decodeURIComponent(uddg);
     } catch {
       // keep raw href
     }
-    const title = stripHtmlTags(titleMatches[i][2]);
-    const snippet = snippetMatches[i]
-      ? stripHtmlTags(snippetMatches[i][1])
-      : '';
+
+    const snippetMatch =
+      block.match(/<a[^>]+class="[^"]*\bresult__snippet\b[^"]*"[^>]*>([\s\S]*?)<\/a>/i)
+      ?? block.match(/<div[^>]+class="[^"]*\bresult__snippet\b[^"]*"[^>]*>([\s\S]*?)<\/div>/i)
+      ?? block.match(/<span[^>]+class="[^"]*\bresult__snippet\b[^"]*"[^>]*>([\s\S]*?)<\/span>/i);
+
+    const title = stripHtmlTags(linkMatch[2] ?? '');
+    const snippet = stripHtmlTags(snippetMatch?.[1] ?? '');
+    if (!title || !resolvedUrl || !/^https?:\/\//i.test(resolvedUrl)) continue;
     results.push({ title, url: resolvedUrl, snippet });
   }
+
   return results;
+}
+
+/**
+ * Extract web results from DuckDuckGo Instant Answer JSON.
+ * @param {object} data
+ * @returns {Array<{title:string,url:string,snippet:string}>}
+ */
+function extractDuckDuckGoApiResults(data) {
+  const results = [];
+  const pushResult = (item) => {
+    if (results.length >= 5 || !item) return;
+    const url = String(item.FirstURL ?? item.url ?? '').trim();
+    const text = stripHtmlTags(String(item.Text ?? item.text ?? '').trim());
+    if (!url || !/^https?:\/\//i.test(url) || !text) return;
+    const [title, ...rest] = text.split(/ - | — |: /);
+    results.push({
+      title: title?.trim() || text.slice(0, 80),
+      url,
+      snippet: rest.join(' - ').trim() || text,
+    });
+  };
+
+  if (Array.isArray(data?.Results)) {
+    for (const item of data.Results) pushResult(item);
+  }
+  if (Array.isArray(data?.RelatedTopics)) {
+    for (const item of data.RelatedTopics) {
+      if (Array.isArray(item?.Topics)) {
+        for (const nested of item.Topics) pushResult(nested);
+      } else {
+        pushResult(item);
+      }
+      if (results.length >= 5) break;
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Fetch up to 5 web search results from DuckDuckGo with robust fallback.
+ * @param {string} query
+ * @returns {Promise<Array<{title:string, url:string, snippet:string}>>}
+ */
+async function duckDuckGoSearch(query) {
+  const q = String(query ?? '').trim();
+  if (!q) return [];
+
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept-Language': 'en-US,en;q=0.9',
+  };
+
+  try {
+    const html = await fetchTextWithTimeout(
+      `https://duckduckgo.com/html/?q=${encodeURIComponent(q)}&kl=us-en`,
+      { method: 'GET', headers },
+      15_000,
+    );
+    const htmlResults = extractDuckDuckGoHtmlResults(html);
+    if (htmlResults.length > 0) return htmlResults;
+  } catch {
+    // fallback below
+  }
+
+  const apiText = await fetchTextWithTimeout(
+    `https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&no_html=1&skip_disambig=1`,
+    { method: 'GET', headers: { ...headers, Accept: 'application/json' } },
+    15_000,
+  );
+  const apiData = JSON.parse(apiText);
+  return extractDuckDuckGoApiResults(apiData);
+}
+
+/**
+ * Fetch JSON from a Roblox API endpoint.
+ * @param {string} url
+ * @returns {Promise<any>}
+ */
+async function fetchRobloxJson(url) {
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'vcf-discord-bot/1.0',
+      Accept: 'application/json',
+    },
+  });
+  if (!res.ok) throw new Error(`Roblox API request failed (${res.status}).`);
+  return res.json();
+}
+
+/**
+ * Normalize a numeric limit for Roblox searches.
+ * @param {number} raw
+ * @returns {number}
+ */
+function getRobloxSearchLimit(raw) {
+  return Math.min(10, Math.max(1, Number.parseInt(raw, 10) || 5));
+}
+
+/**
+ * Build a standardized timeout error object.
+ * @param {string} message
+ * @param {number} [status]
+ * @returns {Error}
+ */
+function createTimeoutError(message, status = 408) {
+  return Object.assign(new Error(message), { status });
+}
+
+/**
+ * Search guild members by query and return ranked matches.
+ * @param {import('discord.js').Guild} guild
+ * @param {string} query
+ * @param {number} [limit]
+ * @returns {Promise<Array<{id:string,username:string,display_name:string,global_name:string|null,tag:string,score:number}>>}
+ */
+async function searchGuildMembers(guild, query, limit = 10) {
+  const needle = String(query ?? '').trim().toLowerCase();
+  if (!needle) return [];
+  const max = Math.min(25, Math.max(1, Number.parseInt(limit, 10) || 10));
+  // Discord's member search endpoint only accepts query lengths up to 32 chars.
+  const fetched = await guild.members.fetch({ query: needle.slice(0, 32), limit: max }).catch(() => null);
+  const members = fetched ? [...fetched.values()] : [];
+  const scoreOf = (member) => {
+    const username = String(member?.user?.username ?? '').toLowerCase();
+    const displayName = String(member?.displayName ?? '').toLowerCase();
+    const globalName = String(member?.user?.globalName ?? '').toLowerCase();
+    const tag = String(member?.user?.tag ?? '').toLowerCase();
+    if (username === needle || displayName === needle || globalName === needle) return 100;
+    if (username.startsWith(needle) || displayName.startsWith(needle) || globalName.startsWith(needle)) return 90;
+    if (username.includes(needle) || displayName.includes(needle) || globalName.includes(needle)) return 75;
+    if (tag.includes(needle)) return 60;
+    return 0;
+  };
+  return members
+    .map((member) => ({
+      id: member.id,
+      username: member.user.username,
+      display_name: member.displayName,
+      global_name: member.user.globalName ?? null,
+      tag: member.user.tag,
+      score: scoreOf(member),
+    }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || a.display_name.localeCompare(b.display_name))
+    .slice(0, max);
+}
+
+/**
+ * Resolve a member from explicit user_id or partial user_query args.
+ * @param {import('discord.js').Guild} guild
+ * @param {object} args
+ * @param {{forbidUserId?:string,allowAmbiguous?:boolean}} [options]
+ * @returns {Promise<{member: import('discord.js').GuildMember|null, resolution: object|null, pending: object|null}>}
+ */
+async function resolveMemberFromToolArgs(guild, args, options = {}) {
+  const forbidUserId = options?.forbidUserId ? String(options.forbidUserId) : '';
+  const allowAmbiguous = options?.allowAmbiguous !== false;
+  let targetId = String(args?.user_id ?? '').trim();
+  if (targetId) {
+    if (forbidUserId && targetId === forbidUserId) throw new Error('You cannot target yourself.');
+    const member = await guild.members.fetch(targetId).catch(() => null);
+    if (!member) throw new Error('Member not found.');
+    return { member, resolution: null, pending: null };
+  }
+  const query = String(args?.user_query ?? '').trim();
+  if (!query) throw new Error('Provide user_id or user_query.');
+  const matches = await searchGuildMembers(guild, query, 10);
+  if (matches.length === 0) throw new Error(`No members matched "${query}".`);
+  if (matches.length > 1 && allowAmbiguous) {
+    return {
+      member: null,
+      resolution: null,
+      pending: {
+        success: false,
+        requires_user_selection: true,
+        query,
+        suggested_user_id: matches[0].id,
+        candidates: matches,
+      },
+    };
+  }
+  targetId = matches[0].id;
+  if (forbidUserId && targetId === forbidUserId) throw new Error('You cannot target yourself.');
+  const member = await guild.members.fetch(targetId).catch(() => null);
+  if (!member) throw new Error('Member not found.');
+  return {
+    member,
+    resolution: { matched_query: query, selected_from_search: true },
+    pending: null,
+  };
 }
 
 /**
@@ -982,6 +1376,14 @@ async function executeTool(toolName, args, interaction) {
       }));
     }
 
+    case 'search_members': {
+      const matches = await searchGuildMembers(guild, args.query, args.limit);
+      return {
+        query: String(args.query ?? ''),
+        matches,
+      };
+    }
+
     case 'get_guild_info': {
       const g = guild;
       return {
@@ -1056,27 +1458,258 @@ async function executeTool(toolName, args, interaction) {
     }
 
     case 'ban_member': {
+      const reason = String(args.reason ?? '').trim();
+      if (!reason) throw new Error('Reason is required.');
+      if (String(args.user_id) === interaction.user.id) throw new Error('You cannot target yourself for this moderation action.');
       const deleteMessageSeconds = Math.min(7, Math.max(0, args.delete_message_days ?? 0)) * 86400;
+      const targetUser = await interaction.client.users.fetch(args.user_id).catch(() => null);
+      if (!targetUser) throw new Error('User not found.');
+      await sendModerationActionDm({
+        user: targetUser,
+        guild,
+        action: 'Ban',
+        reason,
+        moderatorTag: interaction.user.tag,
+      });
       await guild.members.ban(args.user_id, {
-        reason: args.reason ?? undefined,
+        reason: `${interaction.user.tag}: ${reason}`,
         deleteMessageSeconds,
+      });
+      analytics.recordModAction(guild.id, 'ban', Date.now());
+      await sendModLog({
+        guild,
+        target: targetUser,
+        moderator: interaction.user,
+        action: 'Ban',
+        reason,
+        extra: deleteMessageSeconds > 0 ? `Messages deleted: **${Math.floor(deleteMessageSeconds / 86400)} day(s)**` : undefined,
       });
       return { success: true };
     }
 
     case 'kick_member': {
+      const reason = String(args.reason ?? '').trim();
+      if (!reason) throw new Error('Reason is required.');
       const member = await guild.members.fetch(args.user_id);
       if (!member) throw new Error('Member not found.');
-      await member.kick(args.reason ?? undefined);
+      if (member.id === interaction.user.id) throw new Error('You cannot target yourself for this moderation action.');
+      if (!member.kickable) throw new Error('I cannot kick that member.');
+      await sendModerationActionDm({
+        user: member.user,
+        guild,
+        action: 'Kick',
+        reason,
+        moderatorTag: interaction.user.tag,
+      });
+      await member.kick(`${interaction.user.tag}: ${reason}`);
+      analytics.recordModAction(guild.id, 'kick', Date.now());
+      await sendModLog({
+        guild,
+        target: member.user,
+        moderator: interaction.user,
+        action: 'Kick',
+        reason,
+      });
       return { success: true };
     }
 
     case 'timeout_member': {
+      const reason = String(args.reason ?? '').trim();
+      if (!reason) throw new Error('Reason is required.');
       const member = await guild.members.fetch(args.user_id);
       if (!member) throw new Error('Member not found.');
-      const ms = Math.min(args.duration_seconds * 1000, 28 * 24 * 60 * 60 * 1000);
-      await member.timeout(ms, args.reason ?? undefined);
+      if (member.id === interaction.user.id) throw new Error('You cannot target yourself for this moderation action.');
+      if (!member.moderatable) throw new Error('I cannot timeout that member.');
+      const ms = Math.min(args.duration_seconds * 1000, MAX_TIMEOUT_MS);
+      await sendModerationActionDm({
+        user: member.user,
+        guild,
+        action: 'Timeout',
+        reason,
+        moderatorTag: interaction.user.tag,
+        duration: formatDuration(ms),
+      });
+      await member.timeout(ms, `${interaction.user.tag}: ${reason}`);
+      await sendModLog({
+        guild,
+        target: member.user,
+        moderator: interaction.user,
+        action: 'Timeout',
+        reason,
+        extra: `Duration: **${formatDuration(ms)}**`,
+      });
       return { success: true };
+    }
+
+    case 'warn_member': {
+      const reason = String(args.reason ?? '').trim();
+      if (!reason) throw new Error('Reason is required.');
+      const resolved = await resolveMemberFromToolArgs(guild, args, { forbidUserId: interaction.user.id, allowAmbiguous: true });
+      if (resolved.pending) return resolved.pending;
+      const member = resolved.member;
+      const resolution = resolved.resolution;
+      if (!member) throw new Error('Member not found.');
+      const warnings = db.addWarning(guild.id, member.id, {
+        moderatorId: interaction.user.id,
+        reason,
+      });
+      const dmSent = await sendModerationActionDm({
+        user: member.user,
+        guild,
+        action: 'Warning',
+        reason,
+        moderatorTag: interaction.user.tag,
+      });
+      await sendModLog({
+        guild,
+        target: member.user,
+        moderator: interaction.user,
+        action: 'Warn',
+        reason,
+        extra: `Total warnings: **${warnings.length}**`,
+      });
+      analytics.recordModAction(guild.id, 'warn', Date.now());
+      return {
+        success: true,
+        user_id: member.id,
+        username: member.user.username,
+        display_name: member.displayName,
+        reason,
+        warnings_count: warnings.length,
+        dm_sent: dmSent,
+        resolved: resolution,
+      };
+    }
+
+    case 'get_member_warnings': {
+      const resolved = await resolveMemberFromToolArgs(guild, args, { allowAmbiguous: true });
+      if (resolved.pending) return resolved.pending;
+      const member = resolved.member;
+      if (!member) throw new Error('Member not found.');
+      const warnings = db.getWarnings(guild.id, member.id);
+      const limit = Math.min(25, Math.max(1, Number.parseInt(args.limit, 10) || 10));
+      const recent = warnings.slice(-limit).reverse();
+      return {
+        success: true,
+        user_id: member.id,
+        username: member.user.username,
+        display_name: member.displayName,
+        warning_count: warnings.length,
+        warnings: recent,
+        resolved: resolved.resolution,
+      };
+    }
+
+    case 'get_member_bakery_data': {
+      const resolved = await resolveMemberFromToolArgs(guild, args, { allowAmbiguous: true });
+      if (resolved.pending) return resolved.pending;
+      const member = resolved.member;
+      if (!member) throw new Error('Member not found.');
+      const snapshot = economy.getUserSnapshot(guild.id, member.id);
+      const user = snapshot.user;
+      const passive = snapshot.passive ?? {};
+      return {
+        success: true,
+        user_id: member.id,
+        username: member.user.username,
+        display_name: member.displayName,
+        bakery_name: user.bakeryName,
+        bakery_theme: user.bakeryTheme,
+        bakery_emoji: user.bakeryEmoji,
+        rank_id: user.rankId,
+        rank_title: user.title,
+        bake_banned: Boolean(user.bakeBanned),
+        stats: {
+          cookies: user.cookies ?? 0,
+          cookies_baked_all_time: user.cookiesBakedAllTime ?? 0,
+          cookies_spent: user.cookiesSpent ?? 0,
+          total_bakes: user.totalBakes ?? 0,
+          highest_cps: user.highestCps ?? 0,
+          last_passive_gain: user.lastPassiveGain ?? 0,
+          current_passive_cps: passive.cps ?? 0,
+        },
+        counts: {
+          buildings_owned: Object.values(user.buildings ?? {}).reduce((sum, value) => sum + Number(value ?? 0), 0),
+          upgrades_owned: Array.isArray(user.upgrades) ? user.upgrades.length : 0,
+          inventory_unique_items: Object.keys(user.inventory ?? {}).length,
+          reward_gift_types: Object.keys(user.rewardGifts ?? {}).length,
+          achievements: Array.isArray(user.milestones) ? user.milestones.length : 0,
+        },
+        inventory: user.inventory ?? {},
+        buildings: user.buildings ?? {},
+        reward_gifts: user.rewardGifts ?? {},
+        resolved: resolved.resolution,
+      };
+    }
+
+    case 'list_voice_channels': {
+      const channels = await guild.channels.fetch();
+      return channels
+        .filter((channel) => channel?.isVoiceBased())
+        .map((channel) => ({
+          id: channel.id,
+          name: channel.name,
+          type: channel.type,
+          user_limit: channel.userLimit ?? 0,
+          bitrate: channel.bitrate ?? null,
+          member_count: channel.members?.size ?? 0,
+          parent_id: channel.parentId ?? null,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    case 'get_member_voice_state': {
+      const member = await guild.members.fetch(args.user_id).catch(() => null);
+      if (!member) throw new Error('Member not found.');
+      const voice = member.voice;
+      return {
+        user_id: member.id,
+        in_voice: Boolean(voice?.channelId),
+        channel_id: voice?.channelId ?? null,
+        channel_name: voice?.channel?.name ?? null,
+        server_mute: Boolean(voice?.serverMute),
+        server_deaf: Boolean(voice?.serverDeaf),
+        self_mute: Boolean(voice?.selfMute),
+        self_deaf: Boolean(voice?.selfDeaf),
+      };
+    }
+
+    case 'move_member_to_voice': {
+      const member = await guild.members.fetch(args.user_id).catch(() => null);
+      if (!member) throw new Error('Member not found.');
+      const target = await guild.channels.fetch(args.channel_id).catch(() => null);
+      if (!target || !target.isVoiceBased()) throw new Error('Target channel not found or not voice-based.');
+      await member.voice.setChannel(target, args.reason ?? undefined);
+      return {
+        success: true,
+        user_id: member.id,
+        channel_id: target.id,
+        channel_name: target.name,
+      };
+    }
+
+    case 'disconnect_member_voice': {
+      const member = await guild.members.fetch(args.user_id).catch(() => null);
+      if (!member) throw new Error('Member not found.');
+      if (!member.voice?.channelId) throw new Error('Member is not connected to voice.');
+      await member.voice.disconnect(args.reason ?? undefined);
+      return { success: true, user_id: member.id };
+    }
+
+    case 'set_member_voice_state': {
+      const member = await guild.members.fetch(args.user_id).catch(() => null);
+      if (!member) throw new Error('Member not found.');
+      const hasMute = typeof args.mute === 'boolean';
+      const hasDeaf = typeof args.deaf === 'boolean';
+      if (!hasMute && !hasDeaf) throw new Error('Provide at least one of mute or deaf.');
+      if (hasMute) await member.voice.setMute(Boolean(args.mute), args.reason ?? undefined);
+      if (hasDeaf) await member.voice.setDeaf(Boolean(args.deaf), args.reason ?? undefined);
+      return {
+        success: true,
+        user_id: member.id,
+        server_mute: hasMute ? Boolean(args.mute) : member.voice?.serverMute ?? null,
+        server_deaf: hasDeaf ? Boolean(args.deaf) : member.voice?.serverDeaf ?? null,
+      };
     }
 
     case 'create_channel': {
@@ -1186,6 +1819,55 @@ async function executeTool(toolName, args, interaction) {
       return results;
     }
 
+    case 'search_roblox_players': {
+      const query = String(args.query ?? '').trim();
+      if (!query) throw new Error('Query is required.');
+      const limit = getRobloxSearchLimit(args.limit);
+      const data = await fetchRobloxJson(`${ROBLOX_USERS_API_BASE}/v1/users/search?keyword=${encodeURIComponent(query)}&limit=${limit}`);
+      const results = Array.isArray(data?.data) ? data.data : [];
+      return results.slice(0, limit).map((user) => ({
+        id: user.id,
+        username: user.name,
+        display_name: user.displayName ?? user.name,
+        has_verified_badge: Boolean(user.hasVerifiedBadge),
+        profile_url: `https://www.roblox.com/users/${user.id}/profile`,
+      }));
+    }
+
+    case 'search_roblox_groups': {
+      const query = String(args.query ?? '').trim();
+      if (!query) throw new Error('Query is required.');
+      const limit = getRobloxSearchLimit(args.limit);
+      const data = await fetchRobloxJson(`${ROBLOX_GROUPS_API_BASE}/v1/groups/search?keyword=${encodeURIComponent(query)}&limit=${limit}`);
+      const results = Array.isArray(data?.data) ? data.data : [];
+      return results.slice(0, limit).map((group) => ({
+        id: group.id,
+        name: group.name,
+        owner_username: group.owner?.username ?? null,
+        member_count: group.memberCount ?? null,
+        description: group.description ?? null,
+        group_url: `https://www.roblox.com/communities/${group.id}`,
+      }));
+    }
+
+    case 'search_roblox_games': {
+      const query = String(args.query ?? '').trim();
+      if (!query) throw new Error('Query is required.');
+      const limit = getRobloxSearchLimit(args.limit);
+      const data = await fetchRobloxJson(`${ROBLOX_GAMES_API_BASE}/v1/games/search?keyword=${encodeURIComponent(query)}&limit=${limit}`);
+      const results = Array.isArray(data?.data) ? data.data : [];
+      return results.slice(0, limit).map((game) => ({
+        universe_id: game.universeId ?? game.id ?? null,
+        place_id: game.rootPlaceId ?? null,
+        name: game.name ?? null,
+        creator_name: game.creator?.name ?? null,
+        player_count: game.playerCount ?? null,
+        votes_up: game.upVotes ?? null,
+        votes_down: game.downVotes ?? null,
+        game_url: game.rootPlaceId ? `https://www.roblox.com/games/${game.rootPlaceId}` : null,
+      }));
+    }
+
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }
@@ -1214,7 +1896,18 @@ async function callNvidiaApi(messages, settings) {
       stream: false,
     };
     if (extraBody) payload.extra_body = extraBody;
-    return await aiClient.chat.completions.create(payload);
+    let timeoutId;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(createTimeoutError('AI request timed out after 60 seconds with no response.')), AI_REQUEST_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([
+        aiClient.chat.completions.create(payload),
+        timeoutPromise,
+      ]);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
   } catch (error) {
     const status = error?.status ?? error?.code ?? undefined;
     const apiBody = error?.error ? JSON.stringify(error.error) : '';
@@ -1233,6 +1926,7 @@ function buildDangerousActionUI(toolName, args) {
     ban_member: `**Ban member** \`${args.user_id}\`${args.reason ? `\nReason: ${args.reason}` : ''}`,
     kick_member: `**Kick member** \`${args.user_id}\`${args.reason ? `\nReason: ${args.reason}` : ''}`,
     timeout_member: `**Timeout member** \`${args.user_id}\` for **${args.duration_seconds}s**${args.reason ? `\nReason: ${args.reason}` : ''}`,
+    warn_member: `**Warn member** \`${args.user_id ?? args.user_query ?? 'unknown'}\`${args.reason ? `\nReason: ${args.reason}` : ''}`,
     delete_message: `**Delete message** \`${args.message_id}\` in channel \`${args.channel_id}\``,
     create_role: `**Create role** named \`${args.name}\`${args.color ? ` (color: ${args.color})` : ''}`,
     delete_role: `**Delete role** \`${args.role_id}\``,
