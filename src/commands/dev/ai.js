@@ -70,7 +70,6 @@ const MAX_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000;
 const CONFIRMATION_TIMEOUT_MS = 30_000;
 const REVIEW_TIMEOUT_MS = 15 * 60_000;
 const MODAL_SUBMIT_TIMEOUT_MS = 120_000;
-const COMPONENT_IDLE_TIMEOUT_MS = 10 * 60_000;
 const DESC_MAX = 4096;
 const FIELD_VALUE_MAX = 1024;
 const FIELDS_MAX = 25;
@@ -3443,7 +3442,6 @@ async function sendHiddenCodeEmbeds(i, title, text, emptyMessage) {
  */
 function attachReviewHandler(replyMsg, interaction, session) {
   const collector = replyMsg.createMessageComponentCollector({
-    idle: COMPONENT_IDLE_TIMEOUT_MS,
     time: MAX_TIMEOUT_MS,
     filter: (i) => i.user.id === session.allowedUserId && i.customId.startsWith('ai_'),
   });
@@ -3714,8 +3712,11 @@ function attachReviewHandler(replyMsg, interaction, session) {
     }
   });
 
-  collector.on('end', async () => {
+  collector.on('end', async (_, reason) => {
     AI_SESSIONS.delete(replyMsg.id);
+    if (reason === 'time') {
+      await replyMsg.edit({ components: [] }).catch(() => null);
+    }
   });
 }
 
