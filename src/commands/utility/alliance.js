@@ -177,7 +177,7 @@ function buildStoreSellSelect(guild, store, isOwner) {
     .map((upgrade) => ({
       label: upgrade.name.slice(0, 100),
       value: upgrade.id,
-      description: `Sell for ${Math.floor(Number(upgrade.cost ?? 0) * 0.7)} credits (30% loss)`.slice(0, 100),
+      description: `Sell for ${Math.floor(Number(upgrade.cost ?? 0) * alliances.ALLIANCE_UPGRADE_SELLBACK_MULTIPLIER)} credits (30% loss)`.slice(0, 100),
       emoji: economy.getButtonEmoji(guild, upgrade.emojiCandidates, upgrade.fallbackEmoji),
     }));
   if (!options.length) return null;

@@ -73,6 +73,7 @@ const MAX_PENDING_STAFF_MESSAGE_SELECTIONS = 2_000;
 const GIFT_QUICK_SELL_TTL_MS = 15 * 60 * 1000;
 const MAX_PENDING_GIFT_QUICK_SELLS = 5_000;
 const SERVER_BOOSTER_ROLE_ID = '1357082479931949310';
+const DESCRIPTION_WORD_BOUNDARY_MIN_THRESHOLD = 0.5;
 const pendingBakeryRenameSelections = new Map();
 const guideViewSelections = new Map();
 const reportCooldowns = new Map();
@@ -406,6 +407,19 @@ function chunkSelectOptions(options, size = MAX_SELECT_MENU_OPTIONS) {
   return chunks;
 }
 
+function clampSelectValue(requested, optionCount) {
+  return Math.max(1, Math.min(Number(requested) || 1, optionCount));
+}
+
+function truncateSelectDescription(text, limit = 100) {
+  const raw = String(text ?? '').trim();
+  if (raw.length <= limit) return raw;
+  const truncated = raw.slice(0, Math.max(1, limit - 1));
+  const cut = truncated.lastIndexOf(' ');
+  const safe = cut >= Math.floor(limit * DESCRIPTION_WORD_BOUNDARY_MIN_THRESHOLD) ? truncated.slice(0, cut) : truncated;
+  return `${safe.trimEnd()}…`;
+}
+
 function buildPagedStringSelectRows({
   customIdPrefix,
   placeholderBase,
@@ -419,8 +433,8 @@ function buildPagedStringSelectRows({
       new StringSelectMenuBuilder()
         .setCustomId(`${customIdPrefix}:${chunkIndex}`)
         .setPlaceholder(optionChunks.length > 1 ? `${placeholderBase} (${chunkIndex + 1}/${optionChunks.length})` : placeholderBase)
-        .setMinValues(Math.max(1, Math.min(minValues, chunk.length)))
-        .setMaxValues(Math.max(1, Math.min(maxValues, chunk.length)))
+        .setMinValues(clampSelectValue(minValues, chunk.length))
+        .setMaxValues(clampSelectValue(maxValues, chunk.length))
         .addOptions(chunk),
     ));
 }
@@ -2304,7 +2318,7 @@ module.exports = {
             .map((upgrade) => ({
               label: upgrade.name.slice(0, 100),
               value: upgrade.id,
-              description: `${upgrade.description} • Cost: ${upgrade.cost} credits`.slice(0, 100),
+              description: truncateSelectDescription(`${upgrade.description} • Cost: ${upgrade.cost} credits`),
               emoji: economy.getButtonEmoji(interaction.guild, upgrade.emojiCandidates, upgrade.fallbackEmoji),
             }))
             .sort((a, b) => a.label.localeCompare(b.label)),

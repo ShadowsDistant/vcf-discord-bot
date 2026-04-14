@@ -11,6 +11,8 @@ const ALLIANCE_CREATE_COST = 100_000;
 const MAX_ALLIANCE_DESCRIPTION_LENGTH = 240;
 const BOOSTER_PERSONAL_CPS_BOOST = 0.10;
 const BOOSTER_ALLIANCE_PER_MEMBER_CPS_BOOST = 0.02;
+const ALLIANCE_UPGRADE_SELLBACK_LOSS_RATE = 0.30;
+const ALLIANCE_UPGRADE_SELLBACK_MULTIPLIER = 1 - ALLIANCE_UPGRADE_SELLBACK_LOSS_RATE;
 
 const AUTOMOD_BLOCKED_WORDS = [
   'nigger', 'nigga', 'faggot', 'retard', 'kike', 'spic', 'chink', 'tranny', 'cunt', 'whore',
@@ -888,7 +890,7 @@ function buyAllianceUpgrade(guildId, actorId, upgradeId) {
 function sellAllianceUpgrade(guildId, actorId, upgradeId) {
   const upgrade = STORE_UPGRADE_MAP.get(upgradeId);
   if (!upgrade) return { ok: false, reason: 'Unknown alliance store upgrade.' };
-  const refund = Math.max(0, Math.floor(Number(upgrade.cost ?? 0) * 0.7));
+  const refund = Math.max(0, Math.floor(Number(upgrade.cost ?? 0) * ALLIANCE_UPGRADE_SELLBACK_MULTIPLIER));
 
   const result = db.update(ALLIANCES_FILE, {}, (data) => {
     const guild = getGuildState(data, guildId);
@@ -960,6 +962,8 @@ module.exports = {
   MAX_ALLIANCE_MEMBERS,
   ALLIANCE_CREATE_COST,
   MAX_ALLIANCE_DESCRIPTION_LENGTH,
+  ALLIANCE_UPGRADE_SELLBACK_LOSS_RATE,
+  ALLIANCE_UPGRADE_SELLBACK_MULTIPLIER,
   WEEKLY_ALLIANCE_CHALLENGES,
   ALLIANCE_STORE_UPGRADES,
   ALLIANCE_RANK_BOOSTS,
