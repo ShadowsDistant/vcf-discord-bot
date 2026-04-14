@@ -1598,8 +1598,9 @@ function getActiveTurn(session) {
  * @returns {number}
  */
 function getSafeTurnIndex(session) {
-  const turnCount = Math.max(1, session.turns?.length ?? 1);
-  return Math.min(Math.max(0, session.turnIndex ?? 0), turnCount - 1);
+  const turnCount = Array.isArray(session?.turns) && session.turns.length > 0 ? session.turns.length : 1;
+  const turnIndex = Number.isInteger(session?.turnIndex) ? session.turnIndex : 0;
+  return Math.min(Math.max(0, turnIndex), turnCount - 1);
 }
 
 /**
@@ -1938,7 +1939,8 @@ function attachReviewHandler(replyMsg, interaction, session) {
       return;
     }
     if (i.customId === AI_TURN_NEXT_BUTTON_ID) {
-      session.turnIndex = Math.min(session.turns.length - 1, session.turnIndex + 1);
+      const maxTurnIndex = Math.max(0, (Array.isArray(session.turns) ? session.turns.length : 1) - 1);
+      session.turnIndex = Math.min(maxTurnIndex, session.turnIndex + 1);
       await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
       return;
     }
