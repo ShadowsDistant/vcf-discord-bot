@@ -480,11 +480,14 @@ function buildAllianceInboxContent(embed) {
 
 function sendAllianceBroadcastInbox(guildId, memberIds, embed) {
   const content = buildAllianceInboxContent(embed);
+  const title = String(embed?.data?.title ?? '').slice(0, 100);
   for (const memberId of memberIds ?? []) {
     economy.addPendingMessage(guildId, memberId, {
       type: 'alliance_notification',
       from: 'Alliance System',
+      title: title || undefined,
       content,
+      notificationType: 'alliance_broadcast',
     });
   }
 }

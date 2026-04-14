@@ -206,30 +206,6 @@ function getBroadcastAudienceLabel(audienceValue) {
   return option?.label ?? audienceValue;
 }
 
-async function notifyInboxRecipientsByDm(guild, actorTag, recipientIds, title) {
-  if (!guild || !Array.isArray(recipientIds) || recipientIds.length === 0) return { notified: 0 };
-  const uniqueRecipients = [...new Set(recipientIds)];
-  let notified = 0;
-  await Promise.all(uniqueRecipients.map(async (userId) => {
-    const user = await guild.client.users.fetch(userId).catch(() => null);
-    if (!user || user.bot) return;
-    const dmEmbed = new EmbedBuilder()
-      .setColor(0x5865f2)
-      .setTitle('📬 You have an unread inbox message')
-      .setDescription([
-        `Server: **${guild.name}**`,
-        `From: **${actorTag}**`,
-        title ? `Title: **${title.slice(0, 100)}**` : null,
-        '',
-        'Run `/messages` in the server to view your inbox.',
-      ].filter(Boolean).join('\n'))
-      .setTimestamp();
-    const sent = await user.send({ embeds: [dmEmbed] }).catch(() => null);
-    if (sent) notified += 1;
-  }));
-  return { notified };
-}
-
 function getGuideState(guildId, userId) {
   pruneGuideStateSelections();
   const entry = guideViewSelections.get(`${guildId}:${userId}`);
@@ -3148,7 +3124,6 @@ module.exports = {
             claimed: false,
           });
         }
-        await notifyInboxRecipientsByDm(interaction.guild, interaction.user.tag, finalRecipientIds, title);
         clearPendingStaffMessageSelection(interaction.guild.id, actorId);
         const recipientMentions = finalRecipientIds.map((id) => `<@${id}>`).join(', ');
         return interaction.reply({
@@ -3212,10 +3187,8 @@ module.exports = {
             content,
             from: interaction.user.tag,
             claimed: false,
+            suppressDeliveryDm: audience === 'everyone',
           });
-        }
-        if (audience !== 'everyone') {
-          await notifyInboxRecipientsByDm(interaction.guild, interaction.user.tag, targetUserIds, title);
         }
         const audienceLabel = getBroadcastAudienceLabel(audience);
 

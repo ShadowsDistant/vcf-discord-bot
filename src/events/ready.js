@@ -16,6 +16,40 @@ function randomInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
+function getInboxMessageTitle(messageData) {
+  if (messageData?.title) return String(messageData.title).slice(0, 100);
+  if (messageData?.type === 'gift_box') return 'Gift Box Delivery';
+  if (messageData?.type === 'gift_cookies') return 'Cookie Gift Delivery';
+  if (messageData?.type === 'rank_reward') return 'New Rank Reward';
+  if (messageData?.type === 'boost_notification') return 'Boost Update';
+  if (messageData?.type === 'alliance_notification') return 'Alliance Update';
+  if (messageData?.type === 'staff_message') return 'Staff Message';
+  return 'Inbox Update';
+}
+
+async function sendInboxDeliveryDm(client, payload) {
+  const guildId = String(payload?.guildId ?? '');
+  const userId = String(payload?.userId ?? '');
+  if (!guildId || !userId) return;
+  const messageData = payload?.messageData ?? {};
+  if (messageData?.suppressDeliveryDm) return;
+  const guild = client.guilds.cache.get(guildId) ?? await client.guilds.fetch(guildId).catch(() => null);
+  const user = await client.users.fetch(userId).catch(() => null);
+  if (!guild || !user || user.bot) return;
+  const dmEmbed = {
+    color: 0x5865f2,
+    title: '📬 You have a new inbox message',
+    description: [
+      `Server: **${guild.name}**`,
+      `Type: **${getInboxMessageTitle(messageData)}**`,
+      '',
+      'Run `/messages` in the server to view it.',
+    ].join('\n'),
+    timestamp: new Date().toISOString(),
+  };
+  await user.send({ embeds: [dmEmbed] }).catch(() => null);
+}
+
 async function ensureMonthlyWaveStart(guild, client) {
   const now = new Date();
   const currentMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
@@ -85,31 +119,21 @@ async function processAllianceRewardDms(client) {
   const notices = alliances.processAllianceChallengeRewards();
   if (!notices.length) return;
   for (const notice of notices) {
-    const guild = client.guilds.cache.get(notice.guildId) ?? null;
-    const embed = {
-      color: 0x57f287,
-      title: '🎉 Alliance Challenge Completed',
-      description: [
-        `Alliance: **${notice.allianceName}**`,
-        `Challenge: **${notice.challengeName}**`,
-        `Reward: **${economy.toCookieNumber(notice.rewardCookiesPerMember)}** cookies`,
-        `Alliance credits gained: **${notice.rewardAllianceCoins}**`,
-      ].join('\n'),
-      timestamp: new Date().toISOString(),
-      footer: guild
-        ? {
-          text: guild.name,
-          icon_url: guild.iconURL() ?? undefined,
-        }
-        : undefined,
-    };
-
     const memberIds = notice.memberIds ?? [];
-    await Promise.allSettled(memberIds.map(async (memberId) => {
-      const user = await client.users.fetch(memberId).catch(() => null);
-      if (!user) return;
-      await user.send({ embeds: [embed] });
-    }));
+    for (const memberId of memberIds) {
+      economy.addPendingMessage(notice.guildId, memberId, {
+        type: 'alliance_notification',
+        notificationType: 'alliance_challenge_reward',
+        from: 'Alliance System',
+        title: '🎉 Alliance Challenge Completed',
+        content: [
+          `Alliance: **${notice.allianceName}**`,
+          `Challenge: **${notice.challengeName}**`,
+          `Reward: **${economy.toCookieNumber(notice.rewardCookiesPerMember)}** cookies`,
+          `Alliance credits gained: **${notice.rewardAllianceCoins}**`,
+        ].join('\n'),
+      });
+    }
   }
 }
 
@@ -129,6 +153,7 @@ module.exports = {
       ],
       status: 'online',
     });
+    economy.setInboxDeliveryNotifier((payload) => sendInboxDeliveryDm(client, payload));
 
     for (const guild of client.guilds.cache.values()) {
       ensureMonthlyWaveStart(guild, client).catch(() => null);

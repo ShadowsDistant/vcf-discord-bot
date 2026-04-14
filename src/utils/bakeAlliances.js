@@ -772,7 +772,9 @@ function getAllianceWithChallenge(guildId, userId) {
         userId: memberId,
         boost: baseAllianceBoost,
         details: {
+          allianceName: result.alliance.name,
           rankBoost: rankBoost.cpsBoostMultiplier,
+          rankPosition: rankBoost.rank ?? 0,
           upgradeBoost,
           allianceBoosterCount: boosterCount,
           allianceBoosterBoost,
@@ -821,7 +823,9 @@ function refreshGuildAllianceBoosts(guildId) {
         userId,
         boost: 0,
         details: {
+          allianceName: null,
           rankBoost: 0,
+          rankPosition: 0,
           upgradeBoost: 0,
           allianceBoosterCount: 0,
           allianceBoosterBoost: 0,
