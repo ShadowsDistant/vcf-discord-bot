@@ -53,7 +53,7 @@ module.exports = {
   async execute(interaction) {
     if (!canUseDevCommand(interaction.member, interaction.guild, 'setstatus')) {
       return interaction.reply({
-        embeds: [embeds.error('This command requires Developer+ in the developer team, or Admin/Owner.', interaction.guild ?? null)],
+        embeds: [embeds.error('This command requires an allowed developer user ID.', interaction.guild ?? null)],
         flags: MessageFlags.Ephemeral,
       });
     }

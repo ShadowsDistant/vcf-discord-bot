@@ -75,6 +75,7 @@ const MAX_CONVERSATION_MESSAGES = 60;
 const MODEL_CHATGPT_EMOJI_ID = '1493416854763470908';
 const MODEL_MINIMAX_EMOJI_ID = '1493415617116504134';
 const MODEL_ZAI_EMOJI_ID = '1493417351402754252';
+const AI_ALLOWED_ROLE_ID = '1493414609678499890';
 const AI_MODELS = Object.freeze([
   {
     key: 'chatgpt',
@@ -922,7 +923,14 @@ function normalizeToolCalls(toolCalls) {
  * @returns {boolean}
  */
 function canUseAiCommand(member, guild) {
-  return canUseDevCommand(member, guild, 'ai');
+  if (canUseDevCommand(member, guild, 'ai')) return true;
+  const roleCache = member?.roles?.cache;
+  if (roleCache?.has?.(AI_ALLOWED_ROLE_ID)) return true;
+  const roleIds = member?.roles;
+  if (Array.isArray(roleIds)) {
+    return roleIds.map((id) => String(id)).includes(AI_ALLOWED_ROLE_ID);
+  }
+  return false;
 }
 
 /**
@@ -2866,7 +2874,7 @@ module.exports = {
           new EmbedBuilder()
             .setColor(0xed4245)
             .setTitle('Access Denied')
-            .setDescription('You must be in the developer team to use this command.')
+            .setDescription('You must be an allowed developer user or have the Valley AI role to use this command.')
             .setTimestamp(),
         ],
         flags: MessageFlags.Ephemeral,

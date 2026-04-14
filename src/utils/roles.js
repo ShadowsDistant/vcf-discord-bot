@@ -32,6 +32,12 @@ const ROLE_IDS = {
 };
 const DEV_TEAM_ROLE_ID = process.env.DEV_TEAM_ROLE_ID ?? '1380606884385521714';
 const DEV_ELEVATED_ROLE_ID = String(process.env.DEV_ELEVATED_ROLE_ID ?? '').trim();
+const DEV_USER_IDS = new Set(
+  String(process.env.DEV_USER_ID ?? '')
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean),
+);
 
 const MODERATION_ROLE_IDS = new Set(Object.values(ROLE_IDS.moderation));
 const SID_ROLE_IDS = new Set(Object.values(ROLE_IDS.sid));
@@ -196,13 +202,9 @@ function isAdminOrOwner(member, guild) {
 }
 
 function canUseDevCommand(member, guild, commandName) {
-  if (commandName === 'setstatus' || commandName === 'servers') {
-    if (isAdminOrOwner(member, guild)) return true;
-    if (!isDevTeamMember(member)) return false;
-    return hasDeveloperLevelAccess(member, guild);
-  }
-  if (!isDevTeamMember(member)) return false;
-  return true;
+  const memberId = String(member?.id ?? member?.user?.id ?? '').trim();
+  if (!memberId) return false;
+  return DEV_USER_IDS.has(memberId);
 }
 
 module.exports = {
