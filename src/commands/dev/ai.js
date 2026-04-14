@@ -106,7 +106,7 @@ const AI_CONTINUE_PROMPT_INPUT_ID = 'ai_continue_prompt';
 const AI_UI_BUTTON_PREFIX = 'ai_ui_button:';
 const AI_UI_SELECT_PREFIX = 'ai_ui_select:';
 const AI_UI_MODAL_PREFIX = 'ai_ui_modal:';
-const AI_MODEL_LABEL = 'Valley AI';
+const AI_MODEL_LABEL = 'AI Assistant';
 const AI_MODEL_LABEL_LOWER = AI_MODEL_LABEL.toLowerCase();
 const AI_SAFETY_TOGGLE_USER_ID = '757698506411475005';
 const AI_SESSIONS = new Map();
@@ -1272,7 +1272,7 @@ function buildSafetyBlockedRawContent(safety, phase) {
         inline: false,
       },
     ],
-    footer: 'Message blocked by Valley AI safety filter',
+    footer: 'Message blocked by AI safety filter',
   });
 }
 
@@ -3716,7 +3716,6 @@ function attachReviewHandler(replyMsg, interaction, session) {
 
   collector.on('end', async () => {
     AI_SESSIONS.delete(replyMsg.id);
-    await replyMsg.edit({ components: [] }).catch(() => null);
   });
 }
 
