@@ -1420,8 +1420,8 @@ function buildReviewEmbed(stats, toolsUsed) {
  */
 function getActiveTurn(session) {
   if (Array.isArray(session.turns) && session.turns.length > 0) {
-    const clamped = Math.min(Math.max(0, session.turnIndex ?? 0), session.turns.length - 1);
-    return session.turns[clamped];
+    const clampedTurnIndex = Math.min(Math.max(0, session.turnIndex ?? 0), session.turns.length - 1);
+    return session.turns[clampedTurnIndex];
   }
   return {
     outputEmbeds: [],
@@ -1707,12 +1707,12 @@ function attachReviewHandler(replyMsg, interaction, session) {
       return;
     }
     if (i.customId === AI_TURN_PREV_BUTTON_ID) {
-      if (Array.isArray(session.turns) && session.turns.length > 0) session.turnIndex = Math.max(0, session.turnIndex - 1);
+      session.turnIndex = Math.max(0, session.turnIndex - 1);
       await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
       return;
     }
     if (i.customId === AI_TURN_NEXT_BUTTON_ID) {
-      if (Array.isArray(session.turns) && session.turns.length > 0) session.turnIndex = Math.min(session.turns.length - 1, session.turnIndex + 1);
+      session.turnIndex = Math.min(session.turns.length - 1, session.turnIndex + 1);
       await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
       return;
     }
