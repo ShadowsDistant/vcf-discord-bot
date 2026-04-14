@@ -19,6 +19,7 @@ const ECONOMY_FILE = 'bake_economy.json';
 const PASSIVE_CAP_MS = 24 * 60 * 60 * 1000;
 const MESSAGES_PER_PAGE = 8;
 const MAX_PENDING_MESSAGES = 50;
+let pendingMessageNonce = 0;
 const MARKET_LISTING_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const MARKET_FEE_RATE = 0.05;
 const BASE_GOLDEN_CHANCE = 0.02;
@@ -848,6 +849,37 @@ function getUserState(guildState, userId) {
   return user;
 }
 
+function nextPendingMessageId() {
+  pendingMessageNonce = (pendingMessageNonce + 1) % 1000;
+  return (Date.now() * 1000) + pendingMessageNonce;
+}
+
+function appendPendingMessage(user, messageData, idOverride) {
+  if (!Array.isArray(user.pendingMessages)) user.pendingMessages = [];
+  user.pendingMessages.push({
+    id: Number.isInteger(idOverride) ? idOverride : nextPendingMessageId(),
+    createdAt: new Date().toISOString(),
+    claimed: false,
+    ...messageData,
+  });
+  if (user.pendingMessages.length > MAX_PENDING_MESSAGES) {
+    const firstClaimedIdx = user.pendingMessages.findIndex((m) => m.claimed);
+    if (firstClaimedIdx >= 0) user.pendingMessages.splice(firstClaimedIdx, 1);
+    else user.pendingMessages.shift();
+  }
+}
+
+function buildRankRewardPendingMessage(rank) {
+  return {
+    type: 'rank_reward',
+    from: 'Bakery System',
+    title: `Rank unlocked: ${rank.name}`,
+    message: 'Use /messages to claim your rank reward.',
+    rankId: rank.id,
+    rewards: { ...(rank.rewards ?? {}) },
+  };
+}
+
 function cleanMarketplace(guildState, now = Date.now()) {
   guildState.marketplace.listings = (guildState.marketplace.listings ?? []).filter((listing) =>
     (now - listing.listedAt) < MARKET_LISTING_LIFETIME_MS);
@@ -1111,7 +1143,7 @@ function applyRankRewards(user, rank) {
   if (rewards.unlockTier && !user.unlockedTiers.includes(rewards.unlockTier)) user.unlockedTiers.push(rewards.unlockTier);
 }
 
-function syncUserRank(user) {
+function syncUserRank(user, onRankUnlocked) {
   if (!RANK_INDEX.has(user.rankId)) user.rankId = RANKS[0].id;
   if (!Array.isArray(user.rankRewardsClaimed)) user.rankRewardsClaimed = [];
   const previousIndex = RANK_INDEX.get(user.rankId) ?? 0;
@@ -1133,10 +1165,10 @@ function syncUserRank(user) {
     for (let index = previousIndex + 1; index <= targetIndex; index += 1) {
       const rank = RANKS[index];
       if (!user.rankRewardsClaimed.includes(rank.id)) {
-        applyRankRewards(user, rank);
         user.rankRewardsClaimed.push(rank.id);
+        if (typeof onRankUnlocked === 'function') onRankUnlocked(rank);
+        unlockedRanks.push(rank);
       }
-      unlockedRanks.push(rank);
     }
   }
   user.rankId = RANKS[targetIndex].id;
@@ -1462,7 +1494,9 @@ function bake(guildId, userId) {
     }
 
     const newlyEarned = evaluateAchievements(user);
-    const rankUpdate = syncUserRank(user);
+    const rankUpdate = syncUserRank(user, (rank) => {
+      appendPendingMessage(user, buildRankRewardPendingMessage(rank));
+    });
     return {
       user,
       item,
@@ -1485,7 +1519,9 @@ function getUserSnapshot(guildId, userId) {
   const user = getUserState(guildState, userId);
   const passive = applyPassiveIncome(user, Date.now());
   evaluateAchievements(user);
-  syncUserRank(user);
+  syncUserRank(user, (rank) => {
+    appendPendingMessage(user, buildRankRewardPendingMessage(rank));
+  });
   writeState(data);
   return { data, guildState, user, passive };
 }
@@ -1732,7 +1768,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
 
     if (entries.length === 0 && rewardGiftEntries.length === 0) {
       embed.setDescription('Inventory currently empty. Keep baking, crumb warrior.');
-      const pendingGifts = (user.pendingMessages ?? []).filter((m) => !m.claimed && (m.type === 'gift_box' || m.type === 'gift_cookies'));
+      const pendingGifts = (user.pendingMessages ?? []).filter((m) => !m.claimed && (m.type === 'gift_box' || m.type === 'gift_cookies' || m.type === 'rank_reward'));
       if (pendingGifts.length > 0) {
         embed.addFields({ name: '📬 Pending Gifts', value: `You have **${pendingGifts.length}** unclaimed gift(s)! Use \`/messages\` to claim them.` });
       }
@@ -1755,7 +1791,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
       });
       embed.setFooter({ text: `Page ${page + 1}/${Math.max(1, Math.ceil(entries.length / 8))}` });
 
-      const pendingGifts = (user.pendingMessages ?? []).filter((m) => !m.claimed && (m.type === 'gift_box' || m.type === 'gift_cookies'));
+      const pendingGifts = (user.pendingMessages ?? []).filter((m) => !m.claimed && (m.type === 'gift_box' || m.type === 'gift_cookies' || m.type === 'rank_reward'));
       if (pendingGifts.length > 0) {
         embed.addFields({ name: '📬 Pending Gifts', value: `You have **${pendingGifts.length}** unclaimed gift(s)! Use \`/messages\` to claim them.` });
       }
@@ -2909,17 +2945,7 @@ function addPendingMessage(guildId, userId, messageData) {
   const data = readState();
   const guildState = getGuildState(data, guildId);
   const user = getUserState(guildState, userId);
-  user.pendingMessages.push({
-    id: Date.now(),
-    createdAt: new Date().toISOString(),
-    claimed: false,
-    ...messageData,
-  });
-  if (user.pendingMessages.length > MAX_PENDING_MESSAGES) {
-    const firstClaimedIdx = user.pendingMessages.findIndex((m) => m.claimed);
-    if (firstClaimedIdx >= 0) user.pendingMessages.splice(firstClaimedIdx, 1);
-    else user.pendingMessages.shift();
-  }
+  appendPendingMessage(user, messageData);
   writeState(data);
 }
 
@@ -2930,7 +2956,7 @@ function markInboxMessagesRead(guildId, userId) {
   let updated = false;
   for (const msg of user.pendingMessages) {
     if (msg.claimed) continue;
-    if (msg.type === 'gift_box' || msg.type === 'gift_cookies') continue;
+    if (msg.type === 'gift_box' || msg.type === 'gift_cookies' || msg.type === 'rank_reward') continue;
     msg.claimed = true;
     updated = true;
   }
@@ -2952,7 +2978,7 @@ function claimPendingMessage(guildId, userId, messageId) {
   const msg = user.pendingMessages.find((m) => m.id === messageId);
   if (!msg) return { ok: false, reason: 'Message not found.' };
   if (msg.claimed) return { ok: false, reason: 'Already claimed.' };
-  if (msg.type !== 'gift_box' && msg.type !== 'gift_cookies') {
+  if (msg.type !== 'gift_box' && msg.type !== 'gift_cookies' && msg.type !== 'rank_reward') {
     return { ok: false, reason: 'This message has nothing to claim.' };
   }
   msg.claimed = true;
@@ -2968,6 +2994,15 @@ function claimPendingMessage(guildId, userId, messageId) {
     user.cookies += msg.cookieAmount;
     user.cookiesBakedAllTime += msg.cookieAmount;
     reward = { cookieAmount: msg.cookieAmount };
+  } else if (msg.type === 'rank_reward') {
+    const rank = RANKS.find((entry) => entry.id === msg.rankId) ?? null;
+    const rewards = (msg.rewards && typeof msg.rewards === 'object') ? msg.rewards : (rank?.rewards ?? {});
+    applyRankRewards(user, { rewards });
+    reward = {
+      rankId: msg.rankId ?? rank?.id ?? null,
+      rankName: rank?.name ?? msg.rankId ?? 'Unknown rank',
+      rewards,
+    };
   }
   writeState(data);
   return { ok: true, type: msg.type, reward };
@@ -2980,7 +3015,7 @@ function claimAllPendingMessages(guildId, userId) {
   const claimed = [];
   for (const msg of user.pendingMessages) {
     if (msg.claimed) continue;
-    if (msg.type !== 'gift_box' && msg.type !== 'gift_cookies') continue;
+    if (msg.type !== 'gift_box' && msg.type !== 'gift_cookies' && msg.type !== 'rank_reward') continue;
     msg.claimed = true;
     if (msg.type === 'gift_box' && REWARD_BOX_MAP.has(msg.rewardBoxId)) {
       user.rewardGifts[msg.rewardBoxId] = (user.rewardGifts[msg.rewardBoxId] ?? 0) + msg.quantity;
@@ -2989,6 +3024,16 @@ function claimAllPendingMessages(guildId, userId) {
       user.cookies += msg.cookieAmount;
       user.cookiesBakedAllTime += msg.cookieAmount;
       claimed.push({ type: 'gift_cookies', cookieAmount: msg.cookieAmount });
+    } else if (msg.type === 'rank_reward') {
+      const rank = RANKS.find((entry) => entry.id === msg.rankId) ?? null;
+      const rewards = (msg.rewards && typeof msg.rewards === 'object') ? msg.rewards : (rank?.rewards ?? {});
+      applyRankRewards(user, { rewards });
+      claimed.push({
+        type: 'rank_reward',
+        rankId: msg.rankId ?? rank?.id ?? null,
+        rankName: rank?.name ?? msg.rankId ?? 'Unknown rank',
+        rewards,
+      });
     }
   }
   writeState(data);
@@ -3009,7 +3054,7 @@ function deletePendingMessage(guildId, userId, messageId) {
 function buildMessagesEmbed(guild, user, page) {
   const pending = user.pendingMessages ?? [];
   const unreadCount = pending.filter((msg) => !msg.claimed).length;
-  const unclaimedRewards = pending.filter((msg) => (msg.type === 'gift_box' || msg.type === 'gift_cookies') && !msg.claimed).length;
+  const unclaimedRewards = pending.filter((msg) => (msg.type === 'gift_box' || msg.type === 'gift_cookies' || msg.type === 'rank_reward') && !msg.claimed).length;
   const totalPages = Math.max(1, Math.ceil(pending.length / MESSAGES_PER_PAGE));
   const safePage = Math.max(0, Math.min(page, totalPages - 1));
   const newestFirst = [...pending].reverse();
@@ -3047,6 +3092,12 @@ function buildMessagesEmbed(guild, user, page) {
       category = 'Cookie Gift';
       const msgText = msg.message ? `: *${msg.message.slice(0, 80)}${msg.message.length > 80 ? '…' : ''}*` : '';
       summary = `**${toCookieNumber(msg.cookieAmount)}** cookies from **${msg.from}**${msgText}${msg.claimed ? ' *(claimed)*' : ''}`;
+    } else if (msg.type === 'rank_reward') {
+      const rank = RANKS.find((entry) => entry.id === msg.rankId) ?? null;
+      icon = msg.claimed ? '✅' : '🏅';
+      category = 'Rank Reward';
+      const rewardText = formatRankReward({ rewards: msg.rewards ?? rank?.rewards ?? {} });
+      summary = `**${rank?.name ?? msg.rankId ?? 'Unknown rank'}**\n${rewardText}${msg.claimed ? '\n*(claimed)*' : '\n*Claim with this inbox button.*'}`;
     } else if (msg.type === 'alliance_notification') {
       icon = '🤝';
       category = 'Alliance';
@@ -3084,7 +3135,7 @@ function buildMessagesComponents(user, page) {
     for (let j = i; j < Math.min(i + 2, pageMsgs.length); j++) {
       const msg = pageMsgs[j];
       const label = `#${pending.length - (safePage * MESSAGES_PER_PAGE + j)}`;
-      const isClaimable = (msg.type === 'gift_box' || msg.type === 'gift_cookies') && !msg.claimed;
+      const isClaimable = (msg.type === 'gift_box' || msg.type === 'gift_cookies' || msg.type === 'rank_reward') && !msg.claimed;
       if (isClaimable) {
         btns.push(
           new ButtonBuilder()
@@ -3104,7 +3155,7 @@ function buildMessagesComponents(user, page) {
   }
 
   const hasUnclaimed = pending.some(
-    (m) => (m.type === 'gift_box' || m.type === 'gift_cookies') && !m.claimed,
+    (m) => (m.type === 'gift_box' || m.type === 'gift_cookies' || m.type === 'rank_reward') && !m.claimed,
   );
 
   const navRow = new ActionRowBuilder().addComponents(

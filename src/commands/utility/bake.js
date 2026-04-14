@@ -168,8 +168,8 @@ function buildBakeOutcome(guild, userId) {
     embed.addFields({
       name: `${economy.getRankEmoji(unlockedRank, guild)} Rank unlocked: ${unlockedRank.name}`,
       value: nextRank
-        ? `Next rank: ${economy.getRankEmoji(nextRank, guild)} **${nextRank.name}**\nRequirements:\n${economy.formatRankRequirements(nextRank)}\nReward:\n${economy.formatRankReward(nextRank)}`
-        : 'You reached the highest rank. 👑',
+        ? `Reward sent to your inbox. Use \`/messages\` to claim it.\n\nNext rank: ${economy.getRankEmoji(nextRank, guild)} **${nextRank.name}**\nRequirements:\n${economy.formatRankRequirements(nextRank)}\nReward:\n${economy.formatRankReward(nextRank)}`
+        : 'Reward sent to your inbox. Use `/messages` to claim it.\nYou reached the highest rank. 👑',
     });
   }
 

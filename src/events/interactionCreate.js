@@ -778,6 +778,9 @@ module.exports = {
           replyText = `✅ Claimed **${result.reward.quantity}x ${box?.name ?? result.reward.rewardBoxId}** — open it from your bakery inventory!`;
         } else if (result.type === 'gift_cookies') {
           replyText = `✅ Claimed **${economy.toCookieNumber(result.reward.cookieAmount)}** cookies!`;
+        } else if (result.type === 'rank_reward') {
+          const rewardSummary = economy.formatRankReward({ rewards: result.reward.rewards ?? {} });
+          replyText = `✅ Claimed rank reward for **${result.reward.rankName ?? 'Unknown rank'}**!\n${rewardSummary}`;
         }
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildMessagesEmbed(interaction.guild, snapshot.user, currentPage);
@@ -796,11 +799,14 @@ module.exports = {
         } else {
           const boxTotals = new Map();
           let cookieTotal = 0;
+          const rankRewards = [];
           for (const r of claimed) {
             if (r.type === 'gift_box') {
               boxTotals.set(r.rewardBoxId, (boxTotals.get(r.rewardBoxId) ?? 0) + r.quantity);
             } else if (r.type === 'gift_cookies') {
               cookieTotal += r.cookieAmount;
+            } else if (r.type === 'rank_reward') {
+              rankRewards.push(r);
             }
           }
           const lines = [];
@@ -809,6 +815,10 @@ module.exports = {
             lines.push(`🎁 **${qty}x ${box?.name ?? boxId}**`);
           }
           if (cookieTotal > 0) lines.push(`🍪 **${economy.toCookieNumber(cookieTotal)} cookies**`);
+          if (rankRewards.length > 0) {
+            lines.push(...rankRewards.map((reward) =>
+              `🏅 **${reward.rankName ?? reward.rankId ?? 'Rank reward'}** — ${economy.formatRankReward({ rewards: reward.rewards ?? {} })}`));
+          }
           embed.addFields({ name: `✅ Claimed ${claimed.length} reward(s)`, value: lines.join('\n') || 'Done!' });
         }
         return interaction.update({ embeds: [embed], components });
