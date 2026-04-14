@@ -106,7 +106,7 @@ const AI_UI_BUTTON_PREFIX = 'ai_ui_button:';
 const AI_UI_SELECT_PREFIX = 'ai_ui_select:';
 const AI_UI_MODAL_PREFIX = 'ai_ui_modal:';
 const AI_SAFETY_TOGGLE_USER_ID = '757698506411475005';
-const BLOCKED_AI_TITLE_NORMALIZED = new Set(['assistant', 'ai assistant', 'valley ai']);
+const BLOCKED_AI_TITLE_NORMALIZED = new Set(['assistant', 'ai assistant']);
 const AI_SESSIONS = new Map();
 const AI_USER_SETTINGS = new Map();
 const MAX_CUSTOM_ID_BASE_LENGTH = 48; // keeps prefixed custom IDs within Discord's 100-char limit
@@ -2659,7 +2659,7 @@ function parseAiOutput(rawContent) {
   const footerText = data.footer ? truncate(stripCodeMarkup(stripThinkBlocks(String(data.footer))), FOOTER_MAX) : null;
   const rawTitle = data.title ? truncate(stripCodeMarkup(stripThinkBlocks(String(data.title))), 256) : null;
   const normalizedTitle = rawTitle ? rawTitle.trim().toLowerCase() : '';
-  const normalizedAuthorName = authorName.toLowerCase();
+  const normalizedAuthorName = authorName ? authorName.toLowerCase() : '';
   const isTitleValid = Boolean(
     normalizedTitle
     && !BLOCKED_AI_TITLE_NORMALIZED.has(normalizedTitle)
