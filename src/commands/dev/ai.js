@@ -115,6 +115,7 @@ const MODEL_ZAI_EMOJI_ID = '1493417351402754252';
 const AI_ALLOWED_ROLE_ID = '1493414609678499890';
 const AI_USER_SETTINGS_FILE = 'ai_user_settings.json';
 let AI_USER_SETTINGS_LOADED = false;
+const ESCAPED_CODE_FENCE = '``\\`';
 const AI_MODELS = Object.freeze([
   {
     key: 'chatgpt',
@@ -1235,7 +1236,7 @@ function normalizeAiSettings(input) {
 function ensureUserAiSettingsLoaded() {
   if (AI_USER_SETTINGS_LOADED) return;
   const persisted = db.read(AI_USER_SETTINGS_FILE, {});
-  for (const [userId, settings] of Object.entries(persisted ?? {})) {
+  for (const [userId, settings] of Object.entries(persisted)) {
     AI_USER_SETTINGS.set(String(userId), normalizeAiSettings(settings));
   }
   AI_USER_SETTINGS_LOADED = true;
@@ -1368,7 +1369,7 @@ function formatThinkingForHidden(thinkingText) {
  * @returns {string}
  */
 function formatAsCodeBlock(text) {
-  const safe = String(text ?? '').replace(/```/g, '``\\`');
+  const safe = String(text ?? '').replace(/```/g, ESCAPED_CODE_FENCE);
   return `\`\`\`\n${safe}\n\`\`\``;
 }
 
@@ -2528,7 +2529,12 @@ function parseAiOutput(rawContent) {
   const rawTitle = data.title ? truncate(stripCodeMarkup(stripThinkBlocks(String(data.title))), 256) : null;
   const normalizedTitle = rawTitle ? rawTitle.trim().toLowerCase() : '';
   const normalizedAuthorName = authorName.trim().toLowerCase();
-  const title = normalizedTitle && normalizedTitle !== AI_MODEL_LABEL_LOWER && normalizedTitle !== normalizedAuthorName ? rawTitle : null;
+  const isTitleValid = Boolean(
+    normalizedTitle
+    && normalizedTitle !== AI_MODEL_LABEL_LOWER
+    && normalizedTitle !== normalizedAuthorName,
+  );
+  const title = isTitleValid ? rawTitle : null;
   const description = stripCodeMarkup(stripThinkBlocks(String(data.description ?? NO_RESPONSE_TEXT)));
   const fields = [];
   if (Array.isArray(data.fields)) {
