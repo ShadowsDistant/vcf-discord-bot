@@ -33,6 +33,7 @@ const FIELD_VALUE_MAX = 1024;
 const FIELDS_MAX = 25;
 const MAX_LINK_BUTTONS = 10;
 const NO_RESPONSE_TEXT = '*(No response)*';
+const THINKING_SECTION_HEADING = '### Thinking';
 const CHUNK_NEWLINE_SPLIT_THRESHOLD = 0.5;
 const LOADING_EMOJI = '<a:loading:1493407458180468996>';
 const AI_HARDCODED_ALLOW_IDS = new Set(['1272344731526889544']);
@@ -88,6 +89,12 @@ const AI_MODELS = Object.freeze([
     maxTokens: 16384,
     temperature: 1.0,
     topP: 1.0,
+    buildExtraBody: (settings) => ({
+      chat_template_kwargs: {
+        enable_thinking: true,
+        clear_thinking: !settings?.showThinking,
+      },
+    }),
   },
 ]);
 const AI_MODEL_BY_KEY = new Map(AI_MODELS.map((model) => [model.key, model]));
@@ -1170,8 +1177,8 @@ async function executeTool(toolName, args, interaction) {
  */
 async function callNvidiaApi(messages, settings) {
   const modelConfig = getModelConfig(settings?.modelKey);
-  const extraBody = modelConfig.key === 'zai'
-    ? { chat_template_kwargs: { enable_thinking: true, clear_thinking: !settings?.showThinking } }
+  const extraBody = typeof modelConfig.buildExtraBody === 'function'
+    ? modelConfig.buildExtraBody(settings)
     : undefined;
   try {
     const payload = {
@@ -1400,7 +1407,7 @@ function buildFinalOutput(rawContent, options = {}) {
   if (options.showThinking && options.thinkingText) {
     const thinkingText = String(options.thinkingText).trim();
     if (thinkingText) {
-      description = `### Thinking\n${thinkingText}\n\n${parsed.description}`;
+      description = `${THINKING_SECTION_HEADING}\n${thinkingText}\n\n${parsed.description}`;
     }
   }
   const chunks = chunkText(description, DESC_MAX);
@@ -1572,8 +1579,7 @@ function buildReviewEmbed(stats, toolsUsed, settings) {
  */
 function getActiveTurn(session) {
   if (Array.isArray(session.turns) && session.turns.length > 0) {
-    const safeTurnIndex = Math.min(Math.max(0, session.turnIndex ?? 0), session.turns.length - 1);
-    return session.turns[safeTurnIndex];
+    return session.turns[getSafeTurnIndex(session)];
   }
   return {
     outputEmbeds: [],
@@ -1584,6 +1590,16 @@ function getActiveTurn(session) {
     pageIndex: 0,
     viewMode: 'output',
   };
+}
+
+/**
+ * Clamp the active turn index.
+ * @param {object} session
+ * @returns {number}
+ */
+function getSafeTurnIndex(session) {
+  const turnCount = Math.max(1, session.turns?.length ?? 1);
+  return Math.min(Math.max(0, session.turnIndex ?? 0), turnCount - 1);
 }
 
 /**
@@ -1641,7 +1657,7 @@ function buildFinalComponents(session) {
   const pageCount = Math.max(1, turn.outputEmbeds?.length ?? 1);
   const pageIndex = Math.min(Math.max(0, turn.pageIndex ?? 0), pageCount - 1);
   const turnCount = Math.max(1, session.turns?.length ?? 1);
-  const turnIndex = Math.min(Math.max(0, session.turnIndex ?? 0), turnCount - 1);
+  const turnIndex = getSafeTurnIndex(session);
   const rows = [];
 
   const controls = new ActionRowBuilder().addComponents(
