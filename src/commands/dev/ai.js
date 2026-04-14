@@ -189,44 +189,6 @@ Interactive Components:
 - Respect Discord component limits: max 5 action rows total, max 5 buttons per row, max 5 modal fields.
 - If output is paginated, image_url is shown on the first page.`;
 
-const SAFETY_CLASSIFIER_PROMPT = `You are a classifier and automated Discord moderator for analyzing interactions between humans and LLMs within the Valley Correctional community Discord server. Given a request from a human user and a response from an LLM assistant, determine 1) whether the human user's request violates Valley Correctional community rules, 2) whether the AI assistant's response is a refusal, and 3) whether the AI assistant's response violates community rules or encourages rule-breaking.
-
-Taxonomy: The following are the list of rule violation categories that the prompt and response may fall into based on Valley Correctional's General Conduct and Discord rules.
-
-V1: Discrimination and Hate Speech (targeting individuals/groups based on identity, race, religion, gender, etc.).
-V2: Disrespect and Harassment (bullying, belittling, personal attacks, or lacking common courtesy).
-V3: Profanity and Derogatory Language (using slurs, derogatory terms, or insulting/attacking users with cursing).
-V4: Personal Information/PII (sharing or asking for personally identifiable information).
-V5: Threats, Blackmail, and Doxxing (threats of real-world harm, doxxing, sharing IPs, or blackmail).
-V6: Inappropriate and NSFW Content (pornography, sexually explicit material, extreme gore, or gratuitous shock content).
-V7: Real-World Tragedies & Politics (debating politics, spreading conspiracy theories, or making light of tragedies).
-V8: Disclosure of Classified Information (leaking or claiming to possess confidential staff/operations information).
-V9: Non-English Language (using languages other than English in public channels).
-V10: Malicious and Unverified Links (URL shorteners, scams, illegal software, or pirated content).
-V11: Self-Promotion and Advertising (unauthorized promotion of personal projects, poaching members, or unsolicited invites).
-V12: Channel & Ticket Misuse (using channels for the wrong purpose, trolling staff in tickets, or false reports).
-V13: Spamming and Mass Mentioning (flooding, large walls of text, or pinging users for no reason).
-V14: Voice Channel Misuse (mic spamming, inappropriate soundboards, or unsupervised Discord Activities).
-
-Severity Levels:
-Low: Minor disruptions or honest mistakes (e.g., Channel Misuse, Non-English).
-Medium: Purposeful disruptions or community friction (e.g., Spamming, Advertising, Politics).
-High: Severe infractions that harm the community (e.g., Malicious Links, Harassment, Classified Leaks).
-Critical: Zero-tolerance offenses requiring immediate bans (e.g., Hate Speech, Threats/Doxxing, PII, NSFW).
-
-Use the taxonomy to determine if the prompt and response fall into any of the harmful categories. Output your answer in the following format:
-
-Prompt harm: <harmful or unharmful>
-Prompt rule: <rule name or None>
-Reason: <brief reason>
-Prompt severity: <low|medium|high|critical|none>
-Response harm: <harmful or unharmful or None>
-Response rule: <rule name or None>
-Response reason: <brief reason or None>
-Response severity: <low|medium|high|critical|none|None>
-
-Only output the answer in the format specified above. If there is no response, output Response fields as None.`;
-
 // ── Dangerous tools ──────────────────────────────────────────────────────────────
 const DANGEROUS_TOOLS = new Set([
   'ban_member',
@@ -954,6 +916,51 @@ function getLatestUserMessage(messages) {
  */
 function parseSafetyOutput(text) {
   const source = String(text ?? '');
+  const extractJsonObject = (value) => {
+    const trimmed = value.trim();
+    if (trimmed.startsWith('{') && trimmed.endsWith('}')) return trimmed;
+    const match = trimmed.match(/\{[\s\S]*\}/);
+    return match?.[0] ?? '';
+  };
+  const normalizeHarmLabel = (value, fallback) => {
+    const normalized = String(value ?? '').trim().toLowerCase();
+    if (!normalized) return fallback;
+    if (normalized === 'unsafe') return 'harmful';
+    if (normalized === 'safe') return 'unharmful';
+    return normalized;
+  };
+  const jsonCandidate = extractJsonObject(source);
+  if (jsonCandidate) {
+    try {
+      const parsed = JSON.parse(jsonCandidate);
+      const categories = String(
+        parsed?.['Safety Categories']
+        ?? parsed?.safety_categories
+        ?? parsed?.categories
+        ?? 'None',
+      ).trim() || 'None';
+      const userSafety = normalizeHarmLabel(
+        parsed?.['User Safety'] ?? parsed?.user_safety,
+        'unharmful',
+      );
+      const responseSafety = normalizeHarmLabel(
+        parsed?.['Response Safety'] ?? parsed?.response_safety,
+        'None',
+      );
+      return {
+        promptHarm: userSafety,
+        promptRule: categories,
+        promptReason: categories === 'None' ? 'No reason provided.' : `Categories: ${categories}`,
+        promptSeverity: 'none',
+        responseHarm: responseSafety,
+        responseRule: categories,
+        responseReason: categories === 'None' ? 'None' : `Categories: ${categories}`,
+        responseSeverity: 'none',
+      };
+    } catch {
+      // Fall through to legacy line-based parser.
+    }
+  }
   const read = (label, fallback = 'None') => {
     const match = source.match(new RegExp(`^${label}:\\s*(.+)$`, 'im'));
     return match?.[1]?.trim() || fallback;
@@ -977,7 +984,7 @@ function parseSafetyOutput(text) {
  */
 function isHarmfulLabel(value) {
   const normalized = String(value ?? '').trim().toLowerCase();
-  return normalized === 'harmful';
+  return normalized === 'harmful' || normalized === 'unsafe';
 }
 
 /**
@@ -2018,17 +2025,13 @@ async function callNvidiaApi(messages, settings) {
 async function runSafetyFilter(input) {
   const userPrompt = String(input?.prompt ?? '').trim();
   const assistantResponse = input?.response == null ? null : String(input.response).trim();
-  const content = `${SAFETY_CLASSIFIER_PROMPT}
-
-Human user:
-${userPrompt || 'None'}
-
-AI assistant:
-${assistantResponse ?? 'None'}`;
 
   const payload = {
     model: SAFETY_MODEL,
-    messages: [{ role: 'user', content }],
+    messages: [
+      { role: 'user', content: userPrompt || 'None' },
+      { role: 'assistant', content: assistantResponse ?? 'None' },
+    ],
     temperature: 1,
     top_p: 1,
     max_tokens: SAFETY_MAX_TOKENS,
