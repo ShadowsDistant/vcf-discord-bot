@@ -30,6 +30,7 @@ const BUILDING_COST_GROWTH = 1.18;
 const VCF_PROFILE_TAG_CPS_BOOST = 0.05;
 const VCF_PROFILE_TAG_MANUAL_CLICK_BONUS = 5;
 const VCF_PROFILE_TAG_REGEX = /(^|[^a-z0-9])vcf([^a-z0-9]|$)/i;
+const VCF_PROFILE_IDENTITY_GUILD_ID = '1345804368263385170';
 const MAX_DISPLAYED_GIFT_BOXES = 6;
 const GIFT_BOX_OPTION_PREFIX = 'gift:';
 const BAKE_ADMIN_ROLE_ID = '1492510387579654205';
@@ -1332,6 +1333,14 @@ function hasVcfProfileTag(...values) {
 }
 
 function inferVcfProfileTagStatus(memberLike, userLike = null) {
+  const identityGuildId = String(
+    memberLike?.user?.primaryGuild?.identityGuildId
+    ?? memberLike?.primaryGuild?.identityGuildId
+    ?? userLike?.primaryGuild?.identityGuildId
+    ?? '',
+  );
+  if (identityGuildId === VCF_PROFILE_IDENTITY_GUILD_ID) return true;
+
   return hasVcfProfileTag(
     memberLike?.displayName,
     memberLike?.nickname,
@@ -1649,8 +1658,17 @@ function buildCpsBreakdownEmbed(guild, user) {
 
   // ── Totals ────────────────────────────────────────────────────────────────
   const basePlusBoosted = buildingTotal + consumedBonus;
-  const totalBeforeAlliance = basePlusBoosted * globalMultiplier * (1 + kittenBonus) * frenzyMultiplier;
-  const totalCps = totalBeforeAlliance * (1 + allianceBoost + boosterBoost + vcfTagBoost);
+  const afterGlobal = basePlusBoosted * globalMultiplier;
+  const afterKitten = afterGlobal * (1 + kittenBonus);
+  const totalBeforeAlliance = afterKitten * frenzyMultiplier;
+  const finalLayerMultiplier = 1 + allianceBoost + boosterBoost + vcfTagBoost;
+  const totalCps = totalBeforeAlliance * finalLayerMultiplier;
+  const globalBonusCps = Math.max(0, afterGlobal - basePlusBoosted);
+  const kittenBonusCps = Math.max(0, afterKitten - afterGlobal);
+  const frenzyBonusCps = Math.max(0, totalBeforeAlliance - afterKitten);
+  const allianceBonusCps = Math.max(0, totalBeforeAlliance * allianceBoost);
+  const boosterBonusCps = Math.max(0, totalBeforeAlliance * boosterBoost);
+  const vcfTagBonusCps = Math.max(0, totalBeforeAlliance * vcfTagBoost);
 
   const embed = new EmbedBuilder()
     .setColor(0xf1c40f)
@@ -1676,22 +1694,40 @@ function buildCpsBreakdownEmbed(guild, user) {
     const boostList = activeBoosts.map((b) => `+${toCookieNumber(b.cpsBonus)} (expires <t:${Math.floor(b.expiresAt / 1000)}:R>)`).join('\n');
     embed.addFields({ name: '⚡ Active Boosts', value: boostList.slice(0, 512) });
   }
+  const bonusSourceLines = [];
+  if (consumedBonus > 0) bonusSourceLines.push(`Flat boosts: +${toCookieNumber(consumedBonus)} CPS`);
+  if (globalMultiplier !== 1) {
+    bonusSourceLines.push(`Global upgrades: ×${globalMultiplier.toFixed(2)} → +${toCookieNumber(globalBonusCps)} CPS`);
+  }
+  if (kittenBonus > 0) {
+    bonusSourceLines.push(`Kitten scaling: +${(kittenBonus * 100).toFixed(1)}% → +${toCookieNumber(kittenBonusCps)} CPS`);
+  }
   if (frenzy) {
-    embed.addFields({ name: '🌀 Frenzy Active', value: `×7 multiplier (expires <t:${Math.floor(frenzy.expiresAt / 1000)}:R>)`, inline: true });
+    bonusSourceLines.push(`Frenzy: ×${frenzyMultiplier} → +${toCookieNumber(frenzyBonusCps)} CPS (expires <t:${Math.floor(frenzy.expiresAt / 1000)}:R>)`);
+  }
+  if (allianceBoost > 0) {
+    bonusSourceLines.push(`Alliance total: +${(allianceBoost * 100).toFixed(0)}% → +${toCookieNumber(allianceBonusCps)} CPS`);
+    const allianceDetailLines = [];
+    const allianceDetailGain = (boostPct) => toCookieNumber(totalBeforeAlliance * boostPct);
+    if (rankBoost > 0) {
+      allianceDetailLines.push(`• Rank: +${(rankBoost * 100).toFixed(0)}% → +${allianceDetailGain(rankBoost)} CPS`);
+    }
+    if (upgradeBoost > 0) {
+      allianceDetailLines.push(`• Store: +${(upgradeBoost * 100).toFixed(0)}% → +${allianceDetailGain(upgradeBoost)} CPS`);
+    }
+    if (boosterAllianceBoost > 0) {
+      allianceDetailLines.push(`• Alliance boosters (${boosterCount}): +${(boosterAllianceBoost * 100).toFixed(0)}% → +${allianceDetailGain(boosterAllianceBoost)} CPS`);
+    }
+    bonusSourceLines.push(...allianceDetailLines);
+  }
+  if (boosterBoost > 0) {
+    bonusSourceLines.push(`Your booster role: +${(boosterBoost * 100).toFixed(0)}% → +${toCookieNumber(boosterBonusCps)} CPS`);
   }
   if (vcfTagBoost > 0) {
-    embed.addFields({ name: '🏷️ VCF Profile Bonus', value: `+${(vcfTagBoost * 100).toFixed(0)}% CPS`, inline: true });
+    bonusSourceLines.push(`VCF profile tag: +${(vcfTagBoost * 100).toFixed(0)}% → +${toCookieNumber(vcfTagBonusCps)} CPS`);
   }
-  if (allianceBoost > 0 || boosterBoost > 0) {
-    embed.addFields({ name: '🤝 Alliance Boost', value: `+${(allianceBoost * 100).toFixed(0)}% (rank + alliance upgrades + alliance boosters)`, inline: true });
-    if (rankBoost > 0 || upgradeBoost > 0 || boosterAllianceBoost > 0 || boosterBoost > 0) {
-      const parts = [];
-      if (rankBoost > 0) parts.push(`Rank: +${(rankBoost * 100).toFixed(0)}%`);
-      if (upgradeBoost > 0) parts.push(`Store: +${(upgradeBoost * 100).toFixed(0)}%`);
-      if (boosterAllianceBoost > 0) parts.push(`Alliance boosters (${boosterCount}): +${(boosterAllianceBoost * 100).toFixed(0)}%`);
-      if (boosterBoost > 0) parts.push(`Your booster role: +${(boosterBoost * 100).toFixed(0)}%`);
-      embed.addFields({ name: '💎 Booster Sources', value: parts.join('\n').slice(0, 1024), inline: false });
-    }
+  if (bonusSourceLines.length) {
+    embed.addFields({ name: '🔎 Bonus Sources', value: bonusSourceLines.join('\n').slice(0, 1024), inline: false });
   }
   embed.addFields({ name: '✅ Final Total (All Boosters)', value: `${toCookieNumber(totalCps)} CPS`, inline: false });
   embed.addFields({ name: '📊 Formula', value: `(Buildings + Boosts) × Global Multiplier × (1 + Kitten%) × Frenzy × (1 + Alliance% + Booster% + VCF%)`, inline: false });
