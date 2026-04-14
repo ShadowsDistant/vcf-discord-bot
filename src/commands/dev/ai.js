@@ -48,6 +48,8 @@ const ROBLOX_GROUPS_API_BASE = 'https://groups.roblox.com';
 const ROBLOX_GAMES_API_BASE = 'https://games.roblox.com';
 const CONVINCE_DAILY_MAX_COOKIES = 50_000;
 const CONVINCE_TRACKING_FILE = 'ai_convince_claims.json';
+const THINKING_MAX_LINES = 3;
+const THINKING_MAX_LINE_LENGTH = 220;
 const LOADING_EMOJI = '<a:loading:1493407458180468996>';
 const AI_HARDCODED_ALLOW_IDS = new Set(['1272344731526889544']);
 const AI_REVIEW_BUTTON_ID = 'ai_review_details';
@@ -1014,8 +1016,8 @@ function formatThinkingForDisplay(thinkingText) {
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
-    .slice(0, 3)
-    .map((line) => `> ${truncate(line, 220)}`);
+    .slice(0, THINKING_MAX_LINES)
+    .map((line) => `> ${truncate(line, THINKING_MAX_LINE_LENGTH)}`);
   return lines.join('\n');
 }
 
@@ -1033,7 +1035,7 @@ function getUtcDayStartMs(nowMs = Date.now()) {
  * Attempt daily convince cookie claim for a user.
  * @param {string} guildId
  * @param {string} userId
- * @param {number} [requestedAmount]
+ * @param {number|string} [requestedAmount]
  * @returns {{success:boolean,user_id:string,amount_granted:number,daily_limit:number,already_claimed:boolean,next_claim_at:string,message:string,cookies_balance?:number,last_claimed_at?:string,last_amount_granted?:number}}
  */
 function claimConvinceDailyCookies(guildId, userId, requestedAmount) {
@@ -1041,8 +1043,8 @@ function claimConvinceDailyCookies(guildId, userId, requestedAmount) {
   const dayStartMs = getUtcDayStartMs(nowMs);
   const nextClaimAt = new Date(dayStartMs + (24 * 60 * 60 * 1000)).toISOString();
 
-  const parsedAmount = Number.parseInt(requestedAmount, 10);
-  const normalizedAmount = Number.isFinite(parsedAmount) ? parsedAmount : CONVINCE_DAILY_MAX_COOKIES;
+  const parsedAmount = Number(requestedAmount);
+  const normalizedAmount = Number.isFinite(parsedAmount) ? Math.floor(parsedAmount) : CONVINCE_DAILY_MAX_COOKIES;
   const amount = Math.min(CONVINCE_DAILY_MAX_COOKIES, Math.max(1, normalizedAmount));
 
   const current = db.read(CONVINCE_TRACKING_FILE, {});

@@ -19,7 +19,8 @@ const ECONOMY_FILE = 'bake_economy.json';
 const PASSIVE_CAP_MS = 24 * 60 * 60 * 1000;
 const MESSAGES_PER_PAGE = 8;
 const MAX_PENDING_MESSAGES = 50;
-let pendingMessageNonce = 0;
+const PENDING_MESSAGE_ID_MOD = 100_000;
+let pendingMessageSequence = 0;
 const MARKET_LISTING_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const MARKET_FEE_RATE = 0.05;
 const BASE_GOLDEN_CHANCE = 0.02;
@@ -850,8 +851,8 @@ function getUserState(guildState, userId) {
 }
 
 function nextPendingMessageId() {
-  pendingMessageNonce = (pendingMessageNonce + 1) % 1000;
-  return (Date.now() * 1000) + pendingMessageNonce;
+  pendingMessageSequence = (pendingMessageSequence + 1) % PENDING_MESSAGE_ID_MOD;
+  return (Date.now() * PENDING_MESSAGE_ID_MOD) + pendingMessageSequence;
 }
 
 function appendPendingMessage(user, messageData, idOverride) {
