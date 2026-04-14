@@ -1424,13 +1424,13 @@ function getActiveTurn(session) {
     return session.turns[clamped];
   }
   return {
-    outputEmbeds: session.outputEmbeds ?? [],
-    reviewEmbed: session.reviewEmbed,
-    linkButtons: session.linkButtons ?? [],
-    uiRows: session.uiRows ?? [],
-    uiState: session.uiState ?? { buttons: {}, selects: {}, modals: {} },
-    pageIndex: session.pageIndex ?? 0,
-    viewMode: session.viewMode ?? 'output',
+    outputEmbeds: [],
+    reviewEmbed: null,
+    linkButtons: [],
+    uiRows: [],
+    uiState: { buttons: {}, selects: {}, modals: {} },
+    pageIndex: 0,
+    viewMode: 'output',
   };
 }
 
@@ -1475,7 +1475,7 @@ function buildFinalComponents(session) {
   }
   rows.push(controls);
 
-  if (mode === 'output' && pageCount > 1 && rows.length < 5) {
+  if (mode === 'output' && pageCount > 1) {
     rows.push(
       new ActionRowBuilder().addComponents(
         new ButtonBuilder()
