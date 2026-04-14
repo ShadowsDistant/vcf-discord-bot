@@ -24,11 +24,14 @@ const { formatDuration } = require('../../utils/helpers');
 // ── Constants ───────────────────────────────────────────────────────────────────
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY ?? '';
 const NVIDIA_API_BASE = 'https://integrate.api.nvidia.com/v1';
+const NVIDIA_CHAT_COMPLETIONS_URL = `${NVIDIA_API_BASE}/chat/completions`;
 const MAX_TOKENS = 4096;
 const TEMPERATURE = 1.0;
 const TOP_P = 1.0;
 const MAX_ITERATIONS = 10;
 const AI_REQUEST_TIMEOUT_MS = 60_000;
+const SAFETY_MODEL = 'nvidia/nemotron-content-safety-reasoning-4b';
+const SAFETY_MAX_TOKENS = 1024;
 const DEFAULT_COLOR = 0x99aab5; // default grey
 const MAX_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000;
 const CONFIRMATION_TIMEOUT_MS = 30_000;
@@ -38,6 +41,7 @@ const DESC_MAX = 4096;
 const FIELD_VALUE_MAX = 1024;
 const FIELDS_MAX = 25;
 const FOOTER_MAX = 2048;
+const SAFETY_FIELD_PREFIX_BUFFER = 64;
 const SELECT_OPTION_MAX = 100;
 const MAX_LINK_BUTTONS = 10;
 const NO_RESPONSE_TEXT = '*(No response)*';
@@ -176,6 +180,8 @@ Tool Usage:
 Interactive Components:
 - Only add components when they provide clear interaction value (not decoration).
 - Prefer select_menus for choosing from 3+ defined options.
+- Whenever you ask the user to choose from defined actions/options, you MUST provide a select_menus entry for that choice and use it to collect the response.
+- Do not ask users to type a freeform answer when the response should be one of predefined options.
 - Select menus trigger immediately and start a new turn; button/modal interactions are stored context processed after Continue.
 - Select menu rules: every option must have non-empty string label and value, values must be unique (use snake_case), include clear placeholder text, min/max values must be valid, max 25 options.
 - Button rules: unique descriptive snake_case id (max 48 chars), use style intentionally (primary/success/danger/secondary), ack_message optional.
@@ -183,6 +189,44 @@ Interactive Components:
 - Link buttons are for external URLs only and must use valid http/https URLs.
 - Respect Discord component limits: max 5 action rows total, max 5 buttons per row, max 5 modal fields.
 - If output is paginated, image_url is shown on the first page.`;
+
+const SAFETY_CLASSIFIER_PROMPT = `You are a classifier and automated Discord moderator for analyzing interactions between humans and LLMs within the Valley Correctional community Discord server. Given a request from a human user and a response from an LLM assistant, determine 1) whether the human user's request violates Valley Correctional community rules, 2) whether the AI assistant's response is a refusal, and 3) whether the AI assistant's response violates community rules or encourages rule-breaking.
+
+Taxonomy: The following are the list of rule violation categories that the prompt and response may fall into based on Valley Correctional's General Conduct and Discord rules.
+
+V1: Discrimination and Hate Speech (targeting individuals/groups based on identity, race, religion, gender, etc.).
+V2: Disrespect and Harassment (bullying, belittling, personal attacks, or lacking common courtesy).
+V3: Profanity and Derogatory Language (using slurs, derogatory terms, or insulting/attacking users with cursing).
+V4: Personal Information/PII (sharing or asking for personally identifiable information).
+V5: Threats, Blackmail, and Doxxing (threats of real-world harm, doxxing, sharing IPs, or blackmail).
+V6: Inappropriate and NSFW Content (pornography, sexually explicit material, extreme gore, or gratuitous shock content).
+V7: Real-World Tragedies & Politics (debating politics, spreading conspiracy theories, or making light of tragedies).
+V8: Disclosure of Classified Information (leaking or claiming to possess confidential staff/operations information).
+V9: Non-English Language (using languages other than English in public channels).
+V10: Malicious and Unverified Links (URL shorteners, scams, illegal software, or pirated content).
+V11: Self-Promotion and Advertising (unauthorized promotion of personal projects, poaching members, or unsolicited invites).
+V12: Channel & Ticket Misuse (using channels for the wrong purpose, trolling staff in tickets, or false reports).
+V13: Spamming and Mass Mentioning (flooding, large walls of text, or pinging users for no reason).
+V14: Voice Channel Misuse (mic spamming, inappropriate soundboards, or unsupervised Discord Activities).
+
+Severity Levels:
+Low: Minor disruptions or honest mistakes (e.g., Channel Misuse, Non-English).
+Medium: Purposeful disruptions or community friction (e.g., Spamming, Advertising, Politics).
+High: Severe infractions that harm the community (e.g., Malicious Links, Harassment, Classified Leaks).
+Critical: Zero-tolerance offenses requiring immediate bans (e.g., Hate Speech, Threats/Doxxing, PII, NSFW).
+
+Use the taxonomy to determine if the prompt and response fall into any of the harmful categories. Output your answer in the following format:
+
+Prompt harm: <harmful or unharmful>
+Prompt rule: <rule name or None>
+Reason: <brief reason>
+Prompt severity: <low|medium|high|critical|none>
+Response harm: <harmful or unharmful or None>
+Response rule: <rule name or None>
+Response reason: <brief reason or None>
+Response severity: <low|medium|high|critical|none|None>
+
+Only output the answer in the format specified above. If there is no response, output Response fields as None.`;
 
 // ── Dangerous tools ──────────────────────────────────────────────────────────────
 const DANGEROUS_TOOLS = new Set([
@@ -889,6 +933,95 @@ function isHttpUrl(value) {
   } catch {
     return false;
   }
+}
+
+/**
+ * Get the latest user-authored message content from conversation history.
+ * @param {Array<object>} messages
+ * @returns {string}
+ */
+function getLatestUserMessage(messages) {
+  if (!Array.isArray(messages)) return '';
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i]?.role === 'user') return String(messages[i].content ?? '');
+  }
+  return '';
+}
+
+/**
+ * Parse safety classifier output text into structured fields.
+ * @param {string} text
+ * @returns {{promptHarm:string,promptRule:string,promptReason:string,promptSeverity:string,responseHarm:string,responseRule:string,responseReason:string,responseSeverity:string}}
+ */
+function parseSafetyOutput(text) {
+  const source = String(text ?? '');
+  const read = (label, fallback = 'None') => {
+    const match = source.match(new RegExp(`^${label}:\\s*(.+)$`, 'im'));
+    return match?.[1]?.trim() || fallback;
+  };
+  return {
+    promptHarm: read('Prompt harm', 'unharmful'),
+    promptRule: read('Prompt rule', 'None'),
+    promptReason: read('Reason', 'No reason provided.'),
+    promptSeverity: read('Prompt severity', 'none'),
+    responseHarm: read('Response harm', 'None'),
+    responseRule: read('Response rule', 'None'),
+    responseReason: read('Response reason', 'None'),
+    responseSeverity: read('Response severity', 'None'),
+  };
+}
+
+/**
+ * Check if a harm label indicates harmful content.
+ * @param {string} value
+ * @returns {boolean}
+ */
+function isHarmfulLabel(value) {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return normalized === 'harmful';
+}
+
+/**
+ * Sanitize short safety-metadata values for embed/history usage.
+ * @param {string} value
+ * @param {number} [maxLen]
+ * @returns {string}
+ */
+function sanitizeSafetyText(value, maxLen = 120) {
+  const cleaned = stripCodeMarkup(stripThinkBlocks(String(value ?? 'None')))
+    .replace(/\s+/g, ' ')
+    .trim();
+  return truncate(cleaned || 'None', maxLen);
+}
+
+/**
+ * Build JSON content for a safety-blocked assistant output.
+ * @param {ReturnType<typeof parseSafetyOutput>} safety
+ * @param {'prompt'|'response'} phase
+ * @returns {string}
+ */
+function buildSafetyBlockedRawContent(safety, phase) {
+  const isPromptBlock = phase === 'prompt';
+  return JSON.stringify({
+    title: 'Safety Filter Blocked',
+    color: '#ed4245',
+    description: isPromptBlock
+      ? 'Your prompt was blocked by the safety filter and was not sent to the AI model.'
+      : 'The AI response was blocked by the safety filter before it could be shown.',
+    fields: [
+      {
+        name: 'Prompt Harm',
+        value: `Status: ${sanitizeSafetyText(safety.promptHarm, 60)}\nRule: ${sanitizeSafetyText(safety.promptRule, 120)}\nSeverity: ${sanitizeSafetyText(safety.promptSeverity, 20)}\nReason: ${truncate(sanitizeSafetyText(safety.promptReason, FIELD_VALUE_MAX), FIELD_VALUE_MAX - SAFETY_FIELD_PREFIX_BUFFER)}`,
+        inline: false,
+      },
+      {
+        name: 'Response Harm',
+        value: `Status: ${sanitizeSafetyText(safety.responseHarm, 60)}\nRule: ${sanitizeSafetyText(safety.responseRule, 120)}\nSeverity: ${sanitizeSafetyText(safety.responseSeverity, 20)}\nReason: ${truncate(sanitizeSafetyText(safety.responseReason, FIELD_VALUE_MAX), FIELD_VALUE_MAX - SAFETY_FIELD_PREFIX_BUFFER)}`,
+        inline: false,
+      },
+    ],
+    footer: 'Message blocked by Valley AI safety filter',
+  });
 }
 
 /**
@@ -1879,6 +2012,72 @@ async function callNvidiaApi(messages, settings) {
 }
 
 /**
+ * Run the NVIDIA safety classifier against prompt/response content.
+ * @param {{prompt:string,response:string|null}} input
+ * @returns {Promise<ReturnType<typeof parseSafetyOutput>>}
+ */
+async function runSafetyFilter(input) {
+  const userPrompt = String(input?.prompt ?? '').trim();
+  const assistantResponse = input?.response == null ? null : String(input.response).trim();
+  const content = `${SAFETY_CLASSIFIER_PROMPT}
+
+Human user:
+${userPrompt || 'None'}
+
+AI assistant:
+${assistantResponse ?? 'None'}`;
+
+  const payload = {
+    model: SAFETY_MODEL,
+    messages: [{ role: 'user', content }],
+    temperature: 1,
+    top_p: 1,
+    max_tokens: SAFETY_MAX_TOKENS,
+    stream: false,
+  };
+
+  let timeoutId;
+  const controller = new AbortController();
+  try {
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => {
+        controller.abort();
+        reject(createTimeoutError('Safety filter request timed out after 60 seconds with no response.'));
+      }, AI_REQUEST_TIMEOUT_MS);
+    });
+    const requestPromise = fetch(NVIDIA_CHAT_COMPLETIONS_URL, {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'content-type': 'application/json',
+        authorization: `Bearer ${NVIDIA_API_KEY}`,
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    const response = await Promise.race([requestPromise, timeoutPromise]);
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw Object.assign(new Error(`Safety filter API error ${response.status}: ${response.statusText}`), {
+        status: response.status,
+        body,
+      });
+    }
+    const data = await response.json();
+    const raw = String(data?.choices?.[0]?.message?.content ?? '').trim();
+    if (!raw) throw new Error('Safety filter returned an empty response.');
+    return parseSafetyOutput(raw);
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw createTimeoutError('Safety filter request timed out after 60 seconds with no response.');
+    }
+    throw error;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+}
+
+/**
  * Build a "dangerous action confirmation" embed with confirm/cancel buttons.
  * @param {string} toolName
  * @param {object} args
@@ -2440,6 +2639,26 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
   let ttftMs = null;
   let promptTokens = null;
   let completionTokens = null;
+  const latestUserMessage = getLatestUserMessage(messages);
+  if (latestUserMessage) {
+    const promptSafety = await runSafetyFilter({ prompt: latestUserMessage, response: null });
+    if (isHarmfulLabel(promptSafety.promptHarm)) {
+      const blockedRawContent = buildSafetyBlockedRawContent(promptSafety, 'prompt');
+      const { outputEmbeds, linkButtons, uiRows, uiState } = buildFinalOutput(blockedRawContent);
+      const reviewEmbed = buildReviewEmbed(
+        {
+          ttftMs: null,
+          totalMs: Date.now() - requestStartMs,
+          iterations: 0,
+          promptTokens: null,
+          completionTokens: null,
+        },
+        toolsUsed,
+        settings,
+      );
+      return { outputEmbeds, reviewEmbed, linkButtons, uiRows, uiState, rawContent: blockedRawContent, thinkingText: '' };
+    }
+  }
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
     trimConversationHistory(messages);
@@ -2470,15 +2689,34 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
 
     const assistantMessage = choice.message ?? {};
     const toolCalls = normalizeToolCalls(assistantMessage.tool_calls);
-    messages.push({
-      role: 'assistant',
-      content: assistantMessage.content ?? '',
-      tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
-    });
-
     const iterationCount = iteration + 1;
     if (!toolCalls || toolCalls.length === 0) {
       const content = assistantMessage.content ?? '';
+      const responseSafety = await runSafetyFilter({ prompt: latestUserMessage, response: content });
+      if (isHarmfulLabel(responseSafety.responseHarm)) {
+        const blockedRawContent = buildSafetyBlockedRawContent(responseSafety, 'response');
+        messages.push({
+          role: 'assistant',
+          content: `Safety filter blocked a prior assistant response (rule: ${sanitizeSafetyText(responseSafety.responseRule, 80)}, severity: ${sanitizeSafetyText(responseSafety.responseSeverity, 20)}).`,
+        });
+        const { outputEmbeds, linkButtons, uiRows, uiState } = buildFinalOutput(blockedRawContent);
+        const reviewEmbed = buildReviewEmbed(
+          {
+            ttftMs,
+            totalMs: Date.now() - requestStartMs,
+            iterations: iterationCount,
+            promptTokens,
+            completionTokens,
+          },
+          toolsUsed,
+          settings,
+        );
+        return { outputEmbeds, reviewEmbed, linkButtons, uiRows, uiState, rawContent: blockedRawContent, thinkingText: '' };
+      }
+      messages.push({
+        role: 'assistant',
+        content,
+      });
       const thinkingText = collectThinkingText(assistantMessage);
       const { outputEmbeds, linkButtons, uiRows, uiState } = buildFinalOutput(content, {
         showThinking: settings?.showThinking,
@@ -2497,6 +2735,11 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
       );
       return { outputEmbeds, reviewEmbed, linkButtons, uiRows, uiState, rawContent: content, thinkingText };
     }
+    messages.push({
+      role: 'assistant',
+      content: assistantMessage.content ?? '',
+      tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+    });
 
     for (const toolCall of toolCalls) {
       const toolName = toolCall.function?.name;
