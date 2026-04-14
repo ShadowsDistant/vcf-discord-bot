@@ -19,6 +19,7 @@ const db = require('../../utils/database');
 const analytics = require('../../utils/analytics');
 const { sendModerationActionDm, sendModLog } = require('../../utils/moderationNotifications');
 const economy = require('../../utils/bakeEconomy');
+const { formatDuration } = require('../../utils/helpers');
 
 // ── Constants ───────────────────────────────────────────────────────────────────
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY ?? '';
@@ -42,6 +43,7 @@ const MAX_LINK_BUTTONS = 10;
 const NO_RESPONSE_TEXT = '*(No response)*';
 const THINKING_SECTION_HEADING = '### Thinking';
 const CHUNK_NEWLINE_SPLIT_THRESHOLD = 0.5;
+const ROBLOX_API_BASE = 'https://users.roblox.com';
 const LOADING_EMOJI = '<a:loading:1493407458180468996>';
 const AI_HARDCODED_ALLOW_IDS = new Set(['1272344731526889544']);
 const AI_REVIEW_BUTTON_ID = 'ai_review_details';
@@ -153,7 +155,7 @@ Guidelines:
 - Use Discord markdown in description and field values (**bold**, *italic*, \`code\`, \\n for line breaks).
 - Use fields for structured/tabular data and set inline true/false intentionally; do not duplicate the same list both as fields and bullets in description.
 - Format Discord entities as mentions when relevant: <@user_id>, <#channel_id>, <@&role_id>.
-- Keep responses concise without filler.
+- Keep responses very brief by default: 1–3 short sentences and no more than 5 bullets unless the user explicitly asks for detail.
 
 Tool Usage:
 - If the answer is known, answer directly without tools.
@@ -162,6 +164,7 @@ Tool Usage:
 - You may call multiple tools in one turn when needed; synthesize results into one cohesive response and note discrepancies if results conflict.
 - Use search_web only for current/web lookup requests or information you cannot answer from memory.
 - For moderation requests with incomplete names (e.g. "warn somoto"), use member search tools first; if multiple matches are plausible, present a select menu of candidates or ask the user to confirm the top match before taking action.
+- Always collect a clear reason before any moderation action (warn/kick/ban/timeout). If missing, ask for one before using tools.
 
 Interactive Components:
 - Only add components when they provide clear interaction value (not decoration).
@@ -179,6 +182,7 @@ const DANGEROUS_TOOLS = new Set([
   'ban_member',
   'kick_member',
   'timeout_member',
+  'warn_member',
   'delete_message',
   'create_role',
   'delete_role',
@@ -427,7 +431,7 @@ const TOOL_SCHEMAS = [
           reason: { type: 'string', description: 'The reason for the ban. Optional.' },
           delete_message_days: { type: 'number', description: 'Number of days of messages to delete (0–7). Optional, defaults to 0.' },
         },
-        required: ['user_id'],
+        required: ['user_id', 'reason'],
       },
     },
   },
@@ -442,7 +446,7 @@ const TOOL_SCHEMAS = [
           user_id: { type: 'string', description: 'The Discord user ID of the member to kick.' },
           reason: { type: 'string', description: 'The reason for the kick. Optional.' },
         },
-        required: ['user_id'],
+        required: ['user_id', 'reason'],
       },
     },
   },
@@ -458,7 +462,7 @@ const TOOL_SCHEMAS = [
           duration_seconds: { type: 'number', description: 'The timeout duration in seconds (max 2419200 = 28 days).' },
           reason: { type: 'string', description: 'The reason for the timeout. Optional.' },
         },
-        required: ['user_id', 'duration_seconds'],
+        required: ['user_id', 'duration_seconds', 'reason'],
       },
     },
   },
@@ -466,7 +470,7 @@ const TOOL_SCHEMAS = [
     type: 'function',
     function: {
       name: 'warn_member',
-      description: 'Issue a warning to a member and record it in moderation logs/analytics.',
+      description: 'Issue a warning to a member and record it in moderation logs/analytics. DANGEROUS — requires confirmation.',
       parameters: {
         type: 'object',
         properties: {
@@ -475,6 +479,51 @@ const TOOL_SCHEMAS = [
           reason: { type: 'string', description: 'Reason for the warning.' },
         },
         required: ['reason'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_roblox_players',
+      description: 'Search Roblox players by username/display name.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query for Roblox players.' },
+          limit: { type: 'number', description: 'Maximum results (1–10). Defaults to 5.' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_roblox_groups',
+      description: 'Search Roblox groups by name.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query for Roblox groups.' },
+          limit: { type: 'number', description: 'Maximum results (1–10). Defaults to 5.' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_roblox_games',
+      description: 'Search Roblox games/experiences by name.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Search query for Roblox games.' },
+          limit: { type: 'number', description: 'Maximum results (1–10). Defaults to 5.' },
+        },
+        required: ['query'],
       },
     },
   },
@@ -1011,6 +1060,31 @@ async function duckDuckGoSearch(query) {
 }
 
 /**
+ * Fetch JSON from a Roblox API endpoint.
+ * @param {string} url
+ * @returns {Promise<any>}
+ */
+async function fetchRobloxJson(url) {
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'vcf-discord-bot/1.0',
+      Accept: 'application/json',
+    },
+  });
+  if (!res.ok) throw new Error(`Roblox API request failed (${res.status}).`);
+  return res.json();
+}
+
+/**
+ * Normalize a numeric limit for Roblox searches.
+ * @param {number} raw
+ * @returns {number}
+ */
+function getRobloxSearchLimit(raw) {
+  return Math.min(10, Math.max(1, Number.parseInt(raw, 10) || 5));
+}
+
+/**
  * Search guild members by query and return ranked matches.
  * @param {import('discord.js').Guild} guild
  * @param {string} query
@@ -1284,26 +1358,86 @@ async function executeTool(toolName, args, interaction) {
     }
 
     case 'ban_member': {
+      const reason = String(args.reason ?? '').trim();
+      if (!reason) throw new Error('Reason is required.');
+      if (String(args.user_id) === interaction.user.id) throw new Error('You cannot target yourself for this moderation action.');
       const deleteMessageSeconds = Math.min(7, Math.max(0, args.delete_message_days ?? 0)) * 86400;
+      const targetUser = await interaction.client.users.fetch(args.user_id).catch(() => null);
+      if (!targetUser) throw new Error('User not found.');
+      await sendModerationActionDm({
+        user: targetUser,
+        guild,
+        action: 'Ban',
+        reason,
+        moderatorTag: interaction.user.tag,
+      });
       await guild.members.ban(args.user_id, {
-        reason: args.reason ?? undefined,
+        reason: `${interaction.user.tag}: ${reason}`,
         deleteMessageSeconds,
+      });
+      analytics.recordModAction(guild.id, 'ban', Date.now());
+      await sendModLog({
+        guild,
+        target: targetUser,
+        moderator: interaction.user,
+        action: 'Ban',
+        reason,
+        extra: deleteMessageSeconds > 0 ? `Messages deleted: **${Math.floor(deleteMessageSeconds / 86400)} day(s)**` : undefined,
       });
       return { success: true };
     }
 
     case 'kick_member': {
+      const reason = String(args.reason ?? '').trim();
+      if (!reason) throw new Error('Reason is required.');
       const member = await guild.members.fetch(args.user_id);
       if (!member) throw new Error('Member not found.');
-      await member.kick(args.reason ?? undefined);
+      if (member.id === interaction.user.id) throw new Error('You cannot target yourself for this moderation action.');
+      if (!member.kickable) throw new Error('I cannot kick that member.');
+      await sendModerationActionDm({
+        user: member.user,
+        guild,
+        action: 'Kick',
+        reason,
+        moderatorTag: interaction.user.tag,
+      });
+      await member.kick(`${interaction.user.tag}: ${reason}`);
+      analytics.recordModAction(guild.id, 'kick', Date.now());
+      await sendModLog({
+        guild,
+        target: member.user,
+        moderator: interaction.user,
+        action: 'Kick',
+        reason,
+      });
       return { success: true };
     }
 
     case 'timeout_member': {
+      const reason = String(args.reason ?? '').trim();
+      if (!reason) throw new Error('Reason is required.');
       const member = await guild.members.fetch(args.user_id);
       if (!member) throw new Error('Member not found.');
+      if (member.id === interaction.user.id) throw new Error('You cannot target yourself for this moderation action.');
+      if (!member.moderatable) throw new Error('I cannot timeout that member.');
       const ms = Math.min(args.duration_seconds * 1000, MAX_TIMEOUT_MS);
-      await member.timeout(ms, args.reason ?? undefined);
+      await sendModerationActionDm({
+        user: member.user,
+        guild,
+        action: 'Timeout',
+        reason,
+        moderatorTag: interaction.user.tag,
+        duration: formatDuration(ms),
+      });
+      await member.timeout(ms, `${interaction.user.tag}: ${reason}`);
+      await sendModLog({
+        guild,
+        target: member.user,
+        moderator: interaction.user,
+        action: 'Timeout',
+        reason,
+        extra: `Duration: **${formatDuration(ms)}**`,
+      });
       return { success: true };
     }
 
@@ -1585,6 +1719,55 @@ async function executeTool(toolName, args, interaction) {
       return results;
     }
 
+    case 'search_roblox_players': {
+      const query = String(args.query ?? '').trim();
+      if (!query) throw new Error('Query is required.');
+      const limit = getRobloxSearchLimit(args.limit);
+      const data = await fetchRobloxJson(`${ROBLOX_API_BASE}/v1/users/search?keyword=${encodeURIComponent(query)}&limit=${limit}`);
+      const results = Array.isArray(data?.data) ? data.data : [];
+      return results.slice(0, limit).map((user) => ({
+        id: user.id,
+        username: user.name,
+        display_name: user.displayName ?? user.name,
+        has_verified_badge: Boolean(user.hasVerifiedBadge),
+        profile_url: `https://www.roblox.com/users/${user.id}/profile`,
+      }));
+    }
+
+    case 'search_roblox_groups': {
+      const query = String(args.query ?? '').trim();
+      if (!query) throw new Error('Query is required.');
+      const limit = getRobloxSearchLimit(args.limit);
+      const data = await fetchRobloxJson(`https://groups.roblox.com/v1/groups/search?keyword=${encodeURIComponent(query)}&limit=${limit}`);
+      const results = Array.isArray(data?.data) ? data.data : [];
+      return results.slice(0, limit).map((group) => ({
+        id: group.id,
+        name: group.name,
+        owner_username: group.owner?.username ?? null,
+        member_count: group.memberCount ?? null,
+        description: group.description ?? null,
+        group_url: `https://www.roblox.com/communities/${group.id}`,
+      }));
+    }
+
+    case 'search_roblox_games': {
+      const query = String(args.query ?? '').trim();
+      if (!query) throw new Error('Query is required.');
+      const limit = getRobloxSearchLimit(args.limit);
+      const data = await fetchRobloxJson(`https://games.roblox.com/v1/games/search?keyword=${encodeURIComponent(query)}&limit=${limit}`);
+      const results = Array.isArray(data?.data) ? data.data : [];
+      return results.slice(0, limit).map((game) => ({
+        universe_id: game.universeId ?? game.id ?? null,
+        place_id: game.rootPlaceId ?? null,
+        name: game.name ?? null,
+        creator_name: game.creator?.name ?? null,
+        player_count: game.playerCount ?? null,
+        votes_up: game.upVotes ?? null,
+        votes_down: game.downVotes ?? null,
+        game_url: game.rootPlaceId ? `https://www.roblox.com/games/${game.rootPlaceId}` : null,
+      }));
+    }
+
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }
@@ -1632,6 +1815,7 @@ function buildDangerousActionUI(toolName, args) {
     ban_member: `**Ban member** \`${args.user_id}\`${args.reason ? `\nReason: ${args.reason}` : ''}`,
     kick_member: `**Kick member** \`${args.user_id}\`${args.reason ? `\nReason: ${args.reason}` : ''}`,
     timeout_member: `**Timeout member** \`${args.user_id}\` for **${args.duration_seconds}s**${args.reason ? `\nReason: ${args.reason}` : ''}`,
+    warn_member: `**Warn member** \`${args.user_id ?? args.user_query ?? 'unknown'}\`${args.reason ? `\nReason: ${args.reason}` : ''}`,
     delete_message: `**Delete message** \`${args.message_id}\` in channel \`${args.channel_id}\``,
     create_role: `**Create role** named \`${args.name}\`${args.color ? ` (color: ${args.color})` : ''}`,
     delete_role: `**Delete role** \`${args.role_id}\``,
