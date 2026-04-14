@@ -273,6 +273,7 @@ function getAllianceEffectTotals(alliance) {
     flatRewardBonus: 0,
     bonusAllianceCoins: 0,
     targetMultiplierReduction: 0,
+    allianceCpsBoost: 0,
   };
   for (const upgradeId of alliance.upgrades ?? []) {
     const upgrade = STORE_UPGRADE_MAP.get(upgradeId);
@@ -281,8 +282,10 @@ function getAllianceEffectTotals(alliance) {
     totals.flatRewardBonus += Number(upgrade.effects?.flatRewardBonus ?? 0);
     totals.bonusAllianceCoins += Number(upgrade.effects?.bonusAllianceCoins ?? 0);
     totals.targetMultiplierReduction += Number(upgrade.effects?.targetMultiplierReduction ?? 0);
+    totals.allianceCpsBoost += Number(upgrade.effects?.allianceCpsBoost ?? 0);
   }
   totals.targetMultiplierReduction = Math.min(MAX_TARGET_REDUCTION, Math.max(0, totals.targetMultiplierReduction));
+  totals.allianceCpsBoost = Math.max(0, totals.allianceCpsBoost);
   return totals;
 }
 
@@ -751,7 +754,10 @@ function getAllianceWithChallenge(guildId, userId) {
   // Cache CPS boosts for all members (rank + store + alliance booster count scaling).
   if (result.alliance) {
     const rankBoost = getAllianceRankBoosts(guildId, userId);
-    const upgradeBoost = result.alliance.upgrades.includes('sugar_syndicate') ? 0.08 : 0;
+    const upgradeBoost = (result.alliance.upgrades ?? []).reduce((sum, upgradeId) => {
+      const upgrade = STORE_UPGRADE_MAP.get(upgradeId);
+      return sum + Math.max(0, Number(upgrade?.effects?.allianceCpsBoost ?? 0));
+    }, 0);
     const economyUsers = economy.getGuildUserStates(guildId);
     const boosterCount = (result.alliance.members ?? []).reduce((count, memberId) => {
       return count + (economyUsers?.[memberId]?.isServerBooster ? 1 : 0);
@@ -788,6 +794,43 @@ function getAllianceWithChallenge(guildId, userId) {
   return result;
 }
 
+function refreshGuildAllianceBoosts(guildId) {
+  const data = db.read(ALLIANCES_FILE, {});
+  const guild = data[guildId];
+  const alliancesById = guild?.alliances ?? {};
+  const membersInAlliance = new Set();
+
+  for (const alliance of Object.values(alliancesById)) {
+    ensureAllianceShape(alliance);
+    for (const memberId of alliance.members ?? []) membersInAlliance.add(memberId);
+    const seedUserId = alliance.members.includes(alliance.ownerId) ? alliance.ownerId : alliance.members[0];
+    if (!seedUserId) continue;
+    getAllianceWithChallenge(guildId, seedUserId);
+  }
+
+  const trackedUserIds = economy.getAllTrackedUserIds(guildId);
+  const usersWithoutAlliance = trackedUserIds
+    .map((id) => String(id))
+    .filter((userId) => !membersInAlliance.has(userId));
+  if (usersWithoutAlliance.length > 0) {
+    economy.setAllianceCpsBoostBatch(
+      guildId,
+      usersWithoutAlliance.map((userId) => ({
+        userId,
+        boost: 0,
+        details: {
+          rankBoost: 0,
+          upgradeBoost: 0,
+          allianceBoosterCount: 0,
+          allianceBoosterBoost: 0,
+          personalBoosterBoost: 0,
+          totalAllianceBoost: 0,
+        },
+      })),
+    );
+  }
+}
+
 function processAllianceChallengeRewards() {
   const notices = [];
   db.update(ALLIANCES_FILE, {}, (data) => {
@@ -821,7 +864,7 @@ function buyAllianceUpgrade(guildId, actorId, upgradeId) {
   const upgrade = STORE_UPGRADE_MAP.get(upgradeId);
   if (!upgrade) return { ok: false, reason: 'Unknown alliance store upgrade.' };
 
-  return db.update(ALLIANCES_FILE, {}, (data) => {
+  const result = db.update(ALLIANCES_FILE, {}, (data) => {
     const guild = getGuildState(data, guildId);
     const allianceId = guild.userAlliance?.[actorId];
     if (!allianceId) return { ok: false, reason: 'You are not in an alliance.' };
@@ -838,13 +881,15 @@ function buyAllianceUpgrade(guildId, actorId, upgradeId) {
     alliance.upgrades = [...new Set(alliance.upgrades)];
     return { ok: true, alliance, upgrade };
   });
+  if (result.ok) refreshGuildAllianceBoosts(guildId);
+  return result;
 }
 
 function adminGrantAllianceUpgrade(guildId, allianceIdOrName, upgradeId) {
   const upgrade = STORE_UPGRADE_MAP.get(upgradeId);
   if (!upgrade) return { ok: false, reason: 'Unknown alliance store upgrade.' };
 
-  return db.update(ALLIANCES_FILE, {}, (data) => {
+  const result = db.update(ALLIANCES_FILE, {}, (data) => {
     const guild = getGuildState(data, guildId);
     const alliance = findAllianceByIdOrName(guild.alliances, allianceIdOrName);
     if (!alliance) return { ok: false, reason: 'Alliance not found.' };
@@ -854,6 +899,8 @@ function adminGrantAllianceUpgrade(guildId, allianceIdOrName, upgradeId) {
     alliance.upgrades = [...new Set(alliance.upgrades)];
     return { ok: true, alliance, upgrade };
   });
+  if (result.ok) refreshGuildAllianceBoosts(guildId);
+  return result;
 }
 
 function adminDeleteAlliance(guildId, allianceIdOrName) {
