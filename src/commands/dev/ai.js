@@ -960,7 +960,10 @@ function parseSafetyOutput(text) {
         'None',
       );
       const hasResponseIssue = responseSafety === 'harmful' || responseSafety === 'unsafe';
-      const responseRule = hasResponseIssue ? (responseCategories !== 'None' ? responseCategories : categories) : 'None';
+      let responseRule = 'None';
+      if (hasResponseIssue) {
+        responseRule = responseCategories !== 'None' ? responseCategories : 'None';
+      }
       return {
         promptHarm: userSafety,
         promptRule: userCategories,

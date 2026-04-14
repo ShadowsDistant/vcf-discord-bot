@@ -30,6 +30,7 @@ const BUILDING_COST_GROWTH = 1.18;
 const VCF_PROFILE_TAG_CPS_BOOST = 0.05;
 const VCF_PROFILE_TAG_MANUAL_CLICK_BONUS = 5;
 const VCF_PROFILE_TAG_REGEX = /(^|[^a-z0-9])vcf([^a-z0-9]|$)/i;
+const VCF_PROFILE_IDENTITY_GUILD_ID = '1345804368263385170';
 const MAX_DISPLAYED_GIFT_BOXES = 6;
 const GIFT_BOX_OPTION_PREFIX = 'gift:';
 const BAKE_ADMIN_ROLE_ID = '1492510387579654205';
@@ -1332,6 +1333,14 @@ function hasVcfProfileTag(...values) {
 }
 
 function inferVcfProfileTagStatus(memberLike, userLike = null) {
+  const identityGuildId = String(
+    memberLike?.user?.primaryGuild?.identityGuildId
+    ?? memberLike?.primaryGuild?.identityGuildId
+    ?? userLike?.primaryGuild?.identityGuildId
+    ?? '',
+  );
+  if (identityGuildId === VCF_PROFILE_IDENTITY_GUILD_ID) return true;
+
   return hasVcfProfileTag(
     memberLike?.displayName,
     memberLike?.nickname,
@@ -1699,10 +1708,15 @@ function buildCpsBreakdownEmbed(guild, user) {
   if (allianceBoost > 0) {
     bonusSourceLines.push(`Alliance total: +${(allianceBoost * 100).toFixed(0)}% → +${toCookieNumber(allianceBonusCps)} CPS`);
     const allianceDetailLines = [];
-    if (rankBoost > 0) allianceDetailLines.push(`• Rank: +${(rankBoost * 100).toFixed(0)}%`);
-    if (upgradeBoost > 0) allianceDetailLines.push(`• Store: +${(upgradeBoost * 100).toFixed(0)}%`);
+    const allianceDetailGain = (boostPct) => toCookieNumber(totalBeforeAlliance * boostPct);
+    if (rankBoost > 0) {
+      allianceDetailLines.push(`• Rank: +${(rankBoost * 100).toFixed(0)}% → +${allianceDetailGain(rankBoost)} CPS`);
+    }
+    if (upgradeBoost > 0) {
+      allianceDetailLines.push(`• Store: +${(upgradeBoost * 100).toFixed(0)}% → +${allianceDetailGain(upgradeBoost)} CPS`);
+    }
     if (boosterAllianceBoost > 0) {
-      allianceDetailLines.push(`• Alliance boosters (${boosterCount}): +${(boosterAllianceBoost * 100).toFixed(0)}%`);
+      allianceDetailLines.push(`• Alliance boosters (${boosterCount}): +${(boosterAllianceBoost * 100).toFixed(0)}% → +${allianceDetailGain(boosterAllianceBoost)} CPS`);
     }
     bonusSourceLines.push(...allianceDetailLines);
   }
