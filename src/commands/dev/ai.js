@@ -48,6 +48,8 @@ const ROBLOX_GROUPS_API_BASE = 'https://groups.roblox.com';
 const ROBLOX_GAMES_API_BASE = 'https://games.roblox.com';
 const CONVINCE_DAILY_MAX_COOKIES = 50_000;
 const CONVINCE_TRACKING_FILE = 'ai_convince_claims.json';
+const CONVINCE_MIN_ARGUMENT_LENGTH = 40;
+const CONVINCE_MIN_ARGUMENT_WORDS = 8;
 const THINKING_MAX_LINES = 3;
 const THINKING_MAX_LINE_LENGTH = 220;
 const LOADING_EMOJI = '<a:loading:1493407458180468996>';
@@ -167,7 +169,8 @@ Tool Usage:
 - If using tools, wait for tool results before responding and never guess tool output.
 - If a tool errors, report it clearly and do not retry with identical args.
 - You may call multiple tools in one turn when needed; synthesize results into one cohesive response and note discrepancies if results conflict.
-- Use convince only when the user is explicitly asking to be granted cookies and is trying to convince you.
+- Use convince only when the user is explicitly asking to be granted cookies and is genuinely trying to convince you.
+- Never call convince for plain asks like "I want cookies". First collect a persuasive reason from the user, then pass that reason in convince.argument.
 - For moderation requests with incomplete names (e.g. "warn somoto"), use member search tools first; if multiple matches are plausible, present a select menu of candidates or ask the user to confirm the top match before taking action.
 - Always collect a clear reason before any moderation action (warn/kick/ban/timeout). If missing, ask for one before using tools.
 
@@ -781,8 +784,10 @@ const TOOL_SCHEMAS = [
       parameters: {
         type: 'object',
         properties: {
-          amount: { type: 'number', description: 'Requested cookie amount (1–50000). Defaults to 50000.' },
+          amount: { type: 'number', description: 'Requested cookie amount (1–50,000). Defaults to 50,000.' },
+          argument: { type: 'string', description: 'The user’s persuasive reason for why they should receive cookies.' },
         },
+        required: ['argument'],
       },
     },
   },
@@ -1032,16 +1037,52 @@ function getUtcDayStartMs(nowMs = Date.now()) {
 }
 
 /**
+ * Check if a convince argument is genuinely persuasive (not a plain ask).
+ * @param {string} argument
+ * @returns {boolean}
+ */
+function isConvincingArgument(argument) {
+  const text = String(argument ?? '').trim().replace(/\s+/g, ' ');
+  if (text.length < CONVINCE_MIN_ARGUMENT_LENGTH) return false;
+  const words = text.split(' ').filter(Boolean);
+  if (words.length < CONVINCE_MIN_ARGUMENT_WORDS) return false;
+  const lower = text.toLowerCase();
+  const plainAskPatterns = [
+    /^i want (some )?cookies[.!?]*$/i,
+    /^give me (some )?cookies[.!?]*$/i,
+    /^can i have (some )?cookies[.!?]*$/i,
+    /^cookies please[.!?]*$/i,
+  ];
+  if (plainAskPatterns.some((pattern) => pattern.test(lower))) return false;
+  const persuasiveSignals = ['because', 'since', 'so that', 'i will', 'i can', 'deserve', 'earned', 'help', 'promise'];
+  return persuasiveSignals.some((signal) => lower.includes(signal));
+}
+
+/**
  * Attempt daily convince cookie claim for a user.
  * @param {string} guildId
  * @param {string} userId
  * @param {number|string} [requestedAmount]
+ * @param {string} argument
  * @returns {{success:boolean,user_id:string,amount_granted:number,daily_limit:number,already_claimed:boolean,next_claim_at:string,message:string,cookies_balance?:number,last_claimed_at?:string,last_amount_granted?:number}}
  */
-function claimConvinceDailyCookies(guildId, userId, requestedAmount) {
+function claimConvinceDailyCookies(guildId, userId, requestedAmount, argument) {
   const nowMs = Date.now();
   const dayStartMs = getUtcDayStartMs(nowMs);
   const nextClaimAt = new Date(dayStartMs + (24 * 60 * 60 * 1000)).toISOString();
+  const argumentText = String(argument ?? '').trim();
+
+  if (!isConvincingArgument(argumentText)) {
+    return {
+      success: false,
+      user_id: userId,
+      amount_granted: 0,
+      daily_limit: CONVINCE_DAILY_MAX_COOKIES,
+      already_claimed: false,
+      next_claim_at: nextClaimAt,
+      message: 'Convince denied: provide a real persuasive reason (not just asking for cookies).',
+    };
+  }
 
   const parsedAmount = Number(requestedAmount);
   const normalizedAmount = Number.isFinite(parsedAmount) ? Math.floor(parsedAmount) : CONVINCE_DAILY_MAX_COOKIES;
@@ -1753,7 +1794,7 @@ async function executeTool(toolName, args, interaction) {
     }
 
     case 'convince': {
-      return claimConvinceDailyCookies(guild.id, interaction.user.id, args.amount);
+      return claimConvinceDailyCookies(guild.id, interaction.user.id, args.amount, args.argument);
     }
 
     case 'search_roblox_players': {
