@@ -885,6 +885,28 @@ function buyAllianceUpgrade(guildId, actorId, upgradeId) {
   return result;
 }
 
+function sellAllianceUpgrade(guildId, actorId, upgradeId) {
+  const upgrade = STORE_UPGRADE_MAP.get(upgradeId);
+  if (!upgrade) return { ok: false, reason: 'Unknown alliance store upgrade.' };
+  const refund = Math.max(0, Math.floor(Number(upgrade.cost ?? 0) * 0.7));
+
+  const result = db.update(ALLIANCES_FILE, {}, (data) => {
+    const guild = getGuildState(data, guildId);
+    const allianceId = guild.userAlliance?.[actorId];
+    if (!allianceId) return { ok: false, reason: 'You are not in an alliance.' };
+    const alliance = guild.alliances?.[allianceId] ?? null;
+    if (!alliance) return { ok: false, reason: 'Alliance no longer exists.' };
+    ensureAllianceShape(alliance);
+    if (alliance.ownerId !== actorId) return { ok: false, reason: 'Only the alliance owner can sell alliance upgrades.' };
+    if (!alliance.upgrades.includes(upgrade.id)) return { ok: false, reason: 'That upgrade is not currently owned.' };
+    alliance.upgrades = alliance.upgrades.filter((id) => id !== upgrade.id);
+    alliance.storeCredits = Math.max(0, Number(alliance.storeCredits ?? 0)) + refund;
+    return { ok: true, alliance, upgrade, refund };
+  });
+  if (result.ok) refreshGuildAllianceBoosts(guildId);
+  return result;
+}
+
 function adminGrantAllianceUpgrade(guildId, allianceIdOrName, upgradeId) {
   const upgrade = STORE_UPGRADE_MAP.get(upgradeId);
   if (!upgrade) return { ok: false, reason: 'Unknown alliance store upgrade.' };
@@ -897,6 +919,23 @@ function adminGrantAllianceUpgrade(guildId, allianceIdOrName, upgradeId) {
     if (alliance.upgrades.includes(upgradeId)) return { ok: false, reason: 'That alliance already has this upgrade.' };
     alliance.upgrades.push(upgradeId);
     alliance.upgrades = [...new Set(alliance.upgrades)];
+    return { ok: true, alliance, upgrade };
+  });
+  if (result.ok) refreshGuildAllianceBoosts(guildId);
+  return result;
+}
+
+function adminRevokeAllianceUpgrade(guildId, allianceIdOrName, upgradeId) {
+  const upgrade = STORE_UPGRADE_MAP.get(upgradeId);
+  if (!upgrade) return { ok: false, reason: 'Unknown alliance store upgrade.' };
+
+  const result = db.update(ALLIANCES_FILE, {}, (data) => {
+    const guild = getGuildState(data, guildId);
+    const alliance = findAllianceByIdOrName(guild.alliances, allianceIdOrName);
+    if (!alliance) return { ok: false, reason: 'Alliance not found.' };
+    ensureAllianceShape(alliance);
+    if (!alliance.upgrades.includes(upgradeId)) return { ok: false, reason: 'That alliance does not have this upgrade.' };
+    alliance.upgrades = alliance.upgrades.filter((id) => id !== upgradeId);
     return { ok: true, alliance, upgrade };
   });
   if (result.ok) refreshGuildAllianceBoosts(guildId);
@@ -939,8 +978,10 @@ module.exports = {
   getAllianceWithChallenge,
   processAllianceChallengeRewards,
   buyAllianceUpgrade,
+  sellAllianceUpgrade,
   setAllianceJoinApproval,
   resolveAllianceJoinRequest,
   adminGrantAllianceUpgrade,
+  adminRevokeAllianceUpgrade,
   adminDeleteAlliance,
 };

@@ -39,6 +39,14 @@ function memberLines(memberIds = []) {
   return memberIds.map((memberId) => `• <@${memberId}>`).join('\n').slice(0, 1024);
 }
 
+function toEmojiText(emojiValue) {
+  if (!emojiValue) return '❔';
+  if (typeof emojiValue === 'string') return emojiValue;
+  if (emojiValue?.id && emojiValue?.name) return `<${emojiValue.animated ? 'a' : ''}:${emojiValue.name}:${emojiValue.id}>`;
+  if (emojiValue?.name) return emojiValue.name;
+  return '❔';
+}
+
 function buildNavigationSelect(currentView) {
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
@@ -156,6 +164,27 @@ function buildStoreSelect(guild, store) {
     new StringSelectMenuBuilder()
       .setCustomId('alliance_store_select')
       .setPlaceholder('Buy an alliance upgrade (owner only)')
+      .addOptions(options),
+  );
+}
+
+function buildStoreSellSelect(guild, store, isOwner) {
+  if (!isOwner) return null;
+  if (!store?.upgrades?.length) return null;
+  const options = store.upgrades
+    .filter((upgrade) => upgrade.owned)
+    .slice(0, 25)
+    .map((upgrade) => ({
+      label: upgrade.name.slice(0, 100),
+      value: upgrade.id,
+      description: `Sell for ${Math.floor(Number(upgrade.cost ?? 0) * 0.7)} credits (30% loss)`.slice(0, 100),
+      emoji: economy.getButtonEmoji(guild, upgrade.emojiCandidates, upgrade.fallbackEmoji),
+    }));
+  if (!options.length) return null;
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId('alliance_store_sell_select')
+      .setPlaceholder('Sell an owned upgrade (owner only)')
       .addOptions(options),
   );
 }
@@ -374,7 +403,7 @@ function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = 
   } else if (view === 'store') {
     const ownedText = store.upgrades
       .filter((upgrade) => upgrade.owned)
-      .map((upgrade) => `${economy.getButtonEmoji(guild, upgrade.emojiCandidates, upgrade.fallbackEmoji)} **${upgrade.name}**`)
+      .map((upgrade) => `${toEmojiText(economy.getButtonEmoji(guild, upgrade.emojiCandidates, upgrade.fallbackEmoji))} **${upgrade.name}**`)
       .join('\n') || 'No upgrades purchased.';
     baseEmbed
       .setColor(0x9b59b6)
@@ -398,6 +427,8 @@ function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = 
       );
     const storeSelect = buildStoreSelect(guild, store);
     if (storeSelect) components.push(storeSelect);
+    const storeSellSelect = buildStoreSellSelect(guild, store, data.alliance.ownerId === userId);
+    if (storeSellSelect) components.push(storeSellSelect);
   } else if (view === 'manage') {
     baseEmbed
       .setColor(0xed4245)
@@ -588,6 +619,25 @@ async function handleAllianceSelect(interaction) {
     }
     await notifyUpgradePurchase(interaction, result.alliance, result.upgrade);
     return respondWithPanelUpdate(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'store', `Purchased **${result.upgrade.name}**.`));
+  }
+  if (interaction.customId === 'alliance_store_sell_select') {
+    const upgradeId = interaction.values[0];
+    const result = alliances.sellAllianceUpgrade(interaction.guild.id, interaction.user.id, upgradeId);
+    if (!result.ok) {
+      return interaction.reply({
+        embeds: [embeds.error(result.reason, interaction.guild)],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+    return respondWithPanelUpdate(
+      interaction,
+      buildAlliancePanel(
+        interaction.guild,
+        interaction.user.id,
+        'store',
+        `Sold **${result.upgrade.name}** for **${result.refund}** alliance credits (30% loss).`,
+      ),
+    );
   }
   if (interaction.customId === 'alliance_transfer_select') {
     const memberId = interaction.values[0];

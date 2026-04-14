@@ -3410,7 +3410,17 @@ function buildBakeAdminDashboardComponents(actorId) {
         { label: 'Reset Entire Economy', value: 'reset_economy', description: 'Reset ALL bakery economy data for this guild.' },
       ),
   );
-  return [targetSelectRow, globalActionRow];
+  const allianceActionRow = new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(`bakeadmin_alliance_action:${actorId}`)
+      .setPlaceholder('Select an alliance management action')
+      .addOptions(
+        { label: 'Alliance: Grant Upgrade', value: 'alliance_add_upgrade', description: 'Grant one or more alliance store upgrades.' },
+        { label: 'Alliance: Remove Upgrade', value: 'alliance_remove_upgrade', description: 'Remove one or more alliance store upgrades.' },
+        { label: 'Alliance: Delete Alliance', value: 'alliance_delete', description: 'Delete an alliance via confirmation modal.' },
+      ),
+  );
+  return [targetSelectRow, globalActionRow, allianceActionRow];
 }
 
 function buildBakeAdminEmbed(guild, actorId, targetId) {
@@ -3488,8 +3498,6 @@ function buildBakeAdminComponents(actorId, targetId) {
       { label: 'Trigger Golden Cookie', value: 'trigger_golden', description: 'Force a Golden Cookie on next bake.' },
       { label: 'Ban Bake Commands', value: 'ban_bake', description: 'Block target from baking commands.' },
       { label: 'Unban Bake Commands', value: 'unban_bake', description: 'Restore target bake command access.' },
-      { label: 'Alliance: Grant Upgrade', value: 'alliance_add_upgrade', description: 'Grant alliance store upgrade via pickers.' },
-      { label: 'Alliance: Delete Alliance', value: 'alliance_delete', description: 'Delete alliance via picker and confirm.' },
       { label: 'Reset User', value: 'reset_user', description: 'Reset target baking profile to defaults.' },
       { label: 'View User Data', value: 'view_user', description: 'Open target user data embed.' },
     );

@@ -406,17 +406,31 @@ function chunkSelectOptions(options, size = MAX_SELECT_MENU_OPTIONS) {
   return chunks;
 }
 
-function buildPagedStringSelectRows({ customIdPrefix, placeholderBase, options }) {
+function buildPagedStringSelectRows({
+  customIdPrefix,
+  placeholderBase,
+  options,
+  minValues = 1,
+  maxValues = 1,
+}) {
   const optionChunks = chunkSelectOptions(options, MAX_SELECT_MENU_OPTIONS).slice(0, 5);
   return optionChunks.map((chunk, chunkIndex) =>
     new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()
         .setCustomId(`${customIdPrefix}:${chunkIndex}`)
         .setPlaceholder(optionChunks.length > 1 ? `${placeholderBase} (${chunkIndex + 1}/${optionChunks.length})` : placeholderBase)
-        .setMinValues(1)
-        .setMaxValues(1)
+        .setMinValues(Math.max(1, Math.min(minValues, chunk.length)))
+        .setMaxValues(Math.max(1, Math.min(maxValues, chunk.length)))
         .addOptions(chunk),
     ));
+}
+
+function buttonEmojiToText(emojiValue) {
+  if (!emojiValue) return '💸';
+  if (typeof emojiValue === 'string') return emojiValue;
+  if (emojiValue?.id && emojiValue?.name) return `<${emojiValue.animated ? 'a' : ''}:${emojiValue.name}:${emojiValue.id}>`;
+  if (emojiValue?.name) return emojiValue.name;
+  return '💸';
 }
 
 function getReportCooldownKey(guildId, userId) {
@@ -1039,7 +1053,7 @@ module.exports = {
         const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'upgrades', { upgradeId });
         const components = economy.buildDashboardComponents(snapshot.user, 'upgrades', { upgradeId, guild: interaction.guild });
         embed.addFields({
-          name: `${economy.getButtonEmoji(interaction.guild, ['Paid_in_full', 'sell'], '💸')} Upgrade Sold`,
+          name: `${buttonEmojiToText(economy.getButtonEmoji(interaction.guild, ['Paid_in_full', 'sell'], '💸'))} Upgrade Sold`,
           value: `Sold **${result.upgrade.name}** for **${economy.toCookieNumber(result.refund)}** cookies (−30% of original cost).`,
         });
         return interaction.update({ embeds: [embed], components });
@@ -2050,6 +2064,63 @@ module.exports = {
         }
       }
 
+      if (interaction.customId.startsWith('bakeadmin_alliance_action:')) {
+        const [, actorId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const action = interaction.values[0];
+        if (!['alliance_add_upgrade', 'alliance_remove_upgrade', 'alliance_delete'].includes(action)) {
+          return interaction.reply({
+            embeds: [embeds.error('Unknown alliance management action.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const allianceOptions = alliances.listAlliances(interaction.guild.id)
+          .map((alliance) => ({
+            label: alliance.name.slice(0, 100),
+            value: alliance.id,
+            description: `ID ${alliance.id} • Members ${alliance.members.length}`.slice(0, 100),
+          }))
+          .sort((a, b) => a.label.localeCompare(b.label));
+        if (!allianceOptions.length) {
+          return interaction.reply({
+            embeds: [embeds.warning('No alliances found to manage.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'alliance_delete') {
+          const components = buildPagedStringSelectRows({
+            customIdPrefix: `bakeadmin_alliance_delete_select:${actorId}:${actorId}`,
+            placeholderBase: 'Select alliance to delete',
+            options: allianceOptions,
+          });
+          return interaction.reply({
+            embeds: [embeds.warning('Select an alliance, then confirm deletion in the next step.', interaction.guild)],
+            components,
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const mode = action === 'alliance_remove_upgrade' ? 'remove' : 'grant';
+        const components = buildPagedStringSelectRows({
+          customIdPrefix: `bakeadmin_alliance_upgrade_alliance_select:${actorId}:${actorId}:${mode}`,
+          placeholderBase: 'Select alliance',
+          options: allianceOptions,
+        });
+        return interaction.reply({
+          embeds: [embeds.info(
+            action === 'alliance_remove_upgrade' ? 'Alliance: Remove Upgrade' : 'Alliance: Grant Upgrade',
+            'Select the alliance to update.',
+            interaction.guild,
+          )],
+          components,
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
       if (interaction.customId.startsWith('bakeadmin_event_type_select:')) {
         const [, actorId] = interaction.customId.split(':');
         if (actorId !== interaction.user.id) {
@@ -2207,7 +2278,7 @@ module.exports = {
       }
 
       if (interaction.customId.startsWith('bakeadmin_alliance_upgrade_alliance_select:')) {
-        const [, actorId, targetId] = interaction.customId.split(':');
+        const [, actorId, targetId, mode = 'grant'] = interaction.customId.split(':');
         if (actorId !== interaction.user.id) {
           return interaction.reply({
             embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
@@ -2223,24 +2294,33 @@ module.exports = {
           });
         }
         const components = buildPagedStringSelectRows({
-          customIdPrefix: `bakeadmin_alliance_upgrade_select:${actorId}:${targetId}:${allianceId}`,
-          placeholderBase: 'Select upgrade',
+          customIdPrefix: mode === 'remove'
+            ? `bakeadmin_alliance_upgrade_remove_select:${actorId}:${targetId}:${allianceId}`
+            : `bakeadmin_alliance_upgrade_grant_select:${actorId}:${targetId}:${allianceId}`,
+          placeholderBase: mode === 'remove' ? 'Select upgrade(s) to remove' : 'Select upgrade(s) to grant',
+          minValues: 1,
+          maxValues: 10,
           options: alliances.ALLIANCE_STORE_UPGRADES
             .map((upgrade) => ({
               label: upgrade.name.slice(0, 100),
               value: upgrade.id,
-              description: `ID: ${upgrade.id}`.slice(0, 100),
+              description: `${upgrade.description} • Cost: ${upgrade.cost} credits`.slice(0, 100),
+              emoji: economy.getButtonEmoji(interaction.guild, upgrade.emojiCandidates, upgrade.fallbackEmoji),
             }))
             .sort((a, b) => a.label.localeCompare(b.label)),
         });
         return interaction.reply({
-          embeds: [embeds.info('Alliance: Grant Upgrade', `Selected alliance: **${alliance.name}** (\`${alliance.id}\`).`, interaction.guild)],
+          embeds: [embeds.info(
+            mode === 'remove' ? 'Alliance: Remove Upgrade' : 'Alliance: Grant Upgrade',
+            `Selected alliance: **${alliance.name}** (\`${alliance.id}\`).`,
+            interaction.guild,
+          )],
           components,
           flags: MessageFlags.Ephemeral,
         });
       }
 
-      if (interaction.customId.startsWith('bakeadmin_alliance_upgrade_select:')) {
+      if (interaction.customId.startsWith('bakeadmin_alliance_upgrade_grant_select:')) {
         const [, actorId, targetId, allianceId] = interaction.customId.split(':');
         if (actorId !== interaction.user.id) {
           return interaction.reply({
@@ -2248,18 +2328,80 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
-        const upgradeId = interaction.values[0];
-        const result = alliances.adminGrantAllianceUpgrade(interaction.guild.id, allianceId, upgradeId);
-        if (!result.ok) {
+        const upgradeIds = [...new Set(interaction.values.map((value) => String(value).trim()).filter(Boolean))];
+        const added = [];
+        const skipped = [];
+        for (const upgradeId of upgradeIds) {
+          const result = alliances.adminGrantAllianceUpgrade(interaction.guild.id, allianceId, upgradeId);
+          if (result.ok) {
+            added.push(result.upgrade?.name ?? upgradeId);
+            continue;
+          }
+          skipped.push(`${upgradeId}: ${result.reason}`);
+        }
+        if (!added.length) {
           return interaction.reply({
-            embeds: [embeds.error(result.reason, interaction.guild)],
+            embeds: [embeds.error(skipped[0] ?? 'Could not grant selected alliance upgrades.', interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
-        const upgrade = result.upgrade;
-        await sendBakeAdminLog(interaction, targetId, 'Alliance: Grant Upgrade', `${result.alliance.name} (${result.alliance.id}) -> ${upgrade?.name ?? upgradeId}`);
+        const alliance = alliances.listAlliances(interaction.guild.id).find((entry) => entry.id === allianceId);
+        await sendBakeAdminLog(
+          interaction,
+          targetId,
+          'Alliance: Grant Upgrade',
+          `${alliance?.name ?? allianceId} (${allianceId}) -> ${added.join(', ')}${skipped.length ? ` | Skipped: ${skipped.join(' • ')}` : ''}`,
+        );
+        const summary = [
+          `Granted **${added.length}** upgrade${added.length === 1 ? '' : 's'} to **${alliance?.name ?? allianceId}** (\`${allianceId}\`).`,
+          `Added: ${added.map((name) => `**${name}**`).join(', ')}`,
+          skipped.length ? `Skipped: ${skipped.join(' • ')}` : null,
+        ].filter(Boolean).join('\n');
         return interaction.reply({
-          embeds: [embeds.success(`Granted alliance upgrade **${upgrade?.name ?? upgradeId}** to **${result.alliance.name}** (\`${result.alliance.id}\`).`, interaction.guild)],
+          embeds: [embeds.success(summary.slice(0, 4096), interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_alliance_upgrade_remove_select:')) {
+        const [, actorId, targetId, allianceId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const upgradeIds = [...new Set(interaction.values.map((value) => String(value).trim()).filter(Boolean))];
+        const removed = [];
+        const skipped = [];
+        for (const upgradeId of upgradeIds) {
+          const result = alliances.adminRevokeAllianceUpgrade(interaction.guild.id, allianceId, upgradeId);
+          if (result.ok) {
+            removed.push(result.upgrade?.name ?? upgradeId);
+            continue;
+          }
+          skipped.push(`${upgradeId}: ${result.reason}`);
+        }
+        if (!removed.length) {
+          return interaction.reply({
+            embeds: [embeds.error(skipped[0] ?? 'Could not remove selected alliance upgrades.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const alliance = alliances.listAlliances(interaction.guild.id).find((entry) => entry.id === allianceId);
+        await sendBakeAdminLog(
+          interaction,
+          targetId,
+          'Alliance: Remove Upgrade',
+          `${alliance?.name ?? allianceId} (${allianceId}) -> ${removed.join(', ')}${skipped.length ? ` | Skipped: ${skipped.join(' • ')}` : ''}`,
+        );
+        const summary = [
+          `Removed **${removed.length}** upgrade${removed.length === 1 ? '' : 's'} from **${alliance?.name ?? allianceId}** (\`${allianceId}\`).`,
+          `Removed: ${removed.map((name) => `**${name}**`).join(', ')}`,
+          skipped.length ? `Skipped: ${skipped.join(' • ')}` : null,
+        ].filter(Boolean).join('\n');
+        return interaction.reply({
+          embeds: [embeds.success(summary.slice(0, 4096), interaction.guild)],
           flags: MessageFlags.Ephemeral,
         });
       }
@@ -2491,9 +2633,8 @@ module.exports = {
         const targetId = interaction.values[0];
         const embed = economy.buildBakeAdminEmbed(interaction.guild, interaction.user.id, targetId);
         const userActionRows = economy.buildBakeAdminComponents(interaction.user.id, targetId);
-        const [, globalActionSelectRow] = economy.buildBakeAdminDashboardComponents(interaction.user.id);
-        const globalActionRow = globalActionSelectRow ? [globalActionSelectRow] : [];
-        const components = [...userActionRows, ...globalActionRow];
+        const dashboardActionRows = economy.buildBakeAdminDashboardComponents(interaction.user.id).slice(1);
+        const components = [...userActionRows, ...dashboardActionRows];
         return interaction.update({ embeds: [embed], components });
       }
     }
