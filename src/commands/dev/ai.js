@@ -18,6 +18,7 @@ const { isDevUser } = require('../../utils/roles');
 const db = require('../../utils/database');
 const analytics = require('../../utils/analytics');
 const { sendModerationActionDm, sendModLog } = require('../../utils/moderationNotifications');
+const economy = require('../../utils/bakeEconomy');
 
 // ── Constants ───────────────────────────────────────────────────────────────────
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY ?? '';
@@ -474,6 +475,35 @@ const TOOL_SCHEMAS = [
           reason: { type: 'string', description: 'Reason for the warning.' },
         },
         required: ['reason'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_member_warnings',
+      description: 'Fetch warning history for a guild member.',
+      parameters: {
+        type: 'object',
+        properties: {
+          user_id: { type: 'string', description: 'The Discord user ID of the member. Preferred when known.' },
+          user_query: { type: 'string', description: 'Optional partial username/display name when user_id is unknown.' },
+          limit: { type: 'number', description: 'Optional max warnings to return (1–25). Defaults to 10.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_member_bakery_data',
+      description: 'Fetch bakery/economy profile data for a guild member.',
+      parameters: {
+        type: 'object',
+        properties: {
+          user_id: { type: 'string', description: 'The Discord user ID of the member. Preferred when known.' },
+          user_query: { type: 'string', description: 'Optional partial username/display name when user_id is unknown.' },
+        },
       },
     },
   },
@@ -991,6 +1021,7 @@ async function searchGuildMembers(guild, query, limit = 10) {
   const needle = String(query ?? '').trim().toLowerCase();
   if (!needle) return [];
   const max = Math.min(25, Math.max(1, Number.parseInt(limit, 10) || 10));
+  // Discord's member search endpoint only accepts query lengths up to 32 chars.
   const fetched = await guild.members.fetch({ query: needle.slice(0, 32), limit: max }).catch(() => null);
   const members = fetched ? [...fetched.values()] : [];
   const scoreOf = (member) => {
@@ -1016,6 +1047,51 @@ async function searchGuildMembers(guild, query, limit = 10) {
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score || a.display_name.localeCompare(b.display_name))
     .slice(0, max);
+}
+
+/**
+ * Resolve a member from explicit user_id or partial user_query args.
+ * @param {import('discord.js').Guild} guild
+ * @param {object} args
+ * @param {{forbidUserId?:string,allowAmbiguous?:boolean}} [options]
+ * @returns {Promise<{member: import('discord.js').GuildMember|null, resolution: object|null, pending: object|null}>}
+ */
+async function resolveMemberFromToolArgs(guild, args, options = {}) {
+  const forbidUserId = options?.forbidUserId ? String(options.forbidUserId) : '';
+  const allowAmbiguous = options?.allowAmbiguous !== false;
+  let targetId = String(args?.user_id ?? '').trim();
+  if (targetId) {
+    if (forbidUserId && targetId === forbidUserId) throw new Error('You cannot target yourself.');
+    const member = await guild.members.fetch(targetId).catch(() => null);
+    if (!member) throw new Error('Member not found.');
+    return { member, resolution: null, pending: null };
+  }
+  const query = String(args?.user_query ?? '').trim();
+  if (!query) throw new Error('Provide user_id or user_query.');
+  const matches = await searchGuildMembers(guild, query, 10);
+  if (matches.length === 0) throw new Error(`No members matched "${query}".`);
+  if (matches.length > 1 && allowAmbiguous) {
+    return {
+      member: null,
+      resolution: null,
+      pending: {
+        success: false,
+        requires_user_selection: true,
+        query,
+        suggested_user_id: matches[0].id,
+        candidates: matches,
+      },
+    };
+  }
+  targetId = matches[0].id;
+  if (forbidUserId && targetId === forbidUserId) throw new Error('You cannot target yourself.');
+  const member = await guild.members.fetch(targetId).catch(() => null);
+  if (!member) throw new Error('Member not found.');
+  return {
+    member,
+    resolution: { matched_query: query, selected_from_search: true },
+    pending: null,
+  };
 }
 
 /**
@@ -1234,27 +1310,10 @@ async function executeTool(toolName, args, interaction) {
     case 'warn_member': {
       const reason = String(args.reason ?? '').trim();
       if (!reason) throw new Error('Reason is required.');
-      let targetId = String(args.user_id ?? '').trim();
-      let resolution = null;
-      if (!targetId) {
-        const query = String(args.user_query ?? '').trim();
-        if (!query) throw new Error('Provide user_id or user_query.');
-        const matches = await searchGuildMembers(guild, query, 10);
-        if (matches.length === 0) throw new Error(`No members matched "${query}".`);
-        if (matches.length > 1) {
-          return {
-            success: false,
-            requires_user_selection: true,
-            query,
-            suggested_user_id: matches[0].id,
-            candidates: matches,
-          };
-        }
-        targetId = matches[0].id;
-        resolution = { matched_query: query, selected_from_search: true };
-      }
-      if (targetId === interaction.user.id) throw new Error('You cannot warn yourself.');
-      const member = await guild.members.fetch(targetId).catch(() => null);
+      const resolved = await resolveMemberFromToolArgs(guild, args, { forbidUserId: interaction.user.id, allowAmbiguous: true });
+      if (resolved.pending) return resolved.pending;
+      const member = resolved.member;
+      const resolution = resolved.resolution;
       if (!member) throw new Error('Member not found.');
       const warnings = db.addWarning(guild.id, member.id, {
         moderatorId: interaction.user.id,
@@ -1285,6 +1344,67 @@ async function executeTool(toolName, args, interaction) {
         warnings_count: warnings.length,
         dm_sent: dmSent,
         resolved: resolution,
+      };
+    }
+
+    case 'get_member_warnings': {
+      const resolved = await resolveMemberFromToolArgs(guild, args, { allowAmbiguous: true });
+      if (resolved.pending) return resolved.pending;
+      const member = resolved.member;
+      if (!member) throw new Error('Member not found.');
+      const warnings = db.getWarnings(guild.id, member.id);
+      const limit = Math.min(25, Math.max(1, Number.parseInt(args.limit, 10) || 10));
+      const recent = warnings.slice(-limit).reverse();
+      return {
+        success: true,
+        user_id: member.id,
+        username: member.user.username,
+        display_name: member.displayName,
+        warning_count: warnings.length,
+        warnings: recent,
+        resolved: resolved.resolution,
+      };
+    }
+
+    case 'get_member_bakery_data': {
+      const resolved = await resolveMemberFromToolArgs(guild, args, { allowAmbiguous: true });
+      if (resolved.pending) return resolved.pending;
+      const member = resolved.member;
+      if (!member) throw new Error('Member not found.');
+      const snapshot = economy.getUserSnapshot(guild.id, member.id);
+      const user = snapshot.user;
+      const passive = snapshot.passive ?? {};
+      return {
+        success: true,
+        user_id: member.id,
+        username: member.user.username,
+        display_name: member.displayName,
+        bakery_name: user.bakeryName,
+        bakery_theme: user.bakeryTheme,
+        bakery_emoji: user.bakeryEmoji,
+        rank_id: user.rankId,
+        rank_title: user.title,
+        bake_banned: Boolean(user.bakeBanned),
+        stats: {
+          cookies: user.cookies ?? 0,
+          cookies_baked_all_time: user.cookiesBakedAllTime ?? 0,
+          cookies_spent: user.cookiesSpent ?? 0,
+          total_bakes: user.totalBakes ?? 0,
+          highest_cps: user.highestCps ?? 0,
+          last_passive_gain: user.lastPassiveGain ?? 0,
+          current_passive_cps: passive.cps ?? 0,
+        },
+        counts: {
+          buildings_owned: Object.values(user.buildings ?? {}).reduce((sum, value) => sum + Number(value ?? 0), 0),
+          upgrades_owned: Array.isArray(user.upgrades) ? user.upgrades.length : 0,
+          inventory_unique_items: Object.keys(user.inventory ?? {}).length,
+          reward_gift_types: Object.keys(user.rewardGifts ?? {}).length,
+          achievements: Array.isArray(user.milestones) ? user.milestones.length : 0,
+        },
+        inventory: user.inventory ?? {},
+        buildings: user.buildings ?? {},
+        reward_gifts: user.rewardGifts ?? {},
+        resolved: resolved.resolution,
       };
     }
 
