@@ -1896,12 +1896,18 @@ async function callNvidiaApi(messages, settings) {
       stream: false,
     };
     if (extraBody) payload.extra_body = extraBody;
-    return await Promise.race([
-      aiClient.chat.completions.create(payload),
-      new Promise((_, reject) => {
-        setTimeout(() => reject(createTimeoutError('AI request timed out after 60 seconds with no response.')), AI_REQUEST_TIMEOUT_MS);
-      }),
-    ]);
+    let timeoutId;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(createTimeoutError('AI request timed out after 60 seconds with no response.')), AI_REQUEST_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([
+        aiClient.chat.completions.create(payload),
+        timeoutPromise,
+      ]);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
   } catch (error) {
     const status = error?.status ?? error?.code ?? undefined;
     const apiBody = error?.error ? JSON.stringify(error.error) : '';
