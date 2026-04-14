@@ -208,7 +208,7 @@ Interactive Components:
 - Prefer select_menus for choosing from 3+ defined options.
 - Whenever you ask the user to choose from defined actions/options, you MUST provide a select_menus entry for that choice and use it to collect the response.
 - Do not ask users to type a freeform answer when the response should be one of predefined options.
-- Select menus trigger immediately and start a new turn; button/modal interactions are stored context processed after Continue.
+- Select menus, UI buttons, and modal submissions trigger immediately and start a new turn.
 - Select menu rules: every option must have non-empty string label and value, values must be unique (use snake_case), include clear placeholder text, min/max values must be valid, max 25 options.
 - Button rules: unique descriptive snake_case id (max 48 chars), use style intentionally (primary/success/danger/secondary), ack_message optional.
 - Modal button rules: use for freeform input; max 5 fields, each with unique snake_case id and valid short/paragraph style.
@@ -2903,6 +2903,40 @@ function attachReviewHandler(replyMsg, interaction, session) {
     filter: (i) => i.user.id === session.allowedUserId && i.customId.startsWith('ai_'),
   });
 
+  async function runFollowUpTurn(status) {
+    session.busy = true;
+    await replyMsg.edit({ embeds: [buildProcessingEmbed(status)], components: [] }).catch(() => null);
+    try {
+      const result = await runAiTurn(interaction, replyMsg, session.messages, session.toolsUsed, {
+        modelKey: session.modelKey,
+        showThinking: session.showThinking,
+      });
+      session.turns.push({
+        outputEmbeds: result.outputEmbeds,
+        reviewEmbed: result.reviewEmbed,
+        linkButtons: result.linkButtons,
+        uiRows: result.uiRows,
+        uiState: result.uiState,
+        rawContent: result.rawContent,
+        thinkingText: result.thinkingText,
+        pageIndex: 0,
+        viewMode: 'output',
+      });
+      session.turnIndex = session.turns.length - 1;
+      await replyMsg.edit({
+        embeds: [getActiveEmbed(session)],
+        components: buildFinalComponents(session),
+      });
+    } catch (err) {
+      await replyMsg.edit({
+        embeds: [buildErrorEmbed(err.message, err.status)],
+        components: [],
+      }).catch(() => null);
+    } finally {
+      session.busy = false;
+    }
+  }
+
   collector.on('collect', async (i) => {
     if (session.busy) {
       await i.reply({ content: 'Already processing a request. Please wait…', flags: MessageFlags.Ephemeral }).catch(() => null);
@@ -3038,10 +3072,8 @@ function attachReviewHandler(replyMsg, interaction, session) {
       const button = uiState.buttons[i.customId];
       if (!button) return i.reply({ content: 'Button configuration is unavailable.', flags: MessageFlags.Ephemeral }).catch(() => null);
       session.messages.push({ role: 'user', content: `UI button clicked: ${button.id}` });
-      await i.reply({
-        content: button.ackMessage ?? `Captured button click: \`${button.id}\`. Click **Continue** to let Valley AI use it.`,
-        flags: MessageFlags.Ephemeral,
-      }).catch(() => null);
+      await i.deferUpdate().catch(() => null);
+      await runFollowUpTurn(`Processing button \`${button.id}\`…`);
       return;
     }
 
@@ -3052,40 +3084,8 @@ function attachReviewHandler(replyMsg, interaction, session) {
       if (!select) return i.reply({ content: 'Select menu configuration is unavailable.', flags: MessageFlags.Ephemeral }).catch(() => null);
       const values = i.values?.join(', ') || 'none';
       session.messages.push({ role: 'user', content: `UI select used: ${select.id} -> ${values}` });
-      session.busy = true;
-      await i.update({
-        embeds: [buildProcessingEmbed(`Processing selection \`${select.id}\`…`)],
-        components: [],
-      }).catch(() => null);
-      try {
-        const result = await runAiTurn(interaction, replyMsg, session.messages, session.toolsUsed, {
-          modelKey: session.modelKey,
-          showThinking: session.showThinking,
-        });
-        session.turns.push({
-          outputEmbeds: result.outputEmbeds,
-          reviewEmbed: result.reviewEmbed,
-          linkButtons: result.linkButtons,
-          uiRows: result.uiRows,
-          uiState: result.uiState,
-          rawContent: result.rawContent,
-          thinkingText: result.thinkingText,
-          pageIndex: 0,
-          viewMode: 'output',
-        });
-        session.turnIndex = session.turns.length - 1;
-        await replyMsg.edit({
-          embeds: [getActiveEmbed(session)],
-          components: buildFinalComponents(session),
-        });
-      } catch (err) {
-        await replyMsg.edit({
-          embeds: [buildErrorEmbed(err.message, err.status)],
-          components: [],
-        }).catch(() => null);
-      } finally {
-        session.busy = false;
-      }
+      await i.deferUpdate().catch(() => null);
+      await runFollowUpTurn(`Processing selection \`${select.id}\`…`);
       return;
     }
 
@@ -3123,10 +3123,8 @@ function attachReviewHandler(replyMsg, interaction, session) {
       }
       const collected = modalDef.fields.map((field) => `${field.id}: ${modalSubmit.fields.getTextInputValue(field.id)}`);
       session.messages.push({ role: 'user', content: `UI modal submitted: ${modalDef.id} -> ${collected.join(' | ')}` });
-      await modalSubmit.reply({
-        content: modalDef.submitMessage ?? `Captured modal submission for \`${modalDef.id}\`.\nClick **Continue** to let Valley AI use it.`,
-        flags: MessageFlags.Ephemeral,
-      }).catch(() => null);
+      await modalSubmit.deferUpdate().catch(() => null);
+      await runFollowUpTurn(`Processing modal \`${modalDef.id}\`…`);
     }
   });
 
