@@ -25,6 +25,7 @@ function normalizeEnvValue(value) {
 
 const DISCORD_TOKEN = normalizeEnvValue(process.env.DISCORD_TOKEN);
 const CLIENT_ID = normalizeEnvValue(process.env.CLIENT_ID);
+const GUILD_ID = normalizeEnvValue(process.env.GUILD_ID);
 const SNOWFLAKE_REGEX = /^\d{17,20}$/;
 const requiredBakeCommandsRaw = normalizeEnvValue(process.env.REQUIRED_BAKE_COMMANDS);
 const REQUIRED_BAKE_COMMANDS = requiredBakeCommandsRaw
@@ -41,6 +42,11 @@ if (!DISCORD_TOKEN || !CLIENT_ID) {
 
 if (!SNOWFLAKE_REGEX.test(CLIENT_ID)) {
   console.error(`❌  CLIENT_ID must be a valid Discord snowflake. Received: "${CLIENT_ID}"`);
+  process.exit(1);
+}
+
+if (GUILD_ID && !SNOWFLAKE_REGEX.test(GUILD_ID)) {
+  console.error(`❌  GUILD_ID must be a valid Discord snowflake when provided. Received: "${GUILD_ID}"`);
   process.exit(1);
 }
 
@@ -172,18 +178,28 @@ async function clearLegacyGuildCommands() {
 
 (async () => {
   try {
+    const isGuildDeploy = Boolean(GUILD_ID);
     console.log(`\n🚀  Deploying ${commands.length} application (/) command(s)…`);
-    const route = Routes.applicationCommands(CLIENT_ID);
+    const route = isGuildDeploy
+      ? Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID)
+      : Routes.applicationCommands(CLIENT_ID);
     const data = await rest.put(route, { body: commands });
-    console.log('✅  Successfully deployed globally');
-    console.log('ℹ️  Global command propagation can take up to 1 hour.');
+    if (isGuildDeploy) {
+      console.log(`✅  Successfully deployed to guild ${GUILD_ID}`);
+      console.log('ℹ️  Guild command updates are usually available immediately.');
+    } else {
+      console.log('✅  Successfully deployed globally');
+      console.log('ℹ️  Global command propagation can take up to 1 hour.');
+    }
 
     console.log(`\n✨  ${data.length} command(s) registered.`);
 
-    try {
-      await clearLegacyGuildCommands();
-    } catch (cleanupErr) {
-      console.warn(`⚠️  Legacy guild command cleanup failed: ${cleanupErr.message}`);
+    if (!isGuildDeploy) {
+      try {
+        await clearLegacyGuildCommands();
+      } catch (cleanupErr) {
+        console.warn(`⚠️  Legacy guild command cleanup failed: ${cleanupErr.message}`);
+      }
     }
   } catch (err) {
     console.error('❌  Deployment failed:', err);
