@@ -390,6 +390,7 @@ function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = 
             `Flat reward bonus: **${economy.toCookieNumber(store.effectTotals.flatRewardBonus)}**`,
             `Bonus alliance credits: **+${store.effectTotals.bonusAllianceCoins}**`,
             `Target reduction: **${Math.round(store.effectTotals.targetMultiplierReduction * 100)}%**`,
+            `Alliance CPS boost: **+${Math.round((store.effectTotals.allianceCpsBoost ?? 0) * 100)}%**`,
           ].join('\n'),
           inline: false,
         },
