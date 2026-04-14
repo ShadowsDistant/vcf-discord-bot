@@ -31,7 +31,7 @@ const TOP_P = 1.0;
 const MAX_ITERATIONS = 10;
 const AI_REQUEST_TIMEOUT_MS = 60_000;
 const SAFETY_MODEL = 'nvidia/nemotron-content-safety-reasoning-4b';
-const SAFETY_MAX_TOKENS = 16_384;
+const SAFETY_MAX_TOKENS = 1024;
 const DEFAULT_COLOR = 0x99aab5; // default grey
 const MAX_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000;
 const CONFIRMATION_TIMEOUT_MS = 30_000;
@@ -41,6 +41,7 @@ const DESC_MAX = 4096;
 const FIELD_VALUE_MAX = 1024;
 const FIELDS_MAX = 25;
 const FOOTER_MAX = 2048;
+const SAFETY_FIELD_PREFIX_BUFFER = 64;
 const SELECT_OPTION_MAX = 100;
 const MAX_LINK_BUTTONS = 10;
 const NO_RESPONSE_TEXT = '*(No response)*';
@@ -981,6 +982,19 @@ function isHarmfulLabel(value) {
 }
 
 /**
+ * Sanitize short safety-metadata values for embed/history usage.
+ * @param {string} value
+ * @param {number} [maxLen]
+ * @returns {string}
+ */
+function sanitizeSafetyText(value, maxLen = 120) {
+  const cleaned = stripCodeMarkup(stripThinkBlocks(String(value ?? 'None')))
+    .replace(/\s+/g, ' ')
+    .trim();
+  return truncate(cleaned || 'None', maxLen);
+}
+
+/**
  * Build JSON content for a safety-blocked assistant output.
  * @param {ReturnType<typeof parseSafetyOutput>} safety
  * @param {'prompt'|'response'} phase
@@ -997,12 +1011,12 @@ function buildSafetyBlockedRawContent(safety, phase) {
     fields: [
       {
         name: 'Prompt Harm',
-        value: `Status: ${safety.promptHarm}\nRule: ${safety.promptRule}\nSeverity: ${safety.promptSeverity}\nReason: ${truncate(safety.promptReason, FIELD_VALUE_MAX - 48)}`,
+        value: `Status: ${sanitizeSafetyText(safety.promptHarm, 60)}\nRule: ${sanitizeSafetyText(safety.promptRule, 120)}\nSeverity: ${sanitizeSafetyText(safety.promptSeverity, 20)}\nReason: ${truncate(sanitizeSafetyText(safety.promptReason, FIELD_VALUE_MAX), FIELD_VALUE_MAX - SAFETY_FIELD_PREFIX_BUFFER)}`,
         inline: false,
       },
       {
         name: 'Response Harm',
-        value: `Status: ${safety.responseHarm}\nRule: ${safety.responseRule}\nSeverity: ${safety.responseSeverity}\nReason: ${truncate(safety.responseReason, FIELD_VALUE_MAX - 48)}`,
+        value: `Status: ${sanitizeSafetyText(safety.responseHarm, 60)}\nRule: ${sanitizeSafetyText(safety.responseRule, 120)}\nSeverity: ${sanitizeSafetyText(safety.responseSeverity, 20)}\nReason: ${truncate(sanitizeSafetyText(safety.responseReason, FIELD_VALUE_MAX), FIELD_VALUE_MAX - SAFETY_FIELD_PREFIX_BUFFER)}`,
         inline: false,
       },
     ],
@@ -2681,7 +2695,10 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
       const responseSafety = await runSafetyFilter({ prompt: latestUserMessage, response: content });
       if (isHarmfulLabel(responseSafety.responseHarm)) {
         const blockedRawContent = buildSafetyBlockedRawContent(responseSafety, 'response');
-        messages.push({ role: 'assistant', content: 'Response blocked by safety filter.' });
+        messages.push({
+          role: 'assistant',
+          content: `Safety filter blocked a prior assistant response (rule: ${sanitizeSafetyText(responseSafety.responseRule, 80)}, severity: ${sanitizeSafetyText(responseSafety.responseSeverity, 20)}).`,
+        });
         const { outputEmbeds, linkButtons, uiRows, uiState } = buildFinalOutput(blockedRawContent);
         const reviewEmbed = buildReviewEmbed(
           {
