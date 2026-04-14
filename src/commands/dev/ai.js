@@ -29,8 +29,35 @@ const TEMPERATURE = 1.0;
 const TOP_P = 1.0;
 const MAX_ITERATIONS = 10;
 const AI_REQUEST_TIMEOUT_MS = 60_000;
-const SAFETY_MODEL = 'nvidia/llama-3.1-nemotron-safety-guard-8b-v3';
+const SAFETY_MODEL = 'nvidia/nemotron-content-safety-reasoning-4b';
 const SAFETY_MAX_TOKENS = 1024;
+const SAFETY_CLASSIFIER_PROMPT_HEADER = [
+  'You are an automated classifier for the Valley Correctional community Discord server. Analyze the interaction between a human user and an LLM assistant based on the combined taxonomy of community rules and safety categories.',
+  '',
+  'Taxonomy',
+  'Valley Correctional Rules:',
+  '',
+  'V1-V14: Discrimination (V1), Harassment (V2), Profanity (V3), PII (V4), Threats/Doxxing (V5), NSFW (V6), Politics/Tragedy (V7), Classified Info (V8), Non-English (V9), Malicious Links (V10), Advertising (V11), Misuse (V12), Spam (V13), VC Misuse (V14).',
+  '',
+  'Harmful Content Categories:',
+  '',
+  'S1-S22: Violence (S1), Sexual (S2/S7), Criminal Acts (S3/S21), Weapons (S4), Substances (S5), Self-Harm (S6), Hate (S8), PII (S9), Harassment (S10), Threat (S11), Profanity (S12), Manipulation (S14), Fraud (S15), Malware (S16), Misinformation (S18), Unethical (S22).',
+  '',
+  'Severity Levels',
+  'Low: Minor disruptions/mistakes.',
+  '',
+  'Medium: Purposeful disruptions/friction.',
+  '',
+  'High: Severe infractions/harm.',
+  '',
+  'Critical: Zero-tolerance (Bans).',
+  '',
+  'Instructions',
+  'Determine whether the prompt or response violates rules, constitutes a refusal, or is harmful. Output your answer strictly in the following format:',
+  '',
+  'Prompt harm: ',
+  'Prompt rule: ',
+].join('\n');
 const DEFAULT_COLOR = 0x99aab5; // default grey
 const MAX_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000;
 const CONFIRMATION_TIMEOUT_MS = 30_000;
@@ -907,6 +934,26 @@ function getLatestUserMessage(messages) {
     if (messages[i]?.role === 'user') return String(messages[i].content ?? '');
   }
   return '';
+}
+
+/**
+ * Build the classifier prompt for NVIDIA content-safety reasoning model.
+ * @param {string} userPrompt
+ * @param {string|null} assistantResponse
+ * @returns {string}
+ */
+function buildSafetyClassifierPrompt(userPrompt, assistantResponse) {
+  const promptText = String(userPrompt ?? '').trim() || 'None';
+  const responseText = assistantResponse == null ? 'None' : String(assistantResponse).trim() || 'None';
+  return [
+    SAFETY_CLASSIFIER_PROMPT_HEADER,
+    '',
+    'Human user:',
+    promptText,
+    '',
+    'AI assistant:',
+    responseText,
+  ].join('\n');
 }
 
 /**
@@ -2059,14 +2106,14 @@ async function callNvidiaApi(messages, settings) {
 async function runSafetyFilter(input) {
   const userPrompt = String(input?.prompt ?? '').trim();
   const assistantResponse = input?.response == null ? null : String(input.response).trim();
+  const classifierPrompt = buildSafetyClassifierPrompt(userPrompt, assistantResponse);
 
   const payload = {
     model: SAFETY_MODEL,
     messages: [
-      { role: 'user', content: userPrompt || 'None' },
-      { role: 'assistant', content: assistantResponse ?? 'None' },
+      { role: 'user', content: classifierPrompt },
     ],
-    temperature: 1,
+    temperature: 0,
     top_p: 1,
     max_tokens: SAFETY_MAX_TOKENS,
     stream: false,

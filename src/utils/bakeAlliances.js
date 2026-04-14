@@ -11,6 +11,8 @@ const ALLIANCE_CREATE_COST = 100_000;
 const MAX_ALLIANCE_DESCRIPTION_LENGTH = 240;
 const BOOSTER_PERSONAL_CPS_BOOST = 0.10;
 const BOOSTER_ALLIANCE_PER_MEMBER_CPS_BOOST = 0.02;
+const ALLIANCE_UPGRADE_SELLBACK_LOSS_RATE = 0.30;
+const ALLIANCE_UPGRADE_SELLBACK_MULTIPLIER = 1 - ALLIANCE_UPGRADE_SELLBACK_LOSS_RATE;
 
 const AUTOMOD_BLOCKED_WORDS = [
   'nigger', 'nigga', 'faggot', 'retard', 'kike', 'spic', 'chink', 'tranny', 'cunt', 'whore',
@@ -770,7 +772,9 @@ function getAllianceWithChallenge(guildId, userId) {
         userId: memberId,
         boost: baseAllianceBoost,
         details: {
+          allianceName: result.alliance.name,
           rankBoost: rankBoost.cpsBoostMultiplier,
+          rankPosition: rankBoost.rank ?? 0,
           upgradeBoost,
           allianceBoosterCount: boosterCount,
           allianceBoosterBoost,
@@ -819,7 +823,9 @@ function refreshGuildAllianceBoosts(guildId) {
         userId,
         boost: 0,
         details: {
+          allianceName: null,
           rankBoost: 0,
+          rankPosition: 0,
           upgradeBoost: 0,
           allianceBoosterCount: 0,
           allianceBoosterBoost: 0,
@@ -885,6 +891,28 @@ function buyAllianceUpgrade(guildId, actorId, upgradeId) {
   return result;
 }
 
+function sellAllianceUpgrade(guildId, actorId, upgradeId) {
+  const upgrade = STORE_UPGRADE_MAP.get(upgradeId);
+  if (!upgrade) return { ok: false, reason: 'Unknown alliance store upgrade.' };
+  const refund = Math.max(0, Math.floor(Number(upgrade.cost ?? 0) * ALLIANCE_UPGRADE_SELLBACK_MULTIPLIER));
+
+  const result = db.update(ALLIANCES_FILE, {}, (data) => {
+    const guild = getGuildState(data, guildId);
+    const allianceId = guild.userAlliance?.[actorId];
+    if (!allianceId) return { ok: false, reason: 'You are not in an alliance.' };
+    const alliance = guild.alliances?.[allianceId] ?? null;
+    if (!alliance) return { ok: false, reason: 'Alliance no longer exists.' };
+    ensureAllianceShape(alliance);
+    if (alliance.ownerId !== actorId) return { ok: false, reason: 'Only the alliance owner can sell alliance upgrades.' };
+    if (!alliance.upgrades.includes(upgrade.id)) return { ok: false, reason: 'That upgrade is not currently owned.' };
+    alliance.upgrades = alliance.upgrades.filter((id) => id !== upgrade.id);
+    alliance.storeCredits = Math.max(0, Number(alliance.storeCredits ?? 0)) + refund;
+    return { ok: true, alliance, upgrade, refund };
+  });
+  if (result.ok) refreshGuildAllianceBoosts(guildId);
+  return result;
+}
+
 function adminGrantAllianceUpgrade(guildId, allianceIdOrName, upgradeId) {
   const upgrade = STORE_UPGRADE_MAP.get(upgradeId);
   if (!upgrade) return { ok: false, reason: 'Unknown alliance store upgrade.' };
@@ -897,6 +925,23 @@ function adminGrantAllianceUpgrade(guildId, allianceIdOrName, upgradeId) {
     if (alliance.upgrades.includes(upgradeId)) return { ok: false, reason: 'That alliance already has this upgrade.' };
     alliance.upgrades.push(upgradeId);
     alliance.upgrades = [...new Set(alliance.upgrades)];
+    return { ok: true, alliance, upgrade };
+  });
+  if (result.ok) refreshGuildAllianceBoosts(guildId);
+  return result;
+}
+
+function adminRevokeAllianceUpgrade(guildId, allianceIdOrName, upgradeId) {
+  const upgrade = STORE_UPGRADE_MAP.get(upgradeId);
+  if (!upgrade) return { ok: false, reason: 'Unknown alliance store upgrade.' };
+
+  const result = db.update(ALLIANCES_FILE, {}, (data) => {
+    const guild = getGuildState(data, guildId);
+    const alliance = findAllianceByIdOrName(guild.alliances, allianceIdOrName);
+    if (!alliance) return { ok: false, reason: 'Alliance not found.' };
+    ensureAllianceShape(alliance);
+    if (!alliance.upgrades.includes(upgradeId)) return { ok: false, reason: 'That alliance does not have this upgrade.' };
+    alliance.upgrades = alliance.upgrades.filter((id) => id !== upgradeId);
     return { ok: true, alliance, upgrade };
   });
   if (result.ok) refreshGuildAllianceBoosts(guildId);
@@ -921,6 +966,8 @@ module.exports = {
   MAX_ALLIANCE_MEMBERS,
   ALLIANCE_CREATE_COST,
   MAX_ALLIANCE_DESCRIPTION_LENGTH,
+  ALLIANCE_UPGRADE_SELLBACK_LOSS_RATE,
+  ALLIANCE_UPGRADE_SELLBACK_MULTIPLIER,
   WEEKLY_ALLIANCE_CHALLENGES,
   ALLIANCE_STORE_UPGRADES,
   ALLIANCE_RANK_BOOSTS,
@@ -939,8 +986,10 @@ module.exports = {
   getAllianceWithChallenge,
   processAllianceChallengeRewards,
   buyAllianceUpgrade,
+  sellAllianceUpgrade,
   setAllianceJoinApproval,
   resolveAllianceJoinRequest,
   adminGrantAllianceUpgrade,
+  adminRevokeAllianceUpgrade,
   adminDeleteAlliance,
 };

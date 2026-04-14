@@ -21,6 +21,8 @@ const MESSAGES_PER_PAGE = 8;
 const MAX_PENDING_MESSAGES = 50;
 const PENDING_MESSAGE_ID_MOD = 100_000;
 let pendingMessageSequence = 0;
+let inboxDeliveryNotifier = null;
+const BOOST_CHANGE_EPSILON = 1e-9;
 const MARKET_LISTING_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const MARKET_FEE_RATE = 0.05;
 const BASE_GOLDEN_CHANCE = 0.02;
@@ -861,19 +863,48 @@ function nextPendingMessageId() {
   return (Date.now() * PENDING_MESSAGE_ID_MOD) + pendingMessageSequence;
 }
 
-function appendPendingMessage(user, messageData, idOverride) {
+function setInboxDeliveryNotifier(notifierFn) {
+  inboxDeliveryNotifier = typeof notifierFn === 'function' ? notifierFn : null;
+}
+
+function enqueueInboxDeliveryNotification(guildId, userId, messageData) {
+  if (!inboxDeliveryNotifier) return;
+  Promise.resolve(inboxDeliveryNotifier({
+    guildId: String(guildId ?? ''),
+    userId: String(userId ?? ''),
+    messageData: messageData ?? {},
+  })).catch(() => null);
+}
+
+function appendPendingMessage(user, messageData, idOverride, context = {}) {
   if (!Array.isArray(user.pendingMessages)) user.pendingMessages = [];
-  user.pendingMessages.push({
+  const normalizedType = String(messageData?.type ?? 'notification');
+  const notificationKey = String(messageData?.notificationKey ?? '').trim();
+  if (notificationKey) {
+    const existing = user.pendingMessages.find((message) =>
+      !message.claimed
+      && message.type === normalizedType
+      && String(message.notificationKey ?? '') === notificationKey);
+    if (existing) return { added: false, id: existing.id, deduped: true };
+  }
+  const entry = {
     id: Number.isInteger(idOverride) ? idOverride : nextPendingMessageId(),
     createdAt: new Date().toISOString(),
     claimed: false,
     ...messageData,
-  });
+    type: normalizedType,
+  };
+  user.pendingMessages.push(entry);
+  const didSuppressDm = Boolean(messageData?.suppressDeliveryDm) || context.notifyDelivery === false;
+  if (!didSuppressDm && context.guildId && context.userId) {
+    enqueueInboxDeliveryNotification(context.guildId, context.userId, entry);
+  }
   if (user.pendingMessages.length > MAX_PENDING_MESSAGES) {
     const firstClaimedIdx = user.pendingMessages.findIndex((m) => m.claimed);
     if (firstClaimedIdx >= 0) user.pendingMessages.splice(firstClaimedIdx, 1);
     else user.pendingMessages.shift();
   }
+  return { added: true, id: entry.id, deduped: false };
 }
 
 function buildRankRewardPendingMessage(rank) {
@@ -1293,8 +1324,12 @@ function setAllianceCpsBoostBatch(guildId, boosts = []) {
     const userId = String(entry?.userId ?? '');
     if (!userId) continue;
     const user = getUserState(guildState, userId);
+    const previousDetails = user.allianceBoostDetails ?? {};
+    const previousTotalAllianceBoost = Math.max(0, Number(previousDetails.totalAllianceBoost ?? user.allianceCpsBoost ?? 0) || 0);
+    const previousRankPosition = Math.max(0, Number(previousDetails.rankPosition ?? 0) || 0);
     user.allianceCpsBoost = Math.max(0, Number(entry?.boost) || 0);
     const details = entry?.details ?? {};
+    const nextRankPosition = Math.max(0, Number(details.rankPosition ?? 0) || 0);
     user.allianceBoostDetails = {
       rankBoost: Math.max(0, Number(details.rankBoost) || 0),
       upgradeBoost: Math.max(0, Number(details.upgradeBoost) || 0),
@@ -1302,7 +1337,34 @@ function setAllianceCpsBoostBatch(guildId, boosts = []) {
       allianceBoosterBoost: Math.max(0, Number(details.allianceBoosterBoost) || 0),
       personalBoosterBoost: Math.max(0, Number(details.personalBoosterBoost ?? user.boosterCpsBoost) || 0),
       totalAllianceBoost: Math.max(0, Number(details.totalAllianceBoost ?? entry?.boost) || 0),
+      rankPosition: nextRankPosition,
     };
+    const currentTotalAllianceBoost = Math.max(0, Number(user.allianceBoostDetails.totalAllianceBoost ?? 0) || 0);
+    const boostDelta = currentTotalAllianceBoost - previousTotalAllianceBoost;
+    if (Math.abs(boostDelta) > BOOST_CHANGE_EPSILON) {
+      const trend = boostDelta > 0 ? 'increased' : 'decreased';
+      const allianceName = String(details.allianceName ?? 'your alliance');
+      appendPendingMessage(user, {
+        type: 'boost_notification',
+        notificationType: 'alliance_boost_change',
+        from: 'Alliance System',
+        title: `Alliance boost ${trend}`,
+        content: `Your alliance CPS boost changed from **+${Math.round(previousTotalAllianceBoost * 100)}%** to **+${Math.round(currentTotalAllianceBoost * 100)}%** in **${allianceName}**.`,
+        boostKind: 'alliance',
+        previousBoostPct: previousTotalAllianceBoost,
+        nextBoostPct: currentTotalAllianceBoost,
+      }, undefined, { guildId, userId });
+    }
+    if (previousRankPosition > 0 && nextRankPosition > 0 && previousRankPosition !== nextRankPosition) {
+      const movedUp = nextRankPosition < previousRankPosition;
+      appendPendingMessage(user, {
+        type: 'alliance_notification',
+        notificationType: 'alliance_leaderboard_change',
+        from: 'Alliance Leaderboard',
+        title: movedUp ? 'Alliance moved up!' : 'Alliance moved down',
+        content: `Your alliance moved ${movedUp ? 'up' : 'down'} the leaderboard: **#${previousRankPosition} → #${nextRankPosition}**.`,
+      }, undefined, { guildId, userId });
+    }
   }
   writeState(data);
 }
@@ -1319,12 +1381,29 @@ function setUserBoosterStatus(guildId, userId, isBooster) {
   const data = readState();
   const guildState = getGuildState(data, guildId);
   const user = getUserState(guildState, userId);
+  const wasBooster = Boolean(user.isServerBooster);
   user.isServerBooster = Boolean(isBooster);
   user.boosterCpsBoost = user.isServerBooster ? 0.1 : 0;
+  const previousBoostPct = wasBooster ? 0.1 : 0;
+  const nextBoostPct = user.isServerBooster ? 0.1 : 0;
   if (!user.allianceBoostDetails || typeof user.allianceBoostDetails !== 'object') {
     user.allianceBoostDetails = {};
   }
   user.allianceBoostDetails.personalBoosterBoost = user.boosterCpsBoost;
+  if (wasBooster !== user.isServerBooster) {
+    appendPendingMessage(user, {
+      type: 'boost_notification',
+      notificationType: 'server_booster_role',
+      from: 'Boost System',
+      title: user.isServerBooster ? 'Server booster boost unlocked' : 'Server booster boost removed',
+      content: user.isServerBooster
+        ? 'You gained the server booster CPS boost: **+10%**.'
+        : 'You lost the server booster CPS boost: **−10%**.',
+      boostKind: 'server_booster',
+      previousBoostPct,
+      nextBoostPct,
+    }, undefined, { guildId, userId });
+  }
   writeState(data);
 }
 
@@ -1366,7 +1445,24 @@ function setUserVcfTagStatus(guildId, userId, hasVcfTag) {
   const data = readState();
   const guildState = getGuildState(data, guildId);
   const user = getUserState(guildState, userId);
+  const hadVcfTag = Boolean(user.hasVcfProfileTag);
   user.hasVcfProfileTag = Boolean(hasVcfTag);
+  const previousBoostPct = hadVcfTag ? VCF_PROFILE_TAG_CPS_BOOST : 0;
+  const nextBoostPct = user.hasVcfProfileTag ? VCF_PROFILE_TAG_CPS_BOOST : 0;
+  if (hadVcfTag !== user.hasVcfProfileTag) {
+    appendPendingMessage(user, {
+      type: 'boost_notification',
+      notificationType: 'vcf_profile_boost',
+      from: 'VCF Profile System',
+      title: user.hasVcfProfileTag ? 'VCF profile boost unlocked' : 'VCF profile boost removed',
+      content: user.hasVcfProfileTag
+        ? 'You unlocked the VCF profile CPS boost: **+5%**.'
+        : 'You lost the VCF profile CPS boost: **−5%**.',
+      boostKind: 'vcf_profile',
+      previousBoostPct,
+      nextBoostPct,
+    }, undefined, { guildId, userId });
+  }
   writeState(data);
 }
 
@@ -1546,7 +1642,7 @@ function bake(guildId, userId) {
 
     const newlyEarned = evaluateAchievements(user);
     const rankUpdate = syncUserRank(user, (rank) => {
-      appendPendingMessage(user, buildRankRewardPendingMessage(rank));
+      appendPendingMessage(user, buildRankRewardPendingMessage(rank), undefined, { guildId, userId });
     });
     return {
       user,
@@ -1571,7 +1667,7 @@ function getUserSnapshot(guildId, userId) {
   const passive = applyPassiveIncome(user, Date.now());
   evaluateAchievements(user);
   syncUserRank(user, (rank) => {
-    appendPendingMessage(user, buildRankRewardPendingMessage(rank));
+    appendPendingMessage(user, buildRankRewardPendingMessage(rank), undefined, { guildId, userId });
   });
   writeState(data);
   return { data, guildState, user, passive };
@@ -2987,22 +3083,13 @@ function adminGrantRewardBoxWithMessage(guildId, targetUserId, rewardBoxId, quan
   const { data, target } = adminEnsureTarget(guildId, targetUserId);
   if (!REWARD_BOX_MAP.has(rewardBoxId)) return false;
   if (!Number.isInteger(quantity) || quantity <= 0) return false;
-  if (!Array.isArray(target.pendingMessages)) target.pendingMessages = [];
-  target.pendingMessages.push({
-    id: Date.now(),
+  appendPendingMessage(target, {
     type: 'gift_box',
     from: senderTag ?? 'Admin',
     message: message ? String(message).slice(0, 500) : '',
     rewardBoxId,
     quantity,
-    createdAt: new Date().toISOString(),
-    claimed: false,
-  });
-  if (target.pendingMessages.length > MAX_PENDING_MESSAGES) {
-    const firstClaimedIdx = target.pendingMessages.findIndex((m) => m.claimed);
-    if (firstClaimedIdx >= 0) target.pendingMessages.splice(firstClaimedIdx, 1);
-    else target.pendingMessages.shift();
-  }
+  }, Date.now(), { guildId, userId: targetUserId });
   writeState(data);
   return true;
 }
@@ -3016,48 +3103,31 @@ function adminGiftAllUsers(guildId, rewardBoxId, quantity, message, senderTag) {
   if (!Number.isInteger(quantity) || quantity <= 0) return 0;
   const data = readState();
   const guildState = getGuildState(data, guildId);
-  const users = Object.values(guildState.users ?? {});
+  const userEntries = Object.entries(guildState.users ?? {});
   let msgId = Date.now();
-  for (const user of users) {
-    if (!Array.isArray(user.pendingMessages)) user.pendingMessages = [];
-    user.pendingMessages.push({
-      id: msgId++,
+  for (const [userId, user] of userEntries) {
+    appendPendingMessage(user, {
       type: 'gift_box',
       from: senderTag ?? 'Admin',
       message: message ? String(message).slice(0, 500) : '',
       rewardBoxId,
       quantity,
-      createdAt: new Date().toISOString(),
-      claimed: false,
-    });
-    if (user.pendingMessages.length > MAX_PENDING_MESSAGES) {
-      const firstClaimedIdx = user.pendingMessages.findIndex((m) => m.claimed);
-      if (firstClaimedIdx >= 0) user.pendingMessages.splice(firstClaimedIdx, 1);
-      else user.pendingMessages.shift();
-    }
+      suppressDeliveryDm: true,
+    }, msgId++, { guildId, userId, notifyDelivery: false });
   }
   writeState(data);
-  return users.length;
+  return userEntries.length;
 }
 
 function adminGiftCookies(guildId, targetUserId, amount, message, senderTag) {
   const { data, target } = adminEnsureTarget(guildId, targetUserId);
   if (!Number.isInteger(amount) || amount <= 0) return false;
-  if (!Array.isArray(target.pendingMessages)) target.pendingMessages = [];
-  target.pendingMessages.push({
-    id: Date.now(),
+  appendPendingMessage(target, {
     type: 'gift_cookies',
     from: senderTag ?? 'Admin',
     message: message ? String(message).slice(0, 500) : '',
     cookieAmount: amount,
-    createdAt: new Date().toISOString(),
-    claimed: false,
-  });
-  if (target.pendingMessages.length > MAX_PENDING_MESSAGES) {
-    const firstClaimedIdx = target.pendingMessages.findIndex((m) => m.claimed);
-    if (firstClaimedIdx >= 0) target.pendingMessages.splice(firstClaimedIdx, 1);
-    else target.pendingMessages.shift();
-  }
+  }, Date.now(), { guildId, userId: targetUserId });
   writeState(data);
   return true;
 }
@@ -3066,8 +3136,9 @@ function addPendingMessage(guildId, userId, messageData) {
   const data = readState();
   const guildState = getGuildState(data, guildId);
   const user = getUserState(guildState, userId);
-  appendPendingMessage(user, messageData);
+  const result = appendPendingMessage(user, messageData, undefined, { guildId, userId });
   writeState(data);
+  return result;
 }
 
 function markInboxMessagesRead(guildId, userId) {
@@ -3220,13 +3291,35 @@ function buildMessagesEmbed(guild, user, page) {
       const rewardText = formatRankReward({ rewards: msg.rewards ?? rank?.rewards ?? {} });
       summary = `**${rank?.name ?? msg.rankId ?? 'Unknown rank'}**\n${rewardText}${msg.claimed ? '\n*(claimed)*' : '\n*Claim with this inbox button.*'}`;
     } else if (msg.type === 'alliance_notification') {
-      icon = '🤝';
-      category = 'Alliance';
-      summary = msg.content ?? '(alliance notification)';
+      if (msg.notificationType === 'alliance_leaderboard_change') {
+        icon = '🏆';
+        category = 'Alliance Leaderboard';
+      } else {
+        icon = '🤝';
+        category = 'Alliance';
+      }
+      const titlePart = msg.title ? `**${msg.title}**\n` : '';
+      const fromPart = msg.from ? `\n*From ${msg.from}*` : '';
+      summary = `${titlePart}${msg.content ?? '(alliance notification)'}${fromPart}`;
+    } else if (msg.type === 'boost_notification') {
+      const boostIcon = msg.boostKind === 'server_booster'
+        ? '🚀'
+        : msg.boostKind === 'vcf_profile'
+          ? '🏷️'
+          : '📈';
+      icon = boostIcon;
+      category = 'Boost';
+      const titlePart = msg.title ? `**${msg.title}**\n` : '';
+      const fromPart = msg.from ? `\n*From ${msg.from}*` : '';
+      summary = `${titlePart}${msg.content ?? '(boost update)'}${fromPart}`;
     } else if (msg.type === 'staff_message') {
       const typeIcon = msg.messageType === 'moderation' ? '⚠️' : msg.messageType === 'bakery' ? '🍪' : '🔔';
       icon = typeIcon;
-      category = 'Staff';
+      category = msg.messageType === 'moderation'
+        ? 'Staff • Moderation'
+        : msg.messageType === 'bakery'
+          ? 'Staff • Bakery'
+          : 'Staff • Notification';
       const titlePart = msg.title ? `**${msg.title}**\n` : '';
       summary = `${titlePart}${(msg.content ?? '').slice(0, 400)}\n*From ${msg.from ?? 'Staff'}*`;
     } else {
@@ -3410,7 +3503,17 @@ function buildBakeAdminDashboardComponents(actorId) {
         { label: 'Reset Entire Economy', value: 'reset_economy', description: 'Reset ALL bakery economy data for this guild.' },
       ),
   );
-  return [targetSelectRow, globalActionRow];
+  const allianceActionRow = new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(`bakeadmin_alliance_action:${actorId}`)
+      .setPlaceholder('Select an alliance management action')
+      .addOptions(
+        { label: 'Alliance: Grant Upgrade', value: 'alliance_add_upgrade', description: 'Grant one or more alliance store upgrades.' },
+        { label: 'Alliance: Remove Upgrade', value: 'alliance_remove_upgrade', description: 'Remove one or more alliance store upgrades.' },
+        { label: 'Alliance: Delete Alliance', value: 'alliance_delete', description: 'Delete an alliance via confirmation modal.' },
+      ),
+  );
+  return [targetSelectRow, globalActionRow, allianceActionRow];
 }
 
 function buildBakeAdminEmbed(guild, actorId, targetId) {
@@ -3488,8 +3591,6 @@ function buildBakeAdminComponents(actorId, targetId) {
       { label: 'Trigger Golden Cookie', value: 'trigger_golden', description: 'Force a Golden Cookie on next bake.' },
       { label: 'Ban Bake Commands', value: 'ban_bake', description: 'Block target from baking commands.' },
       { label: 'Unban Bake Commands', value: 'unban_bake', description: 'Restore target bake command access.' },
-      { label: 'Alliance: Grant Upgrade', value: 'alliance_add_upgrade', description: 'Grant alliance store upgrade via pickers.' },
-      { label: 'Alliance: Delete Alliance', value: 'alliance_delete', description: 'Delete alliance via picker and confirm.' },
       { label: 'Reset User', value: 'reset_user', description: 'Reset target baking profile to defaults.' },
       { label: 'View User Data', value: 'view_user', description: 'Open target user data embed.' },
     );
@@ -3791,6 +3892,7 @@ module.exports = {
   COOKIE_EVENT_DEFINITIONS,
   startRandomCookieEvent,
   GIFT_BOX_OPTION_PREFIX,
+  setInboxDeliveryNotifier,
   addPendingMessage,
   markInboxMessagesRead,
   getAllTrackedUserIds,
