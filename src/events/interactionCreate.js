@@ -73,7 +73,7 @@ const MAX_PENDING_STAFF_MESSAGE_SELECTIONS = 2_000;
 const GIFT_QUICK_SELL_TTL_MS = 15 * 60 * 1000;
 const MAX_PENDING_GIFT_QUICK_SELLS = 5_000;
 const SERVER_BOOSTER_ROLE_ID = '1357082479931949310';
-const DESCRIPTION_WORD_BOUNDARY_MIN_THRESHOLD = 0.5;
+const DESCRIPTION_TRUNCATE_WORD_BOUNDARY_RATIO = 0.5;
 const pendingBakeryRenameSelections = new Map();
 const guideViewSelections = new Map();
 const reportCooldowns = new Map();
@@ -392,7 +392,9 @@ function truncateSelectDescription(text, limit = 100) {
   if (raw.length <= limit) return raw;
   const truncated = raw.slice(0, Math.max(1, limit - 1));
   const cut = truncated.lastIndexOf(' ');
-  const safe = cut >= Math.floor(limit * DESCRIPTION_WORD_BOUNDARY_MIN_THRESHOLD) ? truncated.slice(0, cut) : truncated;
+  const boundaryThreshold = Math.floor(limit * DESCRIPTION_TRUNCATE_WORD_BOUNDARY_RATIO);
+  const hasSafeWordBoundary = cut >= boundaryThreshold;
+  const safe = hasSafeWordBoundary ? truncated.slice(0, cut) : truncated;
   return `${safe.trimEnd()}…`;
 }
 

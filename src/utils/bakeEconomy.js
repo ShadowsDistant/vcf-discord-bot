@@ -1384,6 +1384,8 @@ function setUserBoosterStatus(guildId, userId, isBooster) {
   const wasBooster = Boolean(user.isServerBooster);
   user.isServerBooster = Boolean(isBooster);
   user.boosterCpsBoost = user.isServerBooster ? 0.1 : 0;
+  const previousBoostPct = wasBooster ? 0.1 : 0;
+  const nextBoostPct = user.isServerBooster ? 0.1 : 0;
   if (!user.allianceBoostDetails || typeof user.allianceBoostDetails !== 'object') {
     user.allianceBoostDetails = {};
   }
@@ -1398,8 +1400,8 @@ function setUserBoosterStatus(guildId, userId, isBooster) {
         ? 'You gained the server booster CPS boost: **+10%**.'
         : 'You lost the server booster CPS boost: **−10%**.',
       boostKind: 'server_booster',
-      nextBoostPct: user.boosterCpsBoost,
-      previousBoostPct: wasBooster ? 0.1 : 0,
+      previousBoostPct,
+      nextBoostPct,
     }, undefined, { guildId, userId });
   }
   writeState(data);
@@ -1445,6 +1447,8 @@ function setUserVcfTagStatus(guildId, userId, hasVcfTag) {
   const user = getUserState(guildState, userId);
   const hadVcfTag = Boolean(user.hasVcfProfileTag);
   user.hasVcfProfileTag = Boolean(hasVcfTag);
+  const previousBoostPct = hadVcfTag ? VCF_PROFILE_TAG_CPS_BOOST : 0;
+  const nextBoostPct = user.hasVcfProfileTag ? VCF_PROFILE_TAG_CPS_BOOST : 0;
   if (hadVcfTag !== user.hasVcfProfileTag) {
     appendPendingMessage(user, {
       type: 'boost_notification',
@@ -1455,8 +1459,8 @@ function setUserVcfTagStatus(guildId, userId, hasVcfTag) {
         ? 'You unlocked the VCF profile CPS boost: **+5%**.'
         : 'You lost the VCF profile CPS boost: **−5%**.',
       boostKind: 'vcf_profile',
-      nextBoostPct: user.hasVcfProfileTag ? VCF_PROFILE_TAG_CPS_BOOST : 0,
-      previousBoostPct: hadVcfTag ? VCF_PROFILE_TAG_CPS_BOOST : 0,
+      previousBoostPct,
+      nextBoostPct,
     }, undefined, { guildId, userId });
   }
   writeState(data);
@@ -3099,9 +3103,9 @@ function adminGiftAllUsers(guildId, rewardBoxId, quantity, message, senderTag) {
   if (!Number.isInteger(quantity) || quantity <= 0) return 0;
   const data = readState();
   const guildState = getGuildState(data, guildId);
-  const users = Object.entries(guildState.users ?? {});
+  const userEntries = Object.entries(guildState.users ?? {});
   let msgId = Date.now();
-  for (const [userId, user] of users) {
+  for (const [userId, user] of userEntries) {
     appendPendingMessage(user, {
       type: 'gift_box',
       from: senderTag ?? 'Admin',
@@ -3112,7 +3116,7 @@ function adminGiftAllUsers(guildId, rewardBoxId, quantity, message, senderTag) {
     }, msgId++, { guildId, userId, notifyDelivery: false });
   }
   writeState(data);
-  return users.length;
+  return userEntries.length;
 }
 
 function adminGiftCookies(guildId, targetUserId, amount, message, senderTag) {
