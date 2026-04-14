@@ -434,11 +434,26 @@ function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = 
   return { embeds: [baseEmbed], components, _challengeRewardNotice: data.challenge?.rewardGrantedNow ?? null };
 }
 
-async function sendAllianceBroadcastDm(client, guild, memberIds, embed) {
+function buildAllianceInboxContent(embed) {
+  const lines = [];
+  if (embed?.data?.title) lines.push(`**${embed.data.title}**`);
+  if (embed?.data?.description) lines.push(embed.data.description);
+  for (const field of (embed?.data?.fields ?? [])) {
+    if (!field?.name && !field?.value) continue;
+    lines.push(`**${field.name ?? 'Details'}**`);
+    lines.push(String(field.value ?? ''));
+  }
+  return lines.join('\n').slice(0, 900) || 'Alliance update.';
+}
+
+function sendAllianceBroadcastInbox(guildId, memberIds, embed) {
+  const content = buildAllianceInboxContent(embed);
   for (const memberId of memberIds ?? []) {
-    const user = await client.users.fetch(memberId).catch(() => null);
-    if (!user) continue;
-    await user.send({ embeds: [embed] }).catch(() => null);
+    economy.addPendingMessage(guildId, memberId, {
+      type: 'alliance_notification',
+      from: 'Alliance System',
+      content,
+    });
   }
 }
 
@@ -456,7 +471,7 @@ async function maybeSendChallengeRewardDms(interaction, panelPayload) {
     ].join('\n'))
     .setTimestamp()
     .setFooter({ text: interaction.guild.name, iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined });
-  await sendAllianceBroadcastDm(interaction.client, interaction.guild, reward.memberIds, embed);
+  sendAllianceBroadcastInbox(interaction.guild.id, reward.memberIds, embed);
 }
 
 async function notifyUpgradePurchase(interaction, alliance, upgrade) {
@@ -473,7 +488,7 @@ async function notifyUpgradePurchase(interaction, alliance, upgrade) {
     ].join('\n'))
     .setTimestamp()
     .setFooter({ text: interaction.guild.name, iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined });
-  await sendAllianceBroadcastDm(interaction.client, interaction.guild, alliance.members, embed);
+  sendAllianceBroadcastInbox(interaction.guild.id, alliance.members, embed);
 }
 
 function stripPanelMeta(panelPayload) {
