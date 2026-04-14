@@ -114,6 +114,7 @@ const MODEL_MINIMAX_EMOJI_ID = '1493415617116504134';
 const MODEL_ZAI_EMOJI_ID = '1493417351402754252';
 const AI_ALLOWED_ROLE_ID = '1493414609678499890';
 const AI_USER_SETTINGS_FILE = 'ai_user_settings.json';
+let AI_USER_SETTINGS_LOADED = false;
 const AI_MODELS = Object.freeze([
   {
     key: 'chatgpt',
@@ -886,14 +887,6 @@ const CHANNEL_TYPE_MAP = {
   forum: ChannelType.GuildForum,
   stage: ChannelType.GuildStageVoice,
 };
-const CHANNEL_SELECT_TYPE_MAP = {
-  text: ChannelType.GuildText,
-  voice: ChannelType.GuildVoice,
-  category: ChannelType.GuildCategory,
-  announcement: ChannelType.GuildAnnouncement,
-  forum: ChannelType.GuildForum,
-  stage: ChannelType.GuildStageVoice,
-};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────────
 
@@ -1237,21 +1230,27 @@ function normalizeAiSettings(input) {
 }
 
 /**
+ * Load persisted user settings into memory once per process.
+ */
+function ensureUserAiSettingsLoaded() {
+  if (AI_USER_SETTINGS_LOADED) return;
+  const persisted = db.read(AI_USER_SETTINGS_FILE, {});
+  for (const [userId, settings] of Object.entries(persisted ?? {})) {
+    AI_USER_SETTINGS.set(String(userId), normalizeAiSettings(settings));
+  }
+  AI_USER_SETTINGS_LOADED = true;
+}
+
+/**
  * Get persisted AI settings for a user.
  * @param {string} userId
  * @returns {{modelKey:string,showThinking:boolean,safetyEnabled:boolean}}
  */
 function getUserAiSettings(userId) {
+  ensureUserAiSettingsLoaded();
   const id = String(userId);
   const current = AI_USER_SETTINGS.get(id);
   if (current) return normalizeAiSettings(current);
-  const persisted = db.read(AI_USER_SETTINGS_FILE, {});
-  const stored = persisted?.[id];
-  if (stored && typeof stored === 'object') {
-    const normalized = normalizeAiSettings(stored);
-    AI_USER_SETTINGS.set(id, normalized);
-    return normalized;
-  }
   return normalizeAiSettings({ modelKey: DEFAULT_MODEL_KEY, showThinking: false, safetyEnabled: true });
 }
 
@@ -1261,6 +1260,7 @@ function getUserAiSettings(userId) {
  * @param {{modelKey:string,showThinking:boolean,safetyEnabled:boolean}} settings
  */
 function setUserAiSettings(userId, settings) {
+  ensureUserAiSettingsLoaded();
   const id = String(userId);
   const normalized = normalizeAiSettings(settings);
   AI_USER_SETTINGS.set(id, normalized);
@@ -2697,7 +2697,7 @@ function buildFinalOutput(rawContent, options = {}) {
     const maxValues = Math.min(25, Math.max(minValues, Number.parseInt(menu.max_values, 10) || minValues));
     const channelTypes = Array.isArray(menu.channel_types)
       ? menu.channel_types
-        .map((value) => CHANNEL_SELECT_TYPE_MAP[String(value).toLowerCase()])
+        .map((value) => CHANNEL_TYPE_MAP[String(value).toLowerCase()])
         .filter((value) => value != null)
       : [];
     uiState.selects[customId] = { id: sanitizeId(menu.id, `channel_menu_${i + 1}`), type: 'channel' };
