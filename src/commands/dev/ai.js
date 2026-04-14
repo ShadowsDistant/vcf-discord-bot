@@ -3714,6 +3714,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
 
   collector.on('end', async (_, reason) => {
     AI_SESSIONS.delete(replyMsg.id);
+    // Preserve visible controls for non-timeout endings; only hard-timeout tears them down.
     if (reason === 'time') {
       await replyMsg.edit({ components: [] }).catch(() => null);
     }
