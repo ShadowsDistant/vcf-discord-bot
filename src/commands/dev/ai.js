@@ -15,6 +15,9 @@ const {
 } = require('discord.js');
 const OpenAI = require('openai');
 const { isDevUser } = require('../../utils/roles');
+const db = require('../../utils/database');
+const analytics = require('../../utils/analytics');
+const { sendModerationActionDm, sendModLog } = require('../../utils/moderationNotifications');
 
 // ── Constants ───────────────────────────────────────────────────────────────────
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY ?? '';
@@ -156,6 +159,7 @@ Tool Usage:
 - If a tool errors, report it clearly and do not retry with identical args.
 - You may call multiple tools in one turn when needed; synthesize results into one cohesive response and note discrepancies if results conflict.
 - Use search_web only for current/web lookup requests or information you cannot answer from memory.
+- For moderation requests with incomplete names (e.g. "warn somoto"), use member search tools first; if multiple matches are plausible, present a select menu of candidates or ask the user to confirm the top match before taking action.
 
 Interactive Components:
 - Only add components when they provide clear interaction value (not decoration).
@@ -302,6 +306,21 @@ const TOOL_SCHEMAS = [
   {
     type: 'function',
     function: {
+      name: 'search_members',
+      description: 'Search guild members by partial username/display name and return best matches.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Partial username/display name to search for.' },
+          limit: { type: 'number', description: 'Maximum matches to return (1–25). Defaults to 10.' },
+        },
+        required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'get_guild_info',
       description: 'Get information about the current Discord guild/server.',
       parameters: { type: 'object', properties: {} },
@@ -438,6 +457,92 @@ const TOOL_SCHEMAS = [
           reason: { type: 'string', description: 'The reason for the timeout. Optional.' },
         },
         required: ['user_id', 'duration_seconds'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'warn_member',
+      description: 'Issue a warning to a member and record it in moderation logs/analytics.',
+      parameters: {
+        type: 'object',
+        properties: {
+          user_id: { type: 'string', description: 'The Discord user ID of the member to warn. Preferred when known.' },
+          user_query: { type: 'string', description: 'Optional partial username/display name when user_id is unknown.' },
+          reason: { type: 'string', description: 'Reason for the warning.' },
+        },
+        required: ['reason'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_voice_channels',
+      description: 'List voice and stage channels with occupancy counts.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_member_voice_state',
+      description: 'Get a member’s current voice-channel state.',
+      parameters: {
+        type: 'object',
+        properties: {
+          user_id: { type: 'string', description: 'The Discord user ID of the member.' },
+        },
+        required: ['user_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'move_member_to_voice',
+      description: 'Move a member to another voice/stage channel.',
+      parameters: {
+        type: 'object',
+        properties: {
+          user_id: { type: 'string', description: 'The Discord user ID of the member.' },
+          channel_id: { type: 'string', description: 'Target voice or stage channel ID.' },
+          reason: { type: 'string', description: 'Optional reason for audit logs.' },
+        },
+        required: ['user_id', 'channel_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'disconnect_member_voice',
+      description: 'Disconnect a member from voice (moves them out of VC).',
+      parameters: {
+        type: 'object',
+        properties: {
+          user_id: { type: 'string', description: 'The Discord user ID of the member.' },
+          reason: { type: 'string', description: 'Optional reason for audit logs.' },
+        },
+        required: ['user_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_member_voice_state',
+      description: 'Set server mute/deafen state for a member in voice.',
+      parameters: {
+        type: 'object',
+        properties: {
+          user_id: { type: 'string', description: 'The Discord user ID of the member.' },
+          mute: { type: 'boolean', description: 'Optional server mute state.' },
+          deaf: { type: 'boolean', description: 'Optional server deafen state.' },
+          reason: { type: 'string', description: 'Optional reason for audit logs.' },
+        },
+        required: ['user_id'],
       },
     },
   },
@@ -875,6 +980,44 @@ async function duckDuckGoSearch(query) {
 }
 
 /**
+ * Search guild members by query and return ranked matches.
+ * @param {import('discord.js').Guild} guild
+ * @param {string} query
+ * @param {number} [limit]
+ * @returns {Promise<Array<{id:string,username:string,display_name:string,global_name:string|null,tag:string,score:number}>>}
+ */
+async function searchGuildMembers(guild, query, limit = 10) {
+  const needle = String(query ?? '').trim().toLowerCase();
+  if (!needle) return [];
+  const max = Math.min(25, Math.max(1, Number.parseInt(limit, 10) || 10));
+  const fetched = await guild.members.fetch({ query: needle.slice(0, 32), limit: 100 }).catch(() => null);
+  const members = fetched ? [...fetched.values()] : [];
+  const scoreOf = (member) => {
+    const username = String(member?.user?.username ?? '').toLowerCase();
+    const displayName = String(member?.displayName ?? '').toLowerCase();
+    const globalName = String(member?.user?.globalName ?? '').toLowerCase();
+    const tag = String(member?.user?.tag ?? '').toLowerCase();
+    if (username === needle || displayName === needle || globalName === needle) return 100;
+    if (username.startsWith(needle) || displayName.startsWith(needle) || globalName.startsWith(needle)) return 90;
+    if (username.includes(needle) || displayName.includes(needle) || globalName.includes(needle)) return 75;
+    if (tag.includes(needle)) return 60;
+    return 0;
+  };
+  return members
+    .map((member) => ({
+      id: member.id,
+      username: member.user.username,
+      display_name: member.displayName,
+      global_name: member.user.globalName ?? null,
+      tag: member.user.tag,
+      score: scoreOf(member),
+    }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score || a.display_name.localeCompare(b.display_name))
+    .slice(0, max);
+}
+
+/**
  * Execute a named tool with the given parsed arguments.
  * Returns a JSON-serialisable value or throws on failure.
  * @param {string} toolName
@@ -982,6 +1125,14 @@ async function executeTool(toolName, args, interaction) {
       }));
     }
 
+    case 'search_members': {
+      const matches = await searchGuildMembers(guild, args.query, args.limit);
+      return {
+        query: String(args.query ?? ''),
+        matches,
+      };
+    }
+
     case 'get_guild_info': {
       const g = guild;
       return {
@@ -1077,6 +1228,133 @@ async function executeTool(toolName, args, interaction) {
       const ms = Math.min(args.duration_seconds * 1000, 28 * 24 * 60 * 60 * 1000);
       await member.timeout(ms, args.reason ?? undefined);
       return { success: true };
+    }
+
+    case 'warn_member': {
+      const reason = String(args.reason ?? '').trim();
+      if (!reason) throw new Error('Reason is required.');
+      let targetId = String(args.user_id ?? '').trim();
+      let resolution = null;
+      if (!targetId) {
+        const query = String(args.user_query ?? '').trim();
+        if (!query) throw new Error('Provide user_id or user_query.');
+        const matches = await searchGuildMembers(guild, query, 10);
+        if (matches.length === 0) throw new Error(`No members matched "${query}".`);
+        if (matches.length > 1) {
+          return {
+            success: false,
+            requires_user_selection: true,
+            query,
+            suggested_user_id: matches[0].id,
+            candidates: matches,
+          };
+        }
+        targetId = matches[0].id;
+        resolution = { matched_query: query, selected_from_search: true };
+      }
+      if (targetId === interaction.user.id) throw new Error('You cannot warn yourself.');
+      const member = await guild.members.fetch(targetId).catch(() => null);
+      if (!member) throw new Error('Member not found.');
+      const warnings = db.addWarning(guild.id, member.id, {
+        moderatorId: interaction.user.id,
+        reason,
+      });
+      const dmSent = await sendModerationActionDm({
+        user: member.user,
+        guild,
+        action: 'Warning',
+        reason,
+        moderatorTag: interaction.user.tag,
+      });
+      await sendModLog({
+        guild,
+        target: member.user,
+        moderator: interaction.user,
+        action: 'Warn',
+        reason,
+        extra: `Total warnings: **${warnings.length}**`,
+      });
+      analytics.recordModAction(guild.id, 'warn', Date.now());
+      return {
+        success: true,
+        user_id: member.id,
+        username: member.user.username,
+        display_name: member.displayName,
+        reason,
+        warnings_count: warnings.length,
+        dm_sent: dmSent,
+        resolved: resolution,
+      };
+    }
+
+    case 'list_voice_channels': {
+      const channels = await guild.channels.fetch();
+      return channels
+        .filter((channel) => channel?.isVoiceBased())
+        .map((channel) => ({
+          id: channel.id,
+          name: channel.name,
+          type: channel.type,
+          user_limit: channel.userLimit ?? 0,
+          bitrate: channel.bitrate ?? null,
+          member_count: channel.members?.size ?? 0,
+          parent_id: channel.parentId ?? null,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    case 'get_member_voice_state': {
+      const member = await guild.members.fetch(args.user_id).catch(() => null);
+      if (!member) throw new Error('Member not found.');
+      const voice = member.voice;
+      return {
+        user_id: member.id,
+        in_voice: Boolean(voice?.channelId),
+        channel_id: voice?.channelId ?? null,
+        channel_name: voice?.channel?.name ?? null,
+        server_mute: Boolean(voice?.serverMute),
+        server_deaf: Boolean(voice?.serverDeaf),
+        self_mute: Boolean(voice?.selfMute),
+        self_deaf: Boolean(voice?.selfDeaf),
+      };
+    }
+
+    case 'move_member_to_voice': {
+      const member = await guild.members.fetch(args.user_id).catch(() => null);
+      if (!member) throw new Error('Member not found.');
+      const target = await guild.channels.fetch(args.channel_id).catch(() => null);
+      if (!target || !target.isVoiceBased()) throw new Error('Target channel not found or not voice-based.');
+      await member.voice.setChannel(target, args.reason ?? undefined);
+      return {
+        success: true,
+        user_id: member.id,
+        channel_id: target.id,
+        channel_name: target.name,
+      };
+    }
+
+    case 'disconnect_member_voice': {
+      const member = await guild.members.fetch(args.user_id).catch(() => null);
+      if (!member) throw new Error('Member not found.');
+      if (!member.voice?.channelId) throw new Error('Member is not connected to voice.');
+      await member.voice.disconnect(args.reason ?? undefined);
+      return { success: true, user_id: member.id };
+    }
+
+    case 'set_member_voice_state': {
+      const member = await guild.members.fetch(args.user_id).catch(() => null);
+      if (!member) throw new Error('Member not found.');
+      const hasMute = typeof args.mute === 'boolean';
+      const hasDeaf = typeof args.deaf === 'boolean';
+      if (!hasMute && !hasDeaf) throw new Error('Provide at least one of mute or deaf.');
+      if (hasMute) await member.voice.setMute(Boolean(args.mute), args.reason ?? undefined);
+      if (hasDeaf) await member.voice.setDeaf(Boolean(args.deaf), args.reason ?? undefined);
+      return {
+        success: true,
+        user_id: member.id,
+        server_mute: hasMute ? Boolean(args.mute) : member.voice?.serverMute ?? null,
+        server_deaf: hasDeaf ? Boolean(args.deaf) : member.voice?.serverDeaf ?? null,
+      };
     }
 
     case 'create_channel': {
