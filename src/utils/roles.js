@@ -1,5 +1,7 @@
 'use strict';
 
+const { PermissionsBitField } = require('discord.js');
+
 const ROLE_IDS = {
   moderationAccess: '1425569078596337745',
   helpManagementAccess: new Set(['1379199481886802061', '1470915962860736553']),
@@ -170,11 +172,36 @@ function hasDeveloperLevelAccess(member, guild) {
   return hasRoleAbove(member, guild, DEV_TEAM_ROLE_ID);
 }
 
+function isGuildOwner(member, guild) {
+  const memberId = member?.id ?? member?.user?.id;
+  return Boolean(memberId && guild?.ownerId && String(memberId) === String(guild.ownerId));
+}
+
+function hasAdministratorPermission(member) {
+  const perms = member?.permissions;
+  if (!perms) return false;
+  if (typeof perms.has === 'function') {
+    return perms.has(PermissionsBitField.Flags.Administrator);
+  }
+  try {
+    const bits = BigInt(perms);
+    return (bits & PermissionsBitField.Flags.Administrator) === PermissionsBitField.Flags.Administrator;
+  } catch {
+    return false;
+  }
+}
+
+function isAdminOrOwner(member, guild) {
+  return isGuildOwner(member, guild) || hasAdministratorPermission(member);
+}
+
 function canUseDevCommand(member, guild, commandName) {
-  if (!isDevTeamMember(member)) return false;
   if (commandName === 'setstatus' || commandName === 'servers') {
+    if (isAdminOrOwner(member, guild)) return true;
+    if (!isDevTeamMember(member)) return false;
     return hasDeveloperLevelAccess(member, guild);
   }
+  if (!isDevTeamMember(member)) return false;
   return true;
 }
 

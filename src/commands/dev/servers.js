@@ -12,7 +12,7 @@ module.exports = {
   async execute(interaction) {
     if (!canUseDevCommand(interaction.member, interaction.guild, 'servers')) {
       return interaction.reply({
-        embeds: [embeds.error('This command requires Developer role or higher in the developer team.', interaction.guild ?? null)],
+        embeds: [embeds.error('This command requires Developer+ in the developer team, or Admin/Owner.', interaction.guild ?? null)],
         flags: MessageFlags.Ephemeral,
       });
     }
