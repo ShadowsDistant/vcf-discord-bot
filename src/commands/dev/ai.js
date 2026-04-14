@@ -939,6 +939,18 @@ function parseSafetyOutput(text) {
         ?? parsed?.categories
         ?? 'None',
       ).trim() || 'None';
+      const userCategories = String(
+        parsed?.['User Safety Categories']
+        ?? parsed?.user_safety_categories
+        ?? parsed?.['Prompt Safety Categories']
+        ?? parsed?.prompt_safety_categories
+        ?? categories,
+      ).trim() || 'None';
+      const responseCategories = String(
+        parsed?.['Response Safety Categories']
+        ?? parsed?.response_safety_categories
+        ?? 'None',
+      ).trim() || 'None';
       const userSafety = normalizeHarmLabel(
         parsed?.['User Safety'] ?? parsed?.user_safety,
         'unharmful',
@@ -947,14 +959,16 @@ function parseSafetyOutput(text) {
         parsed?.['Response Safety'] ?? parsed?.response_safety,
         'None',
       );
+      const hasResponseIssue = responseSafety === 'harmful' || responseSafety === 'unsafe';
+      const responseRule = hasResponseIssue ? (responseCategories !== 'None' ? responseCategories : categories) : 'None';
       return {
         promptHarm: userSafety,
-        promptRule: categories,
-        promptReason: categories === 'None' ? 'No reason provided.' : `Categories: ${categories}`,
+        promptRule: userCategories,
+        promptReason: userCategories === 'None' ? 'No reason provided.' : `Categories: ${userCategories}`,
         promptSeverity: 'none',
         responseHarm: responseSafety,
-        responseRule: categories,
-        responseReason: categories === 'None' ? 'None' : `Categories: ${categories}`,
+        responseRule,
+        responseReason: responseRule === 'None' ? 'None' : `Categories: ${responseRule}`,
         responseSeverity: 'none',
       };
     } catch {
