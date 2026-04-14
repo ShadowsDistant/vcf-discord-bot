@@ -27,10 +27,13 @@ const MAX_ITERATIONS = 10;
 const DEFAULT_COLOR = 0x99aab5; // default grey
 const CONFIRMATION_TIMEOUT_MS = 30_000;
 const REVIEW_TIMEOUT_MS = 15 * 60_000;
+const MODAL_SUBMIT_TIMEOUT_MS = 120_000;
 const DESC_MAX = 4096;
 const FIELD_VALUE_MAX = 1024;
 const FIELDS_MAX = 25;
 const MAX_LINK_BUTTONS = 10;
+const NO_RESPONSE_TEXT = '*(No response)*';
+const CHUNK_NEWLINE_SPLIT_THRESHOLD = 0.5;
 const AI_HARDCODED_ALLOW_IDS = new Set(['1272344731526889544']);
 const AI_REVIEW_BUTTON_ID = 'ai_review_details';
 const AI_OUTPUT_BUTTON_ID = 'ai_output_view';
@@ -44,6 +47,8 @@ const AI_UI_SELECT_PREFIX = 'ai_ui_select:';
 const AI_UI_MODAL_PREFIX = 'ai_ui_modal:';
 const AI_MODEL_LABEL = 'Valley AI (GPT OSS 120B)';
 const AI_SESSIONS = new Map();
+const MAX_CUSTOM_ID_BASE_LENGTH = 48; // keeps prefixed custom IDs within Discord's 100-char limit
+const MAX_CONVERSATION_MESSAGES = 60;
 
 const aiClient = new OpenAI({
   baseURL: NVIDIA_API_BASE,
@@ -84,6 +89,9 @@ Guidelines:
 - description max 4096 chars, field values max 1024 chars, max 25 fields.
 - If useful, include 0-10 link_buttons using valid https/http URLs.
 - You may include interactive buttons/select menus/modal buttons to collect input from the user when helpful.
+- Respect Discord limits: max 5 action rows, max 5 buttons per row, max 25 select options, max 5 modal fields.
+- Interactions collected from buttons/select menus/modals are stored as context and will be processed on the next "Continue" prompt.
+- If output is paginated, image_url is shown on the first page.
 - Keep responses concise and useful.`;
 
 // ── Dangerous tools ──────────────────────────────────────────────────────────────
@@ -1118,12 +1126,12 @@ function chunkText(text, maxLen) {
   let remaining = String(text ?? '');
   while (remaining.length > maxLen) {
     let splitAt = remaining.lastIndexOf('\n', maxLen);
-    if (splitAt < maxLen * 0.5) splitAt = maxLen;
+    if (splitAt < maxLen * CHUNK_NEWLINE_SPLIT_THRESHOLD) splitAt = maxLen;
     chunks.push(remaining.slice(0, splitAt).trim());
     remaining = remaining.slice(splitAt).trimStart();
   }
   if (remaining.length > 0) chunks.push(remaining);
-  return chunks.length > 0 ? chunks : ['*(No response)*'];
+  return chunks.length > 0 ? chunks : [NO_RESPONSE_TEXT];
 }
 
 /**
@@ -1150,8 +1158,21 @@ function sanitizeId(value, fallback) {
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9_-]/g, '_')
-    .slice(0, 48);
+    .slice(0, MAX_CUSTOM_ID_BASE_LENGTH);
   return clean || fallback;
+}
+
+/**
+ * Keep conversation history bounded while preserving the system message.
+ * @param {Array<object>} messages
+ */
+function trimConversationHistory(messages) {
+  if (!Array.isArray(messages) || messages.length <= MAX_CONVERSATION_MESSAGES) return;
+  const system = messages[0]?.role === 'system' ? messages[0] : null;
+  const tail = messages.slice(-(MAX_CONVERSATION_MESSAGES - (system ? 1 : 0)));
+  messages.length = 0;
+  if (system) messages.push(system);
+  messages.push(...tail);
 }
 
 /**
@@ -1172,14 +1193,14 @@ function parseAiOutput(rawContent) {
   }
 
   if (!data || typeof data !== 'object') {
-    data = { description: stripCodeMarkup(cleaned || '*(No response)*') };
+    data = { description: stripCodeMarkup(cleaned || NO_RESPONSE_TEXT) };
   }
 
   const color = hexToInt(data.color);
   const authorName = stripCodeMarkup(stripThinkBlocks(String(data.author_name ?? AI_MODEL_LABEL)));
   const footerText = data.footer ? stripCodeMarkup(stripThinkBlocks(String(data.footer))) : null;
   const title = data.title ? truncate(stripCodeMarkup(stripThinkBlocks(String(data.title))), 256) : null;
-  const description = stripCodeMarkup(stripThinkBlocks(String(data.description ?? '*(No response)*')));
+  const description = stripCodeMarkup(stripThinkBlocks(String(data.description ?? NO_RESPONSE_TEXT)));
   const fields = [];
   if (Array.isArray(data.fields)) {
     for (const f of data.fields) {
@@ -1233,7 +1254,7 @@ function buildFinalOutput(rawContent) {
   const outputEmbeds = chunks.map((chunk, index) => {
     const embed = new EmbedBuilder()
       .setColor(parsed.color)
-      .setDescription(chunk || '*(No response)*')
+      .setDescription(chunk || NO_RESPONSE_TEXT)
       .setTimestamp();
     if (parsed.title) embed.setTitle(parsed.title);
     embed.setAuthor({ name: parsed.authorName, iconURL: parsed.authorIconUrl });
@@ -1464,6 +1485,8 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed) {
   let completionTokens = null;
 
   for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+    trimConversationHistory(messages);
+
     if (iteration > 0) {
       await interaction.editReply({
         embeds: [buildProcessingEmbed(`Processing results… (iteration ${iteration + 1}/${MAX_ITERATIONS})`)],
@@ -1652,7 +1675,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
       try {
         modalSubmit = await i.awaitModalSubmit({
           filter: (m) => m.customId === AI_CONTINUE_MODAL_ID && m.user.id === session.allowedUserId,
-          time: 120_000,
+          time: MODAL_SUBMIT_TIMEOUT_MS,
         });
       } catch {
         return;
@@ -1698,7 +1721,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
       if (!button) return i.reply({ content: 'Button configuration is unavailable.', flags: MessageFlags.Ephemeral }).catch(() => null);
       session.messages.push({ role: 'user', content: `UI button clicked: ${button.id}` });
       await i.reply({
-        content: button.ackMessage ?? `Captured button click: \`${button.id}\`.`,
+        content: button.ackMessage ?? `Captured button click: \`${button.id}\`. Click **Continue** to let Valley AI use it.`,
         flags: MessageFlags.Ephemeral,
       }).catch(() => null);
       return;
@@ -1710,7 +1733,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
       const values = i.values?.join(', ') || 'none';
       session.messages.push({ role: 'user', content: `UI select used: ${select.id} -> ${values}` });
       await i.reply({
-        content: `Captured selection for \`${select.id}\`: ${values}`,
+        content: `Captured selection for \`${select.id}\`: ${values}\nClick **Continue** to let Valley AI use it.`,
         flags: MessageFlags.Ephemeral,
       }).catch(() => null);
       return;
@@ -1741,7 +1764,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
       try {
         modalSubmit = await i.awaitModalSubmit({
           filter: (m) => m.customId === modalCustomId && m.user.id === session.allowedUserId,
-          time: 120_000,
+          time: MODAL_SUBMIT_TIMEOUT_MS,
         });
       } catch {
         return;
@@ -1749,7 +1772,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
       const collected = modalDef.fields.map((field) => `${field.id}: ${modalSubmit.fields.getTextInputValue(field.id)}`);
       session.messages.push({ role: 'user', content: `UI modal submitted: ${modalDef.id} -> ${collected.join(' | ')}` });
       await modalSubmit.reply({
-        content: modalDef.submitMessage ?? `Captured modal submission for \`${modalDef.id}\`.`,
+        content: modalDef.submitMessage ?? `Captured modal submission for \`${modalDef.id}\`.\nClick **Continue** to let Valley AI use it.`,
         flags: MessageFlags.Ephemeral,
       }).catch(() => null);
     }
