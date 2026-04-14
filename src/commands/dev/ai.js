@@ -29,6 +29,7 @@ const MAX_TOKENS = 4096;
 const TEMPERATURE = 1.0;
 const TOP_P = 1.0;
 const MAX_ITERATIONS = 10;
+const AI_REQUEST_TIMEOUT_MS = 60_000;
 const DEFAULT_COLOR = 0x99aab5; // default grey
 const MAX_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000;
 const CONFIRMATION_TIMEOUT_MS = 30_000;
@@ -1019,46 +1020,133 @@ function stripHtmlTags(str) {
 }
 
 /**
- * Fetch the top 5 web search results from DuckDuckGo's HTML endpoint.
- * @param {string} query
- * @returns {Promise<Array<{title:string, url:string, snippet:string}>>}
+ * Fetch text from a URL with a hard timeout.
+ * @param {string} url
+ * @param {object} [options]
+ * @param {number} [timeoutMs]
+ * @returns {Promise<string>}
  */
-async function duckDuckGoSearch(query) {
-  const url = 'https://html.duckduckgo.com/html/';
-  const body = `q=${encodeURIComponent(query)}&b=&kl=`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Accept-Language': 'en-US,en;q=0.9',
-    },
-    body,
-  });
-  const html = await res.text();
+async function fetchTextWithTimeout(url, options = {}, timeoutMs = 15_000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    if (!res.ok) throw new Error(`Request failed (${res.status}).`);
+    return await res.text();
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
-  const titleMatches = [...html.matchAll(/<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)];
-  const snippetMatches = [...html.matchAll(/<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g)];
-
+/**
+ * Extract web results from DuckDuckGo HTML.
+ * @param {string} html
+ * @returns {Array<{title:string,url:string,snippet:string}>}
+ */
+function extractDuckDuckGoHtmlResults(html) {
+  const blocks = [...html.matchAll(/<div[^>]+class="[^"]*\bresult\b[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/g)];
   const results = [];
-  const count = Math.min(5, titleMatches.length);
-  for (let i = 0; i < count; i++) {
-    const rawHref = titleMatches[i][1];
+
+  for (const match of blocks) {
+    if (results.length >= 5) break;
+    const block = match[1] ?? '';
+    const linkMatch = block.match(/<a[^>]+class="[^"]*\bresult__a\b[^"]*"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
+    if (!linkMatch) continue;
+
+    const rawHref = linkMatch[1];
     let resolvedUrl = rawHref;
     try {
-      const parsed = new URL(rawHref, 'https://html.duckduckgo.com');
+      const parsed = new URL(rawHref, 'https://duckduckgo.com');
       const uddg = parsed.searchParams.get('uddg');
       if (uddg) resolvedUrl = decodeURIComponent(uddg);
     } catch {
       // keep raw href
     }
-    const title = stripHtmlTags(titleMatches[i][2]);
-    const snippet = snippetMatches[i]
-      ? stripHtmlTags(snippetMatches[i][1])
-      : '';
+
+    const snippetMatch =
+      block.match(/<a[^>]+class="[^"]*\bresult__snippet\b[^"]*"[^>]*>([\s\S]*?)<\/a>/i)
+      ?? block.match(/<div[^>]+class="[^"]*\bresult__snippet\b[^"]*"[^>]*>([\s\S]*?)<\/div>/i)
+      ?? block.match(/<span[^>]+class="[^"]*\bresult__snippet\b[^"]*"[^>]*>([\s\S]*?)<\/span>/i);
+
+    const title = stripHtmlTags(linkMatch[2] ?? '');
+    const snippet = stripHtmlTags(snippetMatch?.[1] ?? '');
+    if (!title || !resolvedUrl || !/^https?:\/\//i.test(resolvedUrl)) continue;
     results.push({ title, url: resolvedUrl, snippet });
   }
+
   return results;
+}
+
+/**
+ * Extract web results from DuckDuckGo Instant Answer JSON.
+ * @param {object} data
+ * @returns {Array<{title:string,url:string,snippet:string}>}
+ */
+function extractDuckDuckGoApiResults(data) {
+  const results = [];
+  const pushResult = (item) => {
+    if (results.length >= 5 || !item) return;
+    const url = String(item.FirstURL ?? item.url ?? '').trim();
+    const text = stripHtmlTags(String(item.Text ?? item.text ?? '').trim());
+    if (!url || !/^https?:\/\//i.test(url) || !text) return;
+    const [title, ...rest] = text.split(/ - | — |: /);
+    results.push({
+      title: title?.trim() || text.slice(0, 80),
+      url,
+      snippet: rest.join(' - ').trim() || text,
+    });
+  };
+
+  if (Array.isArray(data?.Results)) {
+    for (const item of data.Results) pushResult(item);
+  }
+  if (Array.isArray(data?.RelatedTopics)) {
+    for (const item of data.RelatedTopics) {
+      if (Array.isArray(item?.Topics)) {
+        for (const nested of item.Topics) pushResult(nested);
+      } else {
+        pushResult(item);
+      }
+      if (results.length >= 5) break;
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Fetch up to 5 web search results from DuckDuckGo with robust fallback.
+ * @param {string} query
+ * @returns {Promise<Array<{title:string, url:string, snippet:string}>>}
+ */
+async function duckDuckGoSearch(query) {
+  const q = String(query ?? '').trim();
+  if (!q) return [];
+
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept-Language': 'en-US,en;q=0.9',
+  };
+
+  try {
+    const html = await fetchTextWithTimeout(
+      `https://duckduckgo.com/html/?q=${encodeURIComponent(q)}&kl=us-en`,
+      { method: 'GET', headers },
+      15_000,
+    );
+    const htmlResults = extractDuckDuckGoHtmlResults(html);
+    if (htmlResults.length > 0) return htmlResults;
+  } catch {
+    // fallback below
+  }
+
+  const apiText = await fetchTextWithTimeout(
+    `https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&no_html=1&skip_disambig=1`,
+    { method: 'GET', headers: { ...headers, Accept: 'application/json' } },
+    15_000,
+  );
+  const apiData = JSON.parse(apiText);
+  return extractDuckDuckGoApiResults(apiData);
 }
 
 /**
@@ -1798,7 +1886,12 @@ async function callNvidiaApi(messages, settings) {
       stream: false,
     };
     if (extraBody) payload.extra_body = extraBody;
-    return await aiClient.chat.completions.create(payload);
+    return await Promise.race([
+      aiClient.chat.completions.create(payload),
+      new Promise((_, reject) => {
+        setTimeout(() => reject(Object.assign(new Error('AI request timed out after 60 seconds with no response.'), { status: 408 })), AI_REQUEST_TIMEOUT_MS);
+      }),
+    ]);
   } catch (error) {
     const status = error?.status ?? error?.code ?? undefined;
     const apiBody = error?.error ? JSON.stringify(error.error) : '';
