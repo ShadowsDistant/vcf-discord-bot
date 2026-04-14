@@ -2038,7 +2038,11 @@ ${assistantResponse ?? 'None'}`;
   let timeoutId;
   try {
     const timeoutPromise = new Promise((_, reject) => {
-      timeoutId = setTimeout(() => reject(createTimeoutError('Safety filter request timed out after 60 seconds with no response.')), AI_REQUEST_TIMEOUT_MS);
+      timeoutId = setTimeout(() => {
+        const timeoutError = createTimeoutError('Safety filter request timed out after 60 seconds with no response.');
+        timeoutError.isSafetyTimeout = true;
+        reject(timeoutError);
+      }, AI_REQUEST_TIMEOUT_MS);
     });
     const data = await Promise.race([
       aiClient.chat.completions.create(payload),
@@ -2048,10 +2052,11 @@ ${assistantResponse ?? 'None'}`;
     if (!raw) throw new Error('Safety filter returned an empty response.');
     return parseSafetyOutput(raw);
   } catch (error) {
-    if (error?.status === 408) throw error;
+    if (error?.isSafetyTimeout || error?.status === 408) throw error;
     const status = error?.status ?? error?.code ?? undefined;
     const apiBody = error?.error ? JSON.stringify(error.error) : '';
-    throw Object.assign(new Error(`Safety filter API error${status ? ` ${status}` : ''}: ${error.message}`), { status, body: apiBody });
+    const context = status ? `Safety filter API error ${status}` : 'Safety filter request failed';
+    throw Object.assign(new Error(`${context}: ${error?.message ?? 'Unknown error'}`), { status, body: apiBody });
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
   }
