@@ -19,7 +19,7 @@ const { isDevUser } = require('../../utils/roles');
 // ── Constants ───────────────────────────────────────────────────────────────────
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY ?? '';
 const NVIDIA_API_BASE = 'https://integrate.api.nvidia.com/v1';
-const MODEL = 'openai/gpt-oss-120b';
+const AI_ACCESS_ROLE_ID = '1493414609678499890';
 const MAX_TOKENS = 4096;
 const TEMPERATURE = 1.0;
 const TOP_P = 1.0;
@@ -43,6 +43,8 @@ const AI_PAGE_PREV_BUTTON_ID = 'ai_page_prev';
 const AI_PAGE_NEXT_BUTTON_ID = 'ai_page_next';
 const AI_TURN_PREV_BUTTON_ID = 'ai_turn_prev';
 const AI_TURN_NEXT_BUTTON_ID = 'ai_turn_next';
+const AI_TOGGLE_THINKING_BUTTON_ID = 'ai_toggle_thinking';
+const AI_MODEL_SELECT_ID = 'ai_model_select';
 const AI_CONTINUE_MODAL_ID = 'ai_continue_modal';
 const AI_CONTINUE_PROMPT_INPUT_ID = 'ai_continue_prompt';
 const AI_UI_BUTTON_PREFIX = 'ai_ui_button:';
@@ -50,8 +52,46 @@ const AI_UI_SELECT_PREFIX = 'ai_ui_select:';
 const AI_UI_MODAL_PREFIX = 'ai_ui_modal:';
 const AI_MODEL_LABEL = 'Valley AI';
 const AI_SESSIONS = new Map();
+const AI_USER_SETTINGS = new Map();
 const MAX_CUSTOM_ID_BASE_LENGTH = 48; // keeps prefixed custom IDs within Discord's 100-char limit
 const MAX_CONVERSATION_MESSAGES = 60;
+const MODEL_CHATGPT_EMOJI_ID = '1493416854763470908';
+const MODEL_MINIMAX_EMOJI_ID = '1493415617116504134';
+const MODEL_ZAI_EMOJI_ID = '1493417351402754252';
+const AI_MODELS = Object.freeze([
+  {
+    key: 'chatgpt',
+    label: 'ChatGPT',
+    model: 'openai/gpt-oss-120b',
+    description: 'Balanced model for most requests.',
+    emojiId: MODEL_CHATGPT_EMOJI_ID,
+    maxTokens: MAX_TOKENS,
+    temperature: TEMPERATURE,
+    topP: TOP_P,
+  },
+  {
+    key: 'minimax',
+    label: 'MiniMax',
+    model: 'minimaxai/minimax-m2.7',
+    description: 'Fast and efficient for short-to-medium tasks.',
+    emojiId: MODEL_MINIMAX_EMOJI_ID,
+    maxTokens: 8192,
+    temperature: 1.0,
+    topP: 0.95,
+  },
+  {
+    key: 'zai',
+    label: 'ZAI',
+    model: 'z-ai/glm4.7',
+    description: 'Supports explicit thinking output when enabled.',
+    emojiId: MODEL_ZAI_EMOJI_ID,
+    maxTokens: 16384,
+    temperature: 1.0,
+    topP: 1.0,
+  },
+]);
+const AI_MODEL_BY_KEY = new Map(AI_MODELS.map((model) => [model.key, model]));
+const DEFAULT_MODEL_KEY = 'chatgpt';
 
 const aiClient = new OpenAI({
   baseURL: NVIDIA_API_BASE,
@@ -553,6 +593,17 @@ function stripThinkBlocks(text) {
 }
 
 /**
+ * Extract all <think>...</think> blocks from text.
+ * @param {string} text
+ * @returns {string}
+ */
+function extractThinkBlocks(text) {
+  if (typeof text !== 'string') return '';
+  const matches = [...text.matchAll(/<think>([\s\S]*?)<\/think>/gi)];
+  return matches.map((match) => String(match[1] ?? '').trim()).filter(Boolean).join('\n\n').trim();
+}
+
+/**
  * Remove fenced/inline markdown code formatting.
  * @param {string} text
  * @returns {string}
@@ -651,6 +702,88 @@ function normalizeToolCalls(toolCalls) {
 function isAiAllowedUser(userId) {
   const id = String(userId);
   return isDevUser(id) || AI_HARDCODED_ALLOW_IDS.has(id);
+}
+
+/**
+ * Determine if a member has the AI access role.
+ * @param {import('discord.js').GuildMember|import('discord.js').APIInteractionGuildMember|null|undefined} member
+ * @returns {boolean}
+ */
+function hasAiAccessRole(member) {
+  const roleCache = member?.roles?.cache;
+  if (!roleCache) return false;
+  return roleCache.has(AI_ACCESS_ROLE_ID);
+}
+
+/**
+ * Determine if user/member can access /ai.
+ * @param {string} userId
+ * @param {import('discord.js').GuildMember|import('discord.js').APIInteractionGuildMember|null|undefined} [member]
+ * @returns {boolean}
+ */
+function canUseAiCommand(userId, member) {
+  return isAiAllowedUser(userId) || hasAiAccessRole(member);
+}
+
+/**
+ * Get the selected AI model config, falling back to default.
+ * @param {string} modelKey
+ * @returns {typeof AI_MODELS[number]}
+ */
+function getModelConfig(modelKey) {
+  return AI_MODEL_BY_KEY.get(String(modelKey ?? '')) ?? AI_MODEL_BY_KEY.get(DEFAULT_MODEL_KEY);
+}
+
+/**
+ * Get persisted AI settings for a user.
+ * @param {string} userId
+ * @returns {{modelKey:string,showThinking:boolean}}
+ */
+function getUserAiSettings(userId) {
+  const id = String(userId);
+  const current = AI_USER_SETTINGS.get(id);
+  if (current) {
+    return {
+      modelKey: getModelConfig(current.modelKey).key,
+      showThinking: Boolean(current.showThinking),
+    };
+  }
+  return { modelKey: DEFAULT_MODEL_KEY, showThinking: false };
+}
+
+/**
+ * Persist AI settings for a user.
+ * @param {string} userId
+ * @param {{modelKey:string,showThinking:boolean}} settings
+ */
+function setUserAiSettings(userId, settings) {
+  const id = String(userId);
+  AI_USER_SETTINGS.set(id, {
+    modelKey: getModelConfig(settings?.modelKey).key,
+    showThinking: Boolean(settings?.showThinking),
+  });
+}
+
+/**
+ * Extract assistant reasoning/thinking text from response payload.
+ * @param {object} assistantMessage
+ * @returns {string}
+ */
+function collectThinkingText(assistantMessage) {
+  if (!assistantMessage || typeof assistantMessage !== 'object') return '';
+  const parts = [];
+  const reasoning = assistantMessage.reasoning_content ?? assistantMessage.reasoning;
+  if (typeof reasoning === 'string' && reasoning.trim()) {
+    parts.push(reasoning.trim());
+  } else if (Array.isArray(reasoning)) {
+    for (const piece of reasoning) {
+      const text = typeof piece === 'string' ? piece : piece?.text;
+      if (typeof text === 'string' && text.trim()) parts.push(text.trim());
+    }
+  }
+  const thinkFromContent = extractThinkBlocks(assistantMessage.content ?? '');
+  if (thinkFromContent) parts.push(thinkFromContent);
+  return parts.join('\n\n').trim();
 }
 
 /**
@@ -1032,20 +1165,27 @@ async function executeTool(toolName, args, interaction) {
 /**
  * Call the NVIDIA Build API with the current message history.
  * @param {object[]} messages
+ * @param {{modelKey:string,showThinking:boolean}} settings
  * @returns {Promise<object>}
  */
-async function callNvidiaApi(messages) {
+async function callNvidiaApi(messages, settings) {
+  const modelConfig = getModelConfig(settings?.modelKey);
+  const extraBody = modelConfig.key === 'zai'
+    ? { chat_template_kwargs: { enable_thinking: true, clear_thinking: !settings?.showThinking } }
+    : undefined;
   try {
-    return await aiClient.chat.completions.create({
-      model: MODEL,
+    const payload = {
+      model: modelConfig.model,
       messages,
       tools: TOOL_SCHEMAS,
       tool_choice: 'auto',
-      max_tokens: MAX_TOKENS,
-      temperature: TEMPERATURE,
-      top_p: TOP_P,
+      max_tokens: modelConfig.maxTokens,
+      temperature: modelConfig.temperature,
+      top_p: modelConfig.topP,
       stream: false,
-    });
+    };
+    if (extraBody) payload.extra_body = extraBody;
+    return await aiClient.chat.completions.create(payload);
   } catch (error) {
     const status = error?.status ?? error?.code ?? undefined;
     const apiBody = error?.error ? JSON.stringify(error.error) : '';
@@ -1108,7 +1248,7 @@ async function awaitConfirmation(interaction, replyMsg, toolName, args) {
     const btn = await replyMsg.awaitMessageComponent({
       filter: (i) =>
         (i.customId === 'ai_dangerous_confirm' || i.customId === 'ai_dangerous_cancel') &&
-        isAiAllowedUser(i.user.id),
+        i.user.id === interaction.user.id,
       time: CONFIRMATION_TIMEOUT_MS,
     });
     await btn.deferUpdate();
@@ -1251,11 +1391,19 @@ function parseAiOutput(rawContent) {
 /**
  * Build paginated output embeds and AI-defined interactive rows.
  * @param {string} rawContent
+ * @param {{showThinking?:boolean,thinkingText?:string}} [options]
  * @returns {{outputEmbeds:EmbedBuilder[],linkButtons:Array,uiRows:Array<ActionRowBuilder>,uiState:object}}
  */
-function buildFinalOutput(rawContent) {
+function buildFinalOutput(rawContent, options = {}) {
   const parsed = parseAiOutput(rawContent);
-  const chunks = chunkText(parsed.description, DESC_MAX);
+  let description = parsed.description;
+  if (options.showThinking && options.thinkingText) {
+    const thinkingText = String(options.thinkingText).trim();
+    if (thinkingText) {
+      description = `### Thinking\n${thinkingText}\n\n${parsed.description}`;
+    }
+  }
+  const chunks = chunkText(description, DESC_MAX);
   const outputEmbeds = chunks.map((chunk, index) => {
     const embed = new EmbedBuilder()
       .setColor(parsed.color)
@@ -1383,9 +1531,11 @@ function buildFinalOutput(rawContent) {
  * Build review/details embed.
  * @param {{ttftMs:number|null,totalMs:number,iterations:number,promptTokens:number|null,completionTokens:number|null}} stats
  * @param {Array} toolsUsed
+ * @param {{modelKey:string,showThinking:boolean}} settings
  * @returns {EmbedBuilder}
  */
-function buildReviewEmbed(stats, toolsUsed) {
+function buildReviewEmbed(stats, toolsUsed, settings) {
+  const modelConfig = getModelConfig(settings?.modelKey);
   const toolLines = toolsUsed.length
     ? toolsUsed.map((t) => {
       const argStr = formatToolArgs(t.args);
@@ -1402,7 +1552,9 @@ function buildReviewEmbed(stats, toolsUsed) {
     .setDescription('Diagnostics for this AI response.')
     .addFields(
       { name: 'Assistant', value: AI_MODEL_LABEL, inline: false },
-      { name: 'Runtime Model', value: MODEL, inline: false },
+      { name: 'Runtime Model', value: modelConfig.model, inline: false },
+      { name: 'Model Preset', value: modelConfig.label, inline: true },
+      { name: 'Thinking Output', value: settings?.showThinking ? 'Enabled' : 'Disabled', inline: true },
       { name: 'TTFT', value: stats.ttftMs != null ? `${stats.ttftMs} ms` : 'N/A', inline: true },
       { name: 'Total Time', value: `${stats.totalMs} ms`, inline: true },
       { name: 'Iterations', value: String(stats.iterations), inline: true },
@@ -1435,6 +1587,50 @@ function getActiveTurn(session) {
 }
 
 /**
+ * Build the persistent model selector row.
+ * @param {string} selectedModelKey
+ * @returns {ActionRowBuilder}
+ */
+function buildModelSelectRow(selectedModelKey) {
+  const selectedConfig = getModelConfig(selectedModelKey);
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(AI_MODEL_SELECT_ID)
+    .setPlaceholder(`Model: ${selectedConfig.label}`)
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(
+      AI_MODELS.map((model) => ({
+        label: model.label,
+        value: model.key,
+        description: truncate(model.description, 100),
+        emoji: { id: model.emojiId },
+        default: model.key === selectedConfig.key,
+      })),
+    );
+  return new ActionRowBuilder().addComponents(menu);
+}
+
+/**
+ * Re-render stored turns based on current thinking toggle setting.
+ * @param {object} session
+ */
+function rerenderTurnsForThinking(session) {
+  if (!Array.isArray(session.turns)) return;
+  for (const turn of session.turns) {
+    if (typeof turn.rawContent !== 'string') continue;
+    const rendered = buildFinalOutput(turn.rawContent, {
+      showThinking: session.showThinking,
+      thinkingText: turn.thinkingText,
+    });
+    turn.outputEmbeds = rendered.outputEmbeds;
+    turn.linkButtons = rendered.linkButtons;
+    turn.uiRows = rendered.uiRows;
+    turn.uiState = rendered.uiState;
+    turn.pageIndex = Math.min(turn.pageIndex ?? 0, Math.max(0, rendered.outputEmbeds.length - 1));
+  }
+}
+
+/**
  * Build interactive components for output/review pages.
  * @param {object} session
  * @returns {ActionRowBuilder[]}
@@ -1457,6 +1653,10 @@ function buildFinalComponents(session) {
       .setCustomId(AI_CONTINUE_BUTTON_ID)
       .setStyle(ButtonStyle.Primary)
       .setLabel('Continue'),
+    new ButtonBuilder()
+      .setCustomId(AI_TOGGLE_THINKING_BUTTON_ID)
+      .setStyle(ButtonStyle.Secondary)
+      .setLabel(session.showThinking ? 'Hide Thinking' : 'Show Thinking'),
   );
 
   if (turnCount > 1) {
@@ -1492,6 +1692,10 @@ function buildFinalComponents(session) {
     );
   }
 
+  if (mode === 'review' && rows.length < 5) {
+    rows.push(buildModelSelectRow(session.modelKey));
+  }
+
   if (mode === 'output' && Array.isArray(turn.uiRows)) {
     for (const row of turn.uiRows) {
       if (rows.length >= 5) break;
@@ -1523,9 +1727,10 @@ function buildFinalComponents(session) {
  * @param {import('discord.js').Message} replyMsg
  * @param {Array<object>} messages
  * @param {Array<object>} toolsUsed
- * @returns {Promise<{outputEmbeds:EmbedBuilder[],reviewEmbed:EmbedBuilder,linkButtons:Array,uiRows:Array<ActionRowBuilder>,uiState:object}>}
+ * @param {{modelKey:string,showThinking:boolean}} settings
+ * @returns {Promise<{outputEmbeds:EmbedBuilder[],reviewEmbed:EmbedBuilder,linkButtons:Array,uiRows:Array<ActionRowBuilder>,uiState:object,rawContent:string,thinkingText:string}>}
  */
-async function runAiTurn(interaction, replyMsg, messages, toolsUsed) {
+async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
   const requestStartMs = Date.now();
   let ttftMs = null;
   let promptTokens = null;
@@ -1544,7 +1749,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed) {
     let apiData;
     const iterationStartMs = Date.now();
     try {
-      apiData = await callNvidiaApi(messages);
+      apiData = await callNvidiaApi(messages, settings);
     } catch (err) {
       throw err;
     }
@@ -1569,7 +1774,11 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed) {
     const iterationCount = iteration + 1;
     if (!toolCalls || toolCalls.length === 0) {
       const content = assistantMessage.content ?? '';
-      const { outputEmbeds, linkButtons, uiRows, uiState } = buildFinalOutput(content);
+      const thinkingText = collectThinkingText(assistantMessage);
+      const { outputEmbeds, linkButtons, uiRows, uiState } = buildFinalOutput(content, {
+        showThinking: settings?.showThinking,
+        thinkingText,
+      });
       const reviewEmbed = buildReviewEmbed(
         {
           ttftMs,
@@ -1579,8 +1788,9 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed) {
           completionTokens,
         },
         toolsUsed,
+        settings,
       );
-      return { outputEmbeds, reviewEmbed, linkButtons, uiRows, uiState };
+      return { outputEmbeds, reviewEmbed, linkButtons, uiRows, uiState, rawContent: content, thinkingText };
     }
 
     for (const toolCall of toolCalls) {
@@ -1637,9 +1847,8 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed) {
     }
   }
 
-  const { outputEmbeds, linkButtons, uiRows, uiState } = buildFinalOutput(
-    JSON.stringify({ description: 'Maximum tool-call iterations reached. The AI could not produce a final response.' }),
-  );
+  const fallbackRawContent = JSON.stringify({ description: 'Maximum tool-call iterations reached. The AI could not produce a final response.' });
+  const { outputEmbeds, linkButtons, uiRows, uiState } = buildFinalOutput(fallbackRawContent);
   const reviewEmbed = buildReviewEmbed(
     {
       ttftMs,
@@ -1649,8 +1858,9 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed) {
       completionTokens,
     },
     toolsUsed,
+    settings,
   );
-  return { outputEmbeds, reviewEmbed, linkButtons, uiRows, uiState };
+  return { outputEmbeds, reviewEmbed, linkButtons, uiRows, uiState, rawContent: fallbackRawContent, thinkingText: '' };
 }
 
 /**
@@ -1716,6 +1926,24 @@ function attachReviewHandler(replyMsg, interaction, session) {
       await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
       return;
     }
+    if (i.customId === AI_TOGGLE_THINKING_BUTTON_ID) {
+      session.showThinking = !session.showThinking;
+      setUserAiSettings(session.allowedUserId, { modelKey: session.modelKey, showThinking: session.showThinking });
+      rerenderTurnsForThinking(session);
+      await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
+      return;
+    }
+    if (i.customId === AI_MODEL_SELECT_ID) {
+      const selectedModel = getModelConfig(i.values?.[0]).key;
+      session.modelKey = selectedModel;
+      setUserAiSettings(session.allowedUserId, { modelKey: session.modelKey, showThinking: session.showThinking });
+      await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
+      await i.followUp({
+        content: `Model updated to **${getModelConfig(session.modelKey).label}**. This selection is saved for your next /ai uses.`,
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => null);
+      return;
+    }
 
     if (i.customId === AI_CONTINUE_BUTTON_ID) {
       const modal = new ModalBuilder()
@@ -1755,13 +1983,18 @@ function attachReviewHandler(replyMsg, interaction, session) {
       await replyMsg.edit({ embeds: [buildProcessingEmbed('Sending follow-up prompt to AI…')], components: [] }).catch(() => null);
 
       try {
-        const result = await runAiTurn(interaction, replyMsg, session.messages, session.toolsUsed);
+        const result = await runAiTurn(interaction, replyMsg, session.messages, session.toolsUsed, {
+          modelKey: session.modelKey,
+          showThinking: session.showThinking,
+        });
         session.turns.push({
           outputEmbeds: result.outputEmbeds,
           reviewEmbed: result.reviewEmbed,
           linkButtons: result.linkButtons,
           uiRows: result.uiRows,
           uiState: result.uiState,
+          rawContent: result.rawContent,
+          thinkingText: result.thinkingText,
           pageIndex: 0,
           viewMode: 'output',
         });
@@ -1807,13 +2040,18 @@ function attachReviewHandler(replyMsg, interaction, session) {
         components: [],
       }).catch(() => null);
       try {
-        const result = await runAiTurn(interaction, replyMsg, session.messages, session.toolsUsed);
+        const result = await runAiTurn(interaction, replyMsg, session.messages, session.toolsUsed, {
+          modelKey: session.modelKey,
+          showThinking: session.showThinking,
+        });
         session.turns.push({
           outputEmbeds: result.outputEmbeds,
           reviewEmbed: result.reviewEmbed,
           linkButtons: result.linkButtons,
           uiRows: result.uiRows,
           uiState: result.uiState,
+          rawContent: result.rawContent,
+          thinkingText: result.thinkingText,
           pageIndex: 0,
           viewMode: 'output',
         });
@@ -1924,13 +2162,13 @@ module.exports = {
 
   async execute(interaction) {
     // ── Auth check ────────────────────────────────────────────────────────────
-    if (!isAiAllowedUser(interaction.user.id)) {
+    if (!canUseAiCommand(interaction.user.id, interaction.member)) {
       return interaction.reply({
         embeds: [
           new EmbedBuilder()
             .setColor(0xed4245)
             .setTitle('Access Denied')
-            .setDescription('This command is restricted to the bot developer.')
+            .setDescription('You need developer access or the AI access role to use this command.')
             .setTimestamp(),
         ],
         flags: MessageFlags.Ephemeral,
@@ -1960,10 +2198,11 @@ module.exports = {
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: prompt },
     ];
+    const userSettings = getUserAiSettings(interaction.user.id);
     const toolsUsed = [];
     let result;
     try {
-      result = await runAiTurn(interaction, replyMsg, messages, toolsUsed);
+      result = await runAiTurn(interaction, replyMsg, messages, toolsUsed, userSettings);
     } catch (err) {
       return interaction.editReply({
         embeds: [buildErrorEmbed(err.message, err.status)],
@@ -1975,12 +2214,16 @@ module.exports = {
       allowedUserId: interaction.user.id,
       messages,
       toolsUsed,
+      modelKey: userSettings.modelKey,
+      showThinking: userSettings.showThinking,
       turns: [{
         outputEmbeds: result.outputEmbeds,
         reviewEmbed: result.reviewEmbed,
         linkButtons: result.linkButtons,
         uiRows: result.uiRows,
         uiState: result.uiState,
+        rawContent: result.rawContent,
+        thinkingText: result.thinkingText,
         pageIndex: 0,
         viewMode: 'output',
       }],
