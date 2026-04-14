@@ -31,6 +31,8 @@ const MODAL_SUBMIT_TIMEOUT_MS = 120_000;
 const DESC_MAX = 4096;
 const FIELD_VALUE_MAX = 1024;
 const FIELDS_MAX = 25;
+const FOOTER_MAX = 2048;
+const SELECT_OPTION_MAX = 100;
 const MAX_LINK_BUTTONS = 10;
 const NO_RESPONSE_TEXT = '*(No response)*';
 const THINKING_SECTION_HEADING = '### Thinking';
@@ -52,6 +54,7 @@ const AI_UI_BUTTON_PREFIX = 'ai_ui_button:';
 const AI_UI_SELECT_PREFIX = 'ai_ui_select:';
 const AI_UI_MODAL_PREFIX = 'ai_ui_modal:';
 const AI_MODEL_LABEL = 'Valley AI';
+const AI_MODEL_LABEL_LOWER = AI_MODEL_LABEL.toLowerCase();
 const AI_SESSIONS = new Map();
 const AI_USER_SETTINGS = new Map();
 const MAX_CUSTOM_ID_BASE_LENGTH = 48; // keeps prefixed custom IDs within Discord's 100-char limit
@@ -133,18 +136,37 @@ Guidelines:
   "modal_buttons": [{ "id": "modal_key", "button_label": "Open form", "button_style": "primary|secondary|success|danger", "title": "Modal title", "submit_message": "Optional short confirmation text or null", "fields": [{ "id": "field_key", "label": "Field label", "style": "short|paragraph", "placeholder": "Optional placeholder", "required": true, "min_length": 0, "max_length": 4000, "value": "Optional default value" }] }]
 }
 
-- Use fields for structured/tabular data.
-- Use color for thematic tone: red (#ed4245) = error/danger, green (#57f287) = success, blue (#5865f2) = info, yellow (#fee75c) = warning, null = default grey.
-- Markdown works in description and field values.
-- description max 4096 chars, field values max 1024 chars, max 25 fields.
-- If useful, include 0-10 link_buttons using valid https/http URLs.
-- You may include interactive buttons/select menus/modal buttons to collect input from the user when helpful.
-- Respect Discord limits: max 5 action rows, max 5 buttons per row, max 25 select options, max 5 modal fields.
-- Prefer select_menus when asking the user to choose from a finite set of options.
-- Select-menu interactions are sent back immediately as user context, and they automatically trigger your next response turn.
-- Button/modal interactions are stored as context only; they are processed after the user clicks "Continue".
-- If output is paginated, image_url is shown on the first page.
-- Keep responses concise and useful.`;
+- Do NOT set title to "Valley AI" or your own name. The author_name field already shows identity; title is only for contextual headings (e.g., "Server Overview", "Search Results", "Role List"), or null when no heading is needed.
+- author_name defaults to "Valley AI" when null; rarely set it explicitly.
+- When reasoning through a problem, include your reasoning in description using Discord blockquotes before the main response, then one blank line:
+  > Thinking line 1
+  > Thinking line 2
+
+  Actual response starts here.
+- Use color consistently: red (#ed4245) for errors/danger/destructive results, green (#57f287) for success, blue (#5865f2) for informational/neutral, yellow (#fee75c) for warnings, null for default grey.
+- Text limits: description <= 4096, field.name <= 256, field.value <= 1024, max 25 fields, footer <= 2048.
+- Use Discord markdown in description and field values (**bold**, *italic*, \`code\`, \\n for line breaks).
+- Use fields for structured/tabular data and set inline true/false intentionally; do not duplicate the same list both as fields and bullets in description.
+- Format Discord entities as mentions when relevant: <@user_id>, <#channel_id>, <@&role_id>.
+- Keep responses concise without filler.
+
+Tool Usage:
+- If the answer is known, answer directly without tools.
+- If using tools, wait for tool results before responding and never guess tool output.
+- If a tool errors, report it clearly and do not retry with identical args.
+- You may call multiple tools in one turn when needed; synthesize results into one cohesive response and note discrepancies if results conflict.
+- Use search_web only for current/web lookup requests or information you cannot answer from memory.
+
+Interactive Components:
+- Only add components when they provide clear interaction value (not decoration).
+- Prefer select_menus for choosing from 3+ defined options.
+- Select menus trigger immediately and start a new turn; button/modal interactions are stored context processed after Continue.
+- Select menu rules: every option must have non-empty string label and value, values must be unique (use snake_case), include clear placeholder text, min/max values must be valid, max 25 options.
+- Button rules: unique descriptive snake_case id (max 48 chars), use style intentionally (primary/success/danger/secondary), ack_message optional.
+- Modal button rules: use for freeform input; max 5 fields, each with unique snake_case id and valid short/paragraph style.
+- Link buttons are for external URLs only and must use valid http/https URLs.
+- Respect Discord component limits: max 5 action rows total, max 5 buttons per row, max 5 modal fields.
+- If output is paginated, image_url is shown on the first page.`;
 
 // ── Dangerous tools ──────────────────────────────────────────────────────────────
 const DANGEROUS_TOOLS = new Set([
@@ -1350,8 +1372,11 @@ function parseAiOutput(rawContent) {
 
   const color = hexToInt(data.color);
   const authorName = stripCodeMarkup(stripThinkBlocks(String(data.author_name ?? AI_MODEL_LABEL)));
-  const footerText = data.footer ? stripCodeMarkup(stripThinkBlocks(String(data.footer))) : null;
-  const title = data.title ? truncate(stripCodeMarkup(stripThinkBlocks(String(data.title))), 256) : null;
+  const footerText = data.footer ? truncate(stripCodeMarkup(stripThinkBlocks(String(data.footer))), FOOTER_MAX) : null;
+  const rawTitle = data.title ? truncate(stripCodeMarkup(stripThinkBlocks(String(data.title))), 256) : null;
+  const normalizedTitle = rawTitle ? rawTitle.trim().toLowerCase() : '';
+  const normalizedAuthorName = authorName.trim().toLowerCase();
+  const title = normalizedTitle && normalizedTitle !== AI_MODEL_LABEL_LOWER && normalizedTitle !== normalizedAuthorName ? rawTitle : null;
   const description = stripCodeMarkup(stripThinkBlocks(String(data.description ?? NO_RESPONSE_TEXT)));
   const fields = [];
   if (Array.isArray(data.fields)) {
@@ -1466,11 +1491,17 @@ function buildFinalOutput(rawContent, options = {}) {
     if (!Array.isArray(menu?.options) || menu.options.length === 0) continue;
     const customId = `${AI_UI_SELECT_PREFIX}${sanitizeId(menu.id, `menu_${i + 1}`)}`;
     const options = [];
+    const seenValues = new Set();
     for (const option of menu.options.slice(0, 25)) {
       if (!option?.label || !option?.value) continue;
+      const value = truncate(String(option.value).trim(), SELECT_OPTION_MAX);
+      if (!value || seenValues.has(value)) continue;
+      seenValues.add(value);
+      const label = truncate(stripCodeMarkup(String(option.label).trim()), SELECT_OPTION_MAX);
+      if (!label) continue;
       options.push({
-        label: truncate(stripCodeMarkup(String(option.label)), 100),
-        value: truncate(String(option.value), 100),
+        label,
+        value,
         description: option.description ? truncate(stripCodeMarkup(String(option.description)), 100) : undefined,
         default: Boolean(option.default),
       });
