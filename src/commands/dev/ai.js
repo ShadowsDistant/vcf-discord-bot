@@ -959,6 +959,20 @@ function parseSafetyOutput(text) {
         parsed?.['Response Safety'] ?? parsed?.response_safety,
         'None',
       );
+      const parsedPromptReason = String(
+        parsed?.['Prompt Reason']
+        ?? parsed?.prompt_reason
+        ?? parsed?.['User Reason']
+        ?? parsed?.user_reason
+        ?? parsed?.reason
+        ?? parsed?.Reason
+        ?? '',
+      ).trim();
+      const parsedResponseReason = String(
+        parsed?.['Response Reason']
+        ?? parsed?.response_reason
+        ?? '',
+      ).trim();
       const hasResponseIssue = responseSafety === 'harmful' || responseSafety === 'unsafe';
       let responseRule = 'None';
       if (hasResponseIssue) {
@@ -967,11 +981,11 @@ function parseSafetyOutput(text) {
       return {
         promptHarm: userSafety,
         promptRule: userCategories,
-        promptReason: userCategories === 'None' ? 'No reason provided.' : `Categories: ${userCategories}`,
+        promptReason: parsedPromptReason || (userCategories === 'None' ? 'No reason provided.' : `Categories: ${userCategories}`),
         promptSeverity: 'none',
         responseHarm: responseSafety,
         responseRule,
-        responseReason: responseRule === 'None' ? 'None' : `Categories: ${responseRule}`,
+        responseReason: parsedResponseReason || (responseRule === 'None' ? 'None' : `Categories: ${responseRule}`),
         responseSeverity: 'none',
       };
     } catch {
@@ -1025,12 +1039,15 @@ function sanitizeSafetyText(value, maxLen = 120) {
  */
 function buildSafetyBlockedRawContent(safety, phase) {
   const isPromptBlock = phase === 'prompt';
+  const blockReason = isPromptBlock
+    ? sanitizeSafetyText(safety.promptReason, FIELD_VALUE_MAX)
+    : sanitizeSafetyText(safety.responseReason, FIELD_VALUE_MAX);
   return JSON.stringify({
     title: 'Safety Filter Blocked',
     color: '#ed4245',
     description: isPromptBlock
-      ? 'Your prompt was blocked by the safety filter and was not sent to the AI model.'
-      : 'The AI response was blocked by the safety filter before it could be shown.',
+      ? `Your prompt was blocked by the safety filter and was not sent to the AI model.\n\nReason: ${blockReason}`
+      : `The AI response was blocked by the safety filter before it could be shown.\n\nReason: ${blockReason}`,
     fields: [
       {
         name: 'Prompt Harm',
@@ -2702,7 +2719,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
         const blockedRawContent = buildSafetyBlockedRawContent(responseSafety, 'response');
         messages.push({
           role: 'assistant',
-          content: `Safety filter blocked a prior assistant response (rule: ${sanitizeSafetyText(responseSafety.responseRule, 80)}, severity: ${sanitizeSafetyText(responseSafety.responseSeverity, 20)}).`,
+          content: `Safety filter blocked a prior assistant response (rule: ${sanitizeSafetyText(responseSafety.responseRule, 80)}, severity: ${sanitizeSafetyText(responseSafety.responseSeverity, 20)}, reason: ${sanitizeSafetyText(responseSafety.responseReason, 120)}).`,
         });
         const { outputEmbeds, linkButtons, uiRows, uiState } = buildFinalOutput(blockedRawContent);
         const reviewEmbed = buildReviewEmbed(

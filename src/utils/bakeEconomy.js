@@ -1337,8 +1337,17 @@ function inferVcfProfileTagStatus(memberLike, userLike = null) {
     memberLike?.user?.primaryGuild?.identityGuildId
     ?? memberLike?.primaryGuild?.identityGuildId
     ?? userLike?.primaryGuild?.identityGuildId
+    ?? memberLike?.user?.primary_guild?.identity_guild_id
+    ?? memberLike?.primary_guild?.identity_guild_id
+    ?? userLike?.primary_guild?.identity_guild_id
+    ?? memberLike?.user?._data?.primaryGuild?.identityGuildId
+    ?? memberLike?._data?.primaryGuild?.identityGuildId
+    ?? userLike?._data?.primaryGuild?.identityGuildId
+    ?? memberLike?.user?._data?.primary_guild?.identity_guild_id
+    ?? memberLike?._data?.primary_guild?.identity_guild_id
+    ?? userLike?._data?.primary_guild?.identity_guild_id
     ?? '',
-  );
+  ).trim();
   if (identityGuildId === VCF_PROFILE_IDENTITY_GUILD_ID) return true;
 
   return hasVcfProfileTag(
@@ -1691,8 +1700,35 @@ function buildCpsBreakdownEmbed(guild, user) {
     embed.addFields({ name: '🐱 Kitten Bonus', value: `+${(kittenBonus * 100).toFixed(1)}%`, inline: true });
   }
   if (consumedBonus > 0) {
-    const boostList = activeBoosts.map((b) => `+${toCookieNumber(b.cpsBonus)} (expires <t:${Math.floor(b.expiresAt / 1000)}:R>)`).join('\n');
+    const boostList = activeBoosts
+      .map((b) => {
+        const source = String(b.source ?? b.itemName ?? b.itemId ?? 'Consumed item').trim() || 'Consumed item';
+        return `• ${source}: +${toCookieNumber(b.cpsBonus)} CPS (expires <t:${Math.floor(b.expiresAt / 1000)}:R>)`;
+      })
+      .join('\n');
     embed.addFields({ name: '⚡ Active Boosts', value: boostList.slice(0, 512) });
+  }
+  const activeMultiplierLines = [];
+  if (frenzy) {
+    activeMultiplierLines.push(`• Frenzy buff: ×${frenzyMultiplier} (expires <t:${Math.floor(frenzy.expiresAt / 1000)}:R>)`);
+  }
+  if (rankBoost > 0) {
+    activeMultiplierLines.push(`• Alliance rank boost: +${(rankBoost * 100).toFixed(0)}%`);
+  }
+  if (upgradeBoost > 0) {
+    activeMultiplierLines.push(`• Alliance upgrade boost: +${(upgradeBoost * 100).toFixed(0)}%`);
+  }
+  if (boosterAllianceBoost > 0) {
+    activeMultiplierLines.push(`• Alliance booster members (${boosterCount}): +${(boosterAllianceBoost * 100).toFixed(0)}%`);
+  }
+  if (boosterBoost > 0) {
+    activeMultiplierLines.push(`• Personal server booster role: +${(boosterBoost * 100).toFixed(0)}%`);
+  }
+  if (vcfTagBoost > 0) {
+    activeMultiplierLines.push(`• VCF profile boost (identity guild/tag): +${(vcfTagBoost * 100).toFixed(0)}%`);
+  }
+  if (activeMultiplierLines.length) {
+    embed.addFields({ name: '🧠 Active Multipliers & Sources', value: activeMultiplierLines.join('\n').slice(0, 1024), inline: false });
   }
   const bonusSourceLines = [];
   if (consumedBonus > 0) bonusSourceLines.push(`Flat boosts: +${toCookieNumber(consumedBonus)} CPS`);
@@ -2673,7 +2709,13 @@ function consumeInventoryItem(guildId, userId, itemId) {
   user.inventory[itemId] -= 1;
   if (user.inventory[itemId] <= 0) delete user.inventory[itemId];
   const cpsBonus = (item.baseValue * RARITY[item.rarity].valueMultiplier) * 0.01;
-  user.consumedBoosts.push({ cpsBonus, expiresAt: Date.now() + (5 * 60 * 1000) });
+  user.consumedBoosts.push({
+    cpsBonus,
+    expiresAt: Date.now() + (5 * 60 * 1000),
+    source: item.name,
+    itemId: item.id,
+    itemName: item.name,
+  });
   writeState(data);
   return { ok: true, item, cpsBonus };
 }
