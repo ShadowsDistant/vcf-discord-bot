@@ -30,7 +30,6 @@ const BURNT_BAKE_CHANCE = 0.08;
 const BUILDING_SELL_REFUND_RATE = 0.5;
 const BUILDING_COST_GROWTH = 1.18;
 const VCF_PROFILE_TAG_CPS_BOOST = 0.05;
-const VCF_PROFILE_TAG_MANUAL_CLICK_BONUS = 5;
 const VCF_PROFILE_TAG_REGEX = /(^|[^a-z0-9])vcf([^a-z0-9]|$)/i;
 const VCF_PROFILE_IDENTITY_GUILD_ID = '1345804368263385170';
 const MAX_DISPLAYED_GIFT_BOXES = 6;
@@ -395,7 +394,7 @@ const RANKS = [
     name: 'Dough Scout',
     fallbackEmoji: '🥈',
     emojiAliases: ['dough_scout', 'rank_dough_scout', 'cc_rank_dough_scout', 'CookieProduction5'],
-    requirements: { totalBakes: 100, achievements: 1 },
+    requirements: { totalBakes: 75, achievements: 1 },
     rewards: { cookies: 5000 },
   },
   {
@@ -403,7 +402,7 @@ const RANKS = [
     name: 'Oven Knight',
     fallbackEmoji: '🥇',
     emojiAliases: ['oven_knight', 'rank_oven_knight', 'cc_rank_oven_knight', 'CookieProduction10'],
-    requirements: { totalBakes: 500, achievements: 5, totalBuildings: 10 },
+    requirements: { totalBakes: 350, achievements: 5, totalBuildings: 10 },
     rewards: { cookies: 50000, forceGoldenCookie: true },
   },
   {
@@ -411,7 +410,7 @@ const RANKS = [
     name: 'Crumb Commander',
     fallbackEmoji: '🏅',
     emojiAliases: ['crumb_commander', 'rank_crumb_commander', 'cc_rank_crumb_commander', 'CookieProduction16'],
-    requirements: { totalBakes: 2500, achievements: 10, totalBuildings: 30 },
+    requirements: { totalBakes: 1500, achievements: 10, totalBuildings: 30 },
     rewards: { cookies: 250000, clickFrenzyCharges: 3 },
   },
   {
@@ -419,7 +418,7 @@ const RANKS = [
     name: 'Sugar Overlord',
     fallbackEmoji: '👑',
     emojiAliases: ['sugar_overlord', 'rank_sugar_overlord', 'cc_rank_sugar_overlord', 'CookieProduction20'],
-    requirements: { totalBakes: 10000, achievements: 18, totalBuildings: 100 },
+    requirements: { totalBakes: 6000, achievements: 18, totalBuildings: 100 },
     rewards: { cookies: 1500000, forceGoldenCookie: true },
   },
   {
@@ -427,7 +426,7 @@ const RANKS = [
     name: 'Cosmic Baker',
     fallbackEmoji: '🌌',
     emojiAliases: ['cosmic_baker', 'rank_cosmic_baker', 'cc_rank_cosmic_baker', 'CookieProduction30'],
-    requirements: { totalBakes: 50000, achievements: 28, totalBuildings: 250 },
+    requirements: { totalBakes: 30000, achievements: 28, totalBuildings: 250 },
     rewards: { cookies: 10000000, unlockTier: 'mythic' },
   },
   {
@@ -435,7 +434,7 @@ const RANKS = [
     name: 'Stellar Confectioner',
     fallbackEmoji: '🌠',
     emojiAliases: ['stellar_confectioner', 'rank_stellar_confectioner', 'cc_rank_stellar_confectioner', 'CookieProduction40'],
-    requirements: { totalBakes: 125000, achievements: 34, totalBuildings: 400, cookiesBakedAllTime: 100000000 },
+    requirements: { totalBakes: 80000, achievements: 34, totalBuildings: 400, cookiesBakedAllTime: 100000000 },
     rewards: { cookies: 50000000, forceGoldenCookie: true },
   },
   {
@@ -443,7 +442,7 @@ const RANKS = [
     name: 'Galactic Patissier',
     fallbackEmoji: '🪐',
     emojiAliases: ['galactic_patissier', 'rank_galactic_patissier', 'cc_rank_galactic_patissier', 'CookieProduction48'],
-    requirements: { totalBakes: 300000, achievements: 40, totalBuildings: 700, cookiesBakedAllTime: 1000000000 },
+    requirements: { totalBakes: 180000, achievements: 40, totalBuildings: 700, cookiesBakedAllTime: 1000000000 },
     rewards: { cookies: 250000000, clickFrenzyCharges: 6, unlockTier: 'celestial' },
   },
   {
@@ -451,7 +450,7 @@ const RANKS = [
     name: 'Void Oven Archon',
     fallbackEmoji: '🕳️',
     emojiAliases: ['void_oven_archon', 'rank_void_oven_archon', 'cc_rank_void_oven_archon', 'Magnum_Opus'],
-    requirements: { totalBakes: 750000, achievements: 45, totalBuildings: 1200, cookiesBakedAllTime: 10000000000 },
+    requirements: { totalBakes: 400000, achievements: 45, totalBuildings: 1200, cookiesBakedAllTime: 10000000000 },
     rewards: { cookies: 1000000000, forceGoldenCookie: true, clickFrenzyCharges: 10 },
   },
 ];
@@ -1529,7 +1528,6 @@ function getManualBakeYield(user, nowTs = Date.now()) {
   let base = 1;
   if (hasUpgrade(user, 'fingers_crossed')) base += 1;
   if (hasUpgrade(user, 'ladyfingers')) base += 3;
-  if (user.hasVcfProfileTag) base += VCF_PROFILE_TAG_MANUAL_CLICK_BONUS;
   if (hasUpgrade(user, 'ritual_rolling_pins')) base += Math.floor(computeCps(user, nowTs) * 0.005);
   if (user.clickFrenzyCharges > 0 && user.clickFrenzyExpiresAt > nowTs) {
     user.clickFrenzyCharges -= 1;

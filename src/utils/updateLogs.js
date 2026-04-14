@@ -5,6 +5,17 @@ const { PALETTE } = require('./embeds');
 
 const UPDATE_LOGS = [
   {
+    version: 'v1.3.1',
+    date: '2026-04-14',
+    changes: [
+      'Removed AI assistant branding from `/ai` output defaults and command-facing wording.',
+      'Removed `/ai` component collector timeout so response buttons/select menus persist instead of expiring.',
+      'Rebalanced rank progression by lowering total-bakes requirements across rank tiers.',
+      'Removed the VCF tag +5 manual-bake bonus.',
+      'Adjusted alliance booster-member scaling to +1% CPS per booster member.',
+    ],
+  },
+  {
     version: 'v1.3.0',
     date: '2026-04-13',
     changes: [

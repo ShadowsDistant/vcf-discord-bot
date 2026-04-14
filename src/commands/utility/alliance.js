@@ -366,7 +366,7 @@ function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = 
   const boosterStats = data.allianceBoosterBoost ?? {
     boosterCount: 0,
     allianceWideBoost: 0,
-    perBoosterBoost: 0.02,
+    perBoosterBoost: 0.01,
     personalBoosterBoost: 0,
   };
   const boosterInfo = [

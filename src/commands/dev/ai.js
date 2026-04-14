@@ -105,8 +105,6 @@ const AI_CONTINUE_PROMPT_INPUT_ID = 'ai_continue_prompt';
 const AI_UI_BUTTON_PREFIX = 'ai_ui_button:';
 const AI_UI_SELECT_PREFIX = 'ai_ui_select:';
 const AI_UI_MODAL_PREFIX = 'ai_ui_modal:';
-const AI_MODEL_LABEL = 'AI Assistant';
-const AI_MODEL_LABEL_LOWER = AI_MODEL_LABEL.toLowerCase();
 const AI_SAFETY_TOGGLE_USER_ID = '757698506411475005';
 const AI_SESSIONS = new Map();
 const AI_USER_SETTINGS = new Map();
@@ -166,7 +164,7 @@ const aiClient = new OpenAI({
 });
 
 // ── System prompt ────────────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `You are Valley AI, created by shadowsdistant.
+const SYSTEM_PROMPT = `You are an assistant created by shadowsdistant.
 You are an assistant operating inside VCF (Valley Correctional Facility), a roleplay faction for the Roblox game Valley Prison.
 You may have access to Discord moderation and management tools depending on role-based permissions.
 
@@ -179,7 +177,7 @@ Guidelines:
 - ALWAYS respond with a valid JSON object matching this exact embed schema (no markdown fences, just raw JSON):
 
 {
-  "title": "Optional short contextual title string (never \"Valley AI\")",
+  "title": "Optional short contextual title string",
   "description": "Main response text (required)",
   "color": "#rrggbb or null",
   "fields": [{ "name": "Field Title", "value": "Content", "inline": true }],
@@ -196,8 +194,8 @@ Guidelines:
   "modal_buttons": [{ "id": "modal_key", "button_label": "Open form", "button_style": "primary|secondary|success|danger", "title": "Modal title", "submit_message": "Optional short confirmation text or null", "fields": [{ "id": "field_key", "label": "Field label", "style": "short|paragraph", "placeholder": "Optional placeholder", "required": true, "min_length": 0, "max_length": 4000, "value": "Optional default value" }] }]
 }
 
-- Do NOT set title to "Valley AI" or your own name. The author_name field already shows identity; title must always be a contextual heading (e.g., "Server Overview", "Search Results", "Role List").
-- author_name defaults to "Valley AI" when null; rarely set it explicitly.
+- Do NOT set title to your own name; title must always be a contextual heading (e.g., "Server Overview", "Search Results", "Role List").
+- Leave author_name null unless a specific author label is necessary.
 - When reasoning through a problem, include only important reasoning as Discord blockquotes before the main response, then one blank line (max 3 short lines):
   > Important thinking line 1
   > Important thinking line 2
@@ -2656,14 +2654,14 @@ function parseAiOutput(rawContent) {
   }
 
   const color = hexToInt(data.color);
-  const authorName = stripCodeMarkup(stripThinkBlocks(String(data.author_name ?? AI_MODEL_LABEL)));
+  const rawAuthorName = data.author_name == null ? '' : String(data.author_name);
+  const authorName = stripCodeMarkup(stripThinkBlocks(rawAuthorName)).trim();
   const footerText = data.footer ? truncate(stripCodeMarkup(stripThinkBlocks(String(data.footer))), FOOTER_MAX) : null;
   const rawTitle = data.title ? truncate(stripCodeMarkup(stripThinkBlocks(String(data.title))), 256) : null;
   const normalizedTitle = rawTitle ? rawTitle.trim().toLowerCase() : '';
-  const normalizedAuthorName = authorName.trim().toLowerCase();
+  const normalizedAuthorName = authorName.toLowerCase();
   const isTitleValid = Boolean(
     normalizedTitle
-    && normalizedTitle !== AI_MODEL_LABEL_LOWER
     && normalizedTitle !== normalizedAuthorName,
   );
   const title = isTitleValid ? rawTitle : null;
@@ -2731,7 +2729,9 @@ function buildFinalOutput(rawContent, options = {}) {
       .setDescription(chunk || NO_RESPONSE_TEXT)
       .setTimestamp();
     if (parsed.title) embed.setTitle(parsed.title);
-    embed.setAuthor({ name: parsed.authorName, iconURL: parsed.authorIconUrl });
+    if (parsed.authorName) {
+      embed.setAuthor({ name: parsed.authorName, iconURL: parsed.authorIconUrl });
+    }
     if (parsed.footerText || chunks.length > 1 || runtimeFooter) {
       const base = parsed.footerText ? `${parsed.footerText}` : '';
       const page = chunks.length > 1 ? `Page ${index + 1}/${chunks.length}` : '';
@@ -2915,7 +2915,6 @@ function buildReviewEmbed(stats, toolsUsed, settings) {
     .setTitle('🧾 AI Review')
     .setDescription('Diagnostics for this AI response.')
     .addFields(
-      { name: 'Assistant', value: AI_MODEL_LABEL, inline: false },
       { name: 'Runtime Model', value: modelConfig.model, inline: false },
       { name: 'Model Preset', value: modelConfig.label, inline: true },
       { name: 'Thinking Delivery', value: 'Hidden (ephemeral)', inline: true },
@@ -3442,7 +3441,6 @@ async function sendHiddenCodeEmbeds(i, title, text, emptyMessage) {
  */
 function attachReviewHandler(replyMsg, interaction, session) {
   const collector = replyMsg.createMessageComponentCollector({
-    time: MAX_TIMEOUT_MS,
     filter: (i) => i.user.id === session.allowedUserId && i.customId.startsWith('ai_'),
   });
 
@@ -3712,12 +3710,8 @@ function attachReviewHandler(replyMsg, interaction, session) {
     }
   });
 
-  collector.on('end', async (_, reason) => {
+  collector.on('end', async () => {
     AI_SESSIONS.delete(replyMsg.id);
-    // Preserve visible controls for non-timeout endings; only hard-timeout tears them down.
-    if (reason === 'time') {
-      await replyMsg.edit({ components: [] }).catch(() => null);
-    }
   });
 }
 
@@ -3756,7 +3750,7 @@ function buildErrorEmbed(message, statusCode) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('ai')
-    .setDescription('[Dev] Send a prompt to Valley AI with Discord tools.')
+    .setDescription('[Dev] Send a prompt to AI with Discord tools.')
     .addStringOption((o) =>
       o
         .setName('prompt')
@@ -3772,7 +3766,7 @@ module.exports = {
           new EmbedBuilder()
             .setColor(0xed4245)
             .setTitle('Access Denied')
-            .setDescription('You must be an allowed developer user or have the Valley AI role to use this command.')
+            .setDescription('You must be an allowed developer user or have the AI role to use this command.')
             .setTimestamp(),
         ],
         flags: MessageFlags.Ephemeral,
