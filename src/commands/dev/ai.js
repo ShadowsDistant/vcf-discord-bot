@@ -2052,7 +2052,7 @@ ${assistantResponse ?? 'None'}`;
     if (!raw) throw new Error('Safety filter returned an empty response.');
     return parseSafetyOutput(raw);
   } catch (error) {
-    if (error?.isSafetyTimeout || error?.status === 408) throw error;
+    if (error?.isSafetyTimeout) throw error;
     const status = error?.status ?? error?.code ?? undefined;
     const apiBody = error?.error ? JSON.stringify(error.error) : '';
     const context = status ? `Safety filter API error ${status}` : 'Safety filter request failed';
