@@ -1056,7 +1056,7 @@ function extractDuckDuckGoHtmlResults(html) {
     const rawHref = linkMatch[1];
     let resolvedUrl = rawHref;
     try {
-      const parsed = new URL(rawHref, 'https://duckduckgo.com');
+      const parsed = new URL(rawHref, 'https://duckduckgo.com/html/');
       const uddg = parsed.searchParams.get('uddg');
       if (uddg) resolvedUrl = decodeURIComponent(uddg);
     } catch {
@@ -1172,6 +1172,16 @@ async function fetchRobloxJson(url) {
  */
 function getRobloxSearchLimit(raw) {
   return Math.min(10, Math.max(1, Number.parseInt(raw, 10) || 5));
+}
+
+/**
+ * Build a standardized timeout error object.
+ * @param {string} message
+ * @param {number} [status]
+ * @returns {Error}
+ */
+function createTimeoutError(message, status = 408) {
+  return Object.assign(new Error(message), { status });
 }
 
 /**
@@ -1889,7 +1899,7 @@ async function callNvidiaApi(messages, settings) {
     return await Promise.race([
       aiClient.chat.completions.create(payload),
       new Promise((_, reject) => {
-        setTimeout(() => reject(Object.assign(new Error('AI request timed out after 60 seconds with no response.'), { status: 408 })), AI_REQUEST_TIMEOUT_MS);
+        setTimeout(() => reject(createTimeoutError('AI request timed out after 60 seconds with no response.')), AI_REQUEST_TIMEOUT_MS);
       }),
     ]);
   } catch (error) {
