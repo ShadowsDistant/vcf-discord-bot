@@ -2663,7 +2663,7 @@ function parseAiOutput(rawContent) {
   const isTitleValid = Boolean(
     normalizedTitle
     && !BLOCKED_AI_TITLE_NORMALIZED.has(normalizedTitle)
-    && normalizedTitle !== normalizedAuthorName,
+    && (normalizedAuthorName ? normalizedTitle !== normalizedAuthorName : true),
   );
   const title = isTitleValid ? rawTitle : null;
   const description = stripCodeMarkup(stripThinkBlocks(String(data.description ?? NO_RESPONSE_TEXT)));
