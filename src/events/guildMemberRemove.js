@@ -11,6 +11,7 @@ module.exports = {
   async execute(member) {
     analytics.recordMemberLeave(member.guild.id, Date.now());
     economy.setUserBoosterStatus(member.guild.id, member.id, false);
+    economy.setUserVcfTagStatus(member.guild.id, member.id, false);
     const channel = await fetchLogChannel(member.guild, 'leave');
     if (!channel) return;
     await channel.send({

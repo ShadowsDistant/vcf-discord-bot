@@ -2,8 +2,7 @@
 
 const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const embeds = require('../../utils/embeds');
-
-const DEV_USER_ID = process.env.DEV_USER_ID ?? '757698506411475005';
+const { canUseDevCommand } = require('../../utils/roles');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -11,9 +10,9 @@ module.exports = {
     .setDescription('[Dev] List all servers the bot is currently in.'),
 
   async execute(interaction) {
-    if (interaction.user.id !== DEV_USER_ID) {
+    if (!canUseDevCommand(interaction.member, interaction.guild, 'servers')) {
       return interaction.reply({
-        embeds: [embeds.error('This command is restricted to the bot developer.', interaction.guild ?? null)],
+        embeds: [embeds.error('This command requires an allowed developer user ID.', interaction.guild ?? null)],
         flags: MessageFlags.Ephemeral,
       });
     }

@@ -14,6 +14,7 @@ module.exports = {
   async execute(member) {
     analytics.recordMemberJoin(member.guild.id, Date.now());
     economy.setUserBoosterStatus(member.guild.id, member.id, member.roles.cache.has(SERVER_BOOSTER_ROLE_ID));
+    economy.setUserVcfTagStatus(member.guild.id, member.id, economy.inferVcfProfileTagStatus(member, member.user));
     const channel = await fetchLogChannel(member.guild, 'join');
     if (!channel) return;
 

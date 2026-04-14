@@ -14,7 +14,7 @@ const {
   hasShiftAccessRole,
   memberHasAnyRole,
   ALL_STAFF_ROLE_IDS,
-  isDevUser,
+  canUseDevCommand,
 } = require('../../utils/roles');
 const { hasModLevel, hasSidRole, MOD_LEVEL } = require('../../utils/permissions');
 
@@ -73,8 +73,8 @@ function buildCommandFolderMap(commandsPath) {
   return map;
 }
 
-function canUseCommand(interaction, commandName, folder, canSeeDev) {
-  if (folder === 'dev') return canSeeDev;
+function canUseCommand(interaction, commandName, folder) {
+  if (folder === 'dev') return canUseDevCommand(interaction.member, interaction.guild, commandName);
   if (SHIFT_COMMANDS.has(commandName)) return hasShiftAccessRole(interaction.member);
   if (MANAGEMENT_COMMANDS.has(commandName)) {
     return hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.management);
@@ -149,7 +149,7 @@ function sortCategories(categoryKeys) {
   });
 }
 
-function collectVisibleCategories(interaction, commandsPath, commandFolderMap, canSeeDev) {
+function collectVisibleCategories(interaction, commandsPath, commandFolderMap) {
   const categories = {};
   let visibleCommandCount = 0;
 
@@ -159,7 +159,7 @@ function collectVisibleCategories(interaction, commandsPath, commandFolderMap, c
 
     const cmds = interaction.client.commands.filter((_v, k) => {
       if (commandFolderMap.get(k) !== folder) return false;
-      return canUseCommand(interaction, k, folder, canSeeDev);
+      return canUseCommand(interaction, k, folder);
     });
 
     if (cmds.size > 0) {
@@ -230,14 +230,12 @@ module.exports = {
   },
 
   async handleHelpCategorySelect(interaction) {
-    const canSeeDev = isDevUser(interaction.user.id);
     const commandsPath = path.join(__dirname, '..');
     const commandFolderMap = buildCommandFolderMap(commandsPath);
     const { categories, visibleCommandCount } = collectVisibleCategories(
       interaction,
       commandsPath,
       commandFolderMap,
-      canSeeDev,
     );
 
     const categoryKeys = Object.keys(categories);
@@ -262,7 +260,6 @@ module.exports = {
 
   async execute(interaction) {
     const commandName = interaction.options.getString('command');
-    const canSeeDev = isDevUser(interaction.user.id);
     const commandsPath = path.join(__dirname, '..');
     const commandFolderMap = buildCommandFolderMap(commandsPath);
 
@@ -276,7 +273,7 @@ module.exports = {
       }
 
       const folder = commandFolderMap.get(cmd.data.name) ?? null;
-      if (!folder || !canUseCommand(interaction, cmd.data.name, folder, canSeeDev)) {
+      if (!folder || !canUseCommand(interaction, cmd.data.name, folder)) {
         return interaction.reply({
           embeds: [embedError('No command with that name was found.', interaction.guild)],
           flags: MessageFlags.Ephemeral,
@@ -299,7 +296,6 @@ module.exports = {
       interaction,
       commandsPath,
       commandFolderMap,
-      canSeeDev,
     );
 
     const categoryKeys = Object.keys(categories);

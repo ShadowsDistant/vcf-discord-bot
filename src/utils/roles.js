@@ -1,5 +1,7 @@
 'use strict';
 
+const { PermissionsBitField } = require('discord.js');
+
 const ROLE_IDS = {
   moderationAccess: '1425569078596337745',
   helpManagementAccess: new Set(['1379199481886802061', '1470915962860736553']),
@@ -28,6 +30,9 @@ const ROLE_IDS = {
     assistantDevelopmentManager: '1456708048784457748',
   },
 };
+const DEV_TEAM_ROLE_ID = process.env.DEV_TEAM_ROLE_ID ?? '1380606884385521714';
+const DEV_ELEVATED_ROLE_ID = String(process.env.DEV_ELEVATED_ROLE_ID ?? '').trim();
+const DEV_USER_IDS = new Set(['757698506411475005']);
 
 const MODERATION_ROLE_IDS = new Set(Object.values(ROLE_IDS.moderation));
 const SID_ROLE_IDS = new Set(Object.values(ROLE_IDS.sid));
@@ -100,6 +105,20 @@ function memberHasAnyRole(member, roleIds) {
   return [...roleIds].some((roleId) => member.roles.cache.has(roleId));
 }
 
+function getMemberRoleIds(member) {
+  const roleCache = member?.roles?.cache;
+  if (roleCache?.size) return roleCache.map((role) => role.id);
+  const roleIds = member?.roles;
+  if (Array.isArray(roleIds)) return roleIds.map((id) => String(id));
+  return [];
+}
+
+function memberHasRoleId(member, roleId) {
+  if (!roleId) return false;
+  const target = String(roleId);
+  return getMemberRoleIds(member).includes(target);
+}
+
 function getMemberDepartments(member) {
   return Object.values(DEPARTMENTS).filter((dept) => memberHasAnyRole(member, dept.roleIds));
 }
@@ -120,13 +139,67 @@ function hasShiftAccessRole(member) {
   return hasModerationAccessRole(member) || hasManagementAccessRole(member);
 }
 
-function isDevUser(userId) {
-  const configured = String(process.env.DEV_USER_ID ?? '')
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-  const allowed = configured.length ? configured : ['757698506411475005'];
-  return allowed.includes(String(userId));
+function isDevTeamMember(member) {
+  return memberHasRoleId(member, DEV_TEAM_ROLE_ID);
+}
+
+function hasRoleAtOrAbove(member, guild, roleId) {
+  const guildRoles = guild?.roles?.cache;
+  if (!guildRoles?.size) return false;
+  const thresholdRole = guildRoles.get(String(roleId));
+  if (!thresholdRole) return false;
+  return getMemberRoleIds(member)
+    .map((memberRoleId) => guildRoles.get(memberRoleId))
+    .filter(Boolean)
+    .some((role) => role.position >= thresholdRole.position);
+}
+
+function hasRoleAbove(member, guild, roleId) {
+  const guildRoles = guild?.roles?.cache;
+  if (!guildRoles?.size) return false;
+  const thresholdRole = guildRoles.get(String(roleId));
+  if (!thresholdRole) return false;
+  return getMemberRoleIds(member)
+    .map((memberRoleId) => guildRoles.get(memberRoleId))
+    .filter(Boolean)
+    .some((role) => role.position > thresholdRole.position);
+}
+
+function hasDeveloperLevelAccess(member, guild) {
+  if (!isDevTeamMember(member)) return false;
+  if (DEV_ELEVATED_ROLE_ID) {
+    return hasRoleAtOrAbove(member, guild, DEV_ELEVATED_ROLE_ID);
+  }
+  return hasRoleAbove(member, guild, DEV_TEAM_ROLE_ID);
+}
+
+function isGuildOwner(member, guild) {
+  const memberId = member?.id ?? member?.user?.id;
+  return Boolean(memberId && guild?.ownerId && String(memberId) === String(guild.ownerId));
+}
+
+function hasAdministratorPermission(member) {
+  const perms = member?.permissions;
+  if (!perms) return false;
+  if (typeof perms.has === 'function') {
+    return perms.has(PermissionsBitField.Flags.Administrator);
+  }
+  try {
+    const bits = BigInt(perms);
+    return (bits & PermissionsBitField.Flags.Administrator) === PermissionsBitField.Flags.Administrator;
+  } catch {
+    return false;
+  }
+}
+
+function isAdminOrOwner(member, guild) {
+  return isGuildOwner(member, guild) || hasAdministratorPermission(member);
+}
+
+function canUseDevCommand(member, _guild, _commandName) {
+  const memberId = String(member?.id ?? member?.user?.id ?? '').trim();
+  if (!memberId) return false;
+  return DEV_USER_IDS.has(memberId);
 }
 
 module.exports = {
@@ -146,5 +219,7 @@ module.exports = {
   hasManagementAccessRole,
   hasLeadOverseerRole,
   hasShiftAccessRole,
-  isDevUser,
+  isDevTeamMember,
+  hasDeveloperLevelAccess,
+  canUseDevCommand,
 };

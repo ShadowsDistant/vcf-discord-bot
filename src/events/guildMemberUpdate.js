@@ -12,6 +12,7 @@ module.exports = {
   async execute(oldMember, newMember) {
     if (!oldMember?.guild || !newMember?.guild) return;
     economy.setUserBoosterStatus(newMember.guild.id, newMember.id, newMember.roles.cache.has(SERVER_BOOSTER_ROLE_ID));
+    economy.setUserVcfTagStatus(newMember.guild.id, newMember.id, economy.inferVcfProfileTagStatus(newMember, newMember.user));
     const addedRoles = newMember.roles.cache.filter((role) => !oldMember.roles.cache.has(role.id));
     const removedRoles = oldMember.roles.cache.filter((role) => !newMember.roles.cache.has(role.id));
     if (addedRoles.size === 0 && removedRoles.size === 0) return;

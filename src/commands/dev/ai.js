@@ -14,7 +14,7 @@ const {
   TextInputStyle,
 } = require('discord.js');
 const OpenAI = require('openai');
-const { isDevUser } = require('../../utils/roles');
+const { canUseDevCommand } = require('../../utils/roles');
 const db = require('../../utils/database');
 const analytics = require('../../utils/analytics');
 const { sendModerationActionDm, sendModLog } = require('../../utils/moderationNotifications');
@@ -24,7 +24,6 @@ const { formatDuration } = require('../../utils/helpers');
 // ── Constants ───────────────────────────────────────────────────────────────────
 const NVIDIA_API_KEY = process.env.NVIDIA_API_KEY ?? '';
 const NVIDIA_API_BASE = 'https://integrate.api.nvidia.com/v1';
-const AI_ACCESS_ROLE_ID = '1493414609678499890';
 const MAX_TOKENS = 4096;
 const TEMPERATURE = 1.0;
 const TOP_P = 1.0;
@@ -42,13 +41,17 @@ const FOOTER_MAX = 2048;
 const SELECT_OPTION_MAX = 100;
 const MAX_LINK_BUTTONS = 10;
 const NO_RESPONSE_TEXT = '*(No response)*';
-const THINKING_SECTION_HEADING = '### Thinking';
 const CHUNK_NEWLINE_SPLIT_THRESHOLD = 0.5;
 const ROBLOX_USERS_API_BASE = 'https://users.roblox.com';
 const ROBLOX_GROUPS_API_BASE = 'https://groups.roblox.com';
 const ROBLOX_GAMES_API_BASE = 'https://games.roblox.com';
+const CONVINCE_DAILY_MAX_COOKIES = 50_000;
+const CONVINCE_TRACKING_FILE = 'ai_convince_claims.json';
+const CONVINCE_MIN_ARGUMENT_LENGTH = 40;
+const CONVINCE_MIN_ARGUMENT_WORDS = 8;
+const THINKING_MAX_LINES = 3;
+const THINKING_MAX_LINE_LENGTH = 220;
 const LOADING_EMOJI = '<a:loading:1493407458180468996>';
-const AI_HARDCODED_ALLOW_IDS = new Set(['1272344731526889544']);
 const AI_REVIEW_BUTTON_ID = 'ai_review_details';
 const AI_OUTPUT_BUTTON_ID = 'ai_output_view';
 const AI_CONTINUE_BUTTON_ID = 'ai_continue_conversation';
@@ -72,6 +75,7 @@ const MAX_CONVERSATION_MESSAGES = 60;
 const MODEL_CHATGPT_EMOJI_ID = '1493416854763470908';
 const MODEL_MINIMAX_EMOJI_ID = '1493415617116504134';
 const MODEL_ZAI_EMOJI_ID = '1493417351402754252';
+const AI_ALLOWED_ROLE_ID = '1493414609678499890';
 const AI_MODELS = Object.freeze([
   {
     key: 'chatgpt',
@@ -121,11 +125,10 @@ const aiClient = new OpenAI({
 // ── System prompt ────────────────────────────────────────────────────────────────
 const SYSTEM_PROMPT = `You are Valley AI, created by shadowsdistant.
 You are an assistant operating inside VCF (Valley Correctional Facility), a roleplay faction for the Roblox game Valley Prison.
-You have access to Discord management tools and a web search tool.
+You have access to Discord management tools.
 
 Guidelines:
 - Use Discord tools only when the request explicitly requires Discord interaction (reading/modifying the server).
-- Use the web search tool only when the request needs up-to-date information or web lookup.
 - For dangerous actions (kick/ban/timeout members, delete channels or messages, create roles), clearly state what you intend to do — the system will ask the user to confirm before executing.
 - Do not output code snippets, code fences, or raw executable code in responses.
 - ALWAYS respond with a valid JSON object matching this exact embed schema (no markdown fences, just raw JSON):
@@ -148,9 +151,9 @@ Guidelines:
 
 - Do NOT set title to "Valley AI" or your own name. The author_name field already shows identity; title is only for contextual headings (e.g., "Server Overview", "Search Results", "Role List"), or null when no heading is needed.
 - author_name defaults to "Valley AI" when null; rarely set it explicitly.
-- When reasoning through a problem, include your reasoning in description using Discord blockquotes before the main response, then one blank line:
-  > Thinking line 1
-  > Thinking line 2
+- When reasoning through a problem, include only important reasoning as Discord blockquotes before the main response, then one blank line (max 3 short lines):
+  > Important thinking line 1
+  > Important thinking line 2
 
   Actual response starts here.
 - Use color consistently: red (#ed4245) for errors/danger/destructive results, green (#57f287) for success, blue (#5865f2) for informational/neutral, yellow (#fee75c) for warnings, null for default grey.
@@ -165,7 +168,8 @@ Tool Usage:
 - If using tools, wait for tool results before responding and never guess tool output.
 - If a tool errors, report it clearly and do not retry with identical args.
 - You may call multiple tools in one turn when needed; synthesize results into one cohesive response and note discrepancies if results conflict.
-- Use search_web only for current/web lookup requests or information you cannot answer from memory.
+- Use convince only when the user is explicitly asking to be granted cookies and is genuinely trying to convince you.
+- Never call convince for plain asks like "I want cookies". First collect a persuasive reason from the user, then pass that reason in convince.argument.
 - For moderation requests with incomplete names (e.g. "warn somoto"), use member search tools first; if multiple matches are plausible, present a select menu of candidates or ask the user to confirm the top match before taking action.
 - Always collect a clear reason before any moderation action (warn/kick/ban/timeout). If missing, ask for one before using tools.
 
@@ -774,14 +778,15 @@ const TOOL_SCHEMAS = [
   {
     type: 'function',
     function: {
-      name: 'search_web',
-      description: 'Search the web using DuckDuckGo and return the top 5 results.',
+      name: 'convince',
+      description: 'Attempt to grant the requesting user cookies for the day (up to 50,000 once per UTC day).',
       parameters: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'The search query.' },
+          amount: { type: 'number', description: 'Requested cookie amount (1–50,000). Defaults to 50,000.' },
+          argument: { type: 'string', description: 'The user’s persuasive reason for why they should receive cookies.' },
         },
-        required: ['query'],
+        required: ['argument'],
       },
     },
   },
@@ -912,34 +917,20 @@ function normalizeToolCalls(toolCalls) {
 }
 
 /**
- * Determine if user can access /ai.
- * @param {string} userId
- * @returns {boolean}
- */
-function isAiAllowedUser(userId) {
-  const id = String(userId);
-  return isDevUser(id) || AI_HARDCODED_ALLOW_IDS.has(id);
-}
-
-/**
- * Determine if a member has the AI access role.
- * @param {import('discord.js').GuildMember|import('discord.js').APIInteractionGuildMember|null|undefined} member
- * @returns {boolean}
- */
-function hasAiAccessRole(member) {
-  const roleCache = member?.roles?.cache;
-  if (!roleCache) return false;
-  return roleCache.has(AI_ACCESS_ROLE_ID);
-}
-
-/**
  * Determine if user/member can access /ai.
- * @param {string} userId
- * @param {import('discord.js').GuildMember|import('discord.js').APIInteractionGuildMember|null|undefined} [member]
+ * @param {import('discord.js').GuildMember|import('discord.js').APIInteractionGuildMember|null|undefined} member
+ * @param {import('discord.js').Guild|null} guild
  * @returns {boolean}
  */
-function canUseAiCommand(userId, member) {
-  return isAiAllowedUser(userId) || hasAiAccessRole(member);
+function canUseAiCommand(member, guild) {
+  if (canUseDevCommand(member, guild, 'ai')) return true;
+  const roleCache = member?.roles?.cache;
+  if (roleCache?.has?.(AI_ALLOWED_ROLE_ID)) return true;
+  const roleIds = member?.roles;
+  if (Array.isArray(roleIds)) {
+    return roleIds.map((id) => String(id)).includes(AI_ALLOWED_ROLE_ID);
+  }
+  return false;
 }
 
 /**
@@ -1004,149 +995,122 @@ function collectThinkingText(assistantMessage) {
 }
 
 /**
- * Strip all HTML tags from a string, iterating until no tags remain so that
- * nested/malformed tags such as "<scr<script>ipt>" cannot survive.
- * @param {string} str
+ * Format extracted thinking text into concise Discord blockquote lines.
+ * @param {string} thinkingText
  * @returns {string}
  */
-function stripHtmlTags(str) {
-  let result = str;
-  let prev;
-  do {
-    prev = result;
-    result = result.replace(/<[^>]*>/g, '');
-  } while (result !== prev);
-  return result.replace(/\s+/g, ' ').trim();
+function formatThinkingForDisplay(thinkingText) {
+  const raw = String(thinkingText ?? '').trim();
+  if (!raw) return '';
+  const lines = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, THINKING_MAX_LINES)
+    .map((line) => `> ${truncate(line, THINKING_MAX_LINE_LENGTH)}`);
+  return lines.join('\n');
 }
 
 /**
- * Fetch text from a URL with a hard timeout.
- * @param {string} url
- * @param {object} [options]
- * @param {number} [timeoutMs]
- * @returns {Promise<string>}
+ * Start-of-day timestamp (UTC) for a given epoch ms.
+ * @param {number} [nowMs]
+ * @returns {number}
  */
-async function fetchTextWithTimeout(url, options = {}, timeoutMs = 15_000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { ...options, signal: controller.signal });
-    if (!res.ok) throw new Error(`Request failed (${res.status}).`);
-    return await res.text();
-  } finally {
-    clearTimeout(timer);
+function getUtcDayStartMs(nowMs = Date.now()) {
+  const d = new Date(nowMs);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
+/**
+ * Check if a convince argument is genuinely persuasive (not a plain ask).
+ * @param {string} argument
+ * @returns {boolean}
+ */
+function isConvincingArgument(argument) {
+  const text = String(argument ?? '').trim().replace(/\s+/g, ' ');
+  if (text.length < CONVINCE_MIN_ARGUMENT_LENGTH) return false;
+  const words = text.split(' ').filter(Boolean);
+  if (words.length < CONVINCE_MIN_ARGUMENT_WORDS) return false;
+  const lower = text.toLowerCase();
+  const plainAskPatterns = [
+    /^i want (some )?cookies[.!?]*$/i,
+    /^give me (some )?cookies[.!?]*$/i,
+    /^can i have (some )?cookies[.!?]*$/i,
+    /^cookies please[.!?]*$/i,
+  ];
+  if (plainAskPatterns.some((pattern) => pattern.test(lower))) return false;
+  const persuasiveSignals = ['because', 'since', 'so that', 'i will', 'i can', 'deserve', 'earned', 'help', 'promise'];
+  return persuasiveSignals.some((signal) => lower.includes(signal));
+}
+
+/**
+ * Attempt daily convince cookie claim for a user.
+ * @param {string} guildId
+ * @param {string} userId
+ * @param {number|string} [requestedAmount]
+ * @param {string} argument
+ * @returns {{success:boolean,user_id:string,amount_granted:number,daily_limit:number,already_claimed:boolean,next_claim_at:string,message:string,cookies_balance?:number,last_claimed_at?:string,last_amount_granted?:number}}
+ */
+function claimConvinceDailyCookies(guildId, userId, requestedAmount, argument) {
+  const nowMs = Date.now();
+  const dayStartMs = getUtcDayStartMs(nowMs);
+  const nextClaimAt = new Date(dayStartMs + (24 * 60 * 60 * 1000)).toISOString();
+  const argumentText = String(argument ?? '').trim();
+
+  if (!isConvincingArgument(argumentText)) {
+    return {
+      success: false,
+      user_id: userId,
+      amount_granted: 0,
+      daily_limit: CONVINCE_DAILY_MAX_COOKIES,
+      already_claimed: false,
+      next_claim_at: nextClaimAt,
+      message: 'Convince denied: provide a real persuasive reason (not just asking for cookies).',
+    };
   }
-}
 
-/**
- * Extract web results from DuckDuckGo HTML.
- * @param {string} html
- * @returns {Array<{title:string,url:string,snippet:string}>}
- */
-function extractDuckDuckGoHtmlResults(html) {
-  const blocks = [...html.matchAll(/<div[^>]+class="[^"]*\bresult\b[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/g)];
-  const results = [];
+  const parsedAmount = Number(requestedAmount);
+  const normalizedAmount = Number.isFinite(parsedAmount) ? Math.floor(parsedAmount) : CONVINCE_DAILY_MAX_COOKIES;
+  const amount = Math.min(CONVINCE_DAILY_MAX_COOKIES, Math.max(1, normalizedAmount));
 
-  for (const match of blocks) {
-    if (results.length >= 5) break;
-    const block = match[1] ?? '';
-    const linkMatch = block.match(/<a[^>]+class="[^"]*\bresult__a\b[^"]*"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
-    if (!linkMatch) continue;
-
-    const rawHref = linkMatch[1];
-    let resolvedUrl = rawHref;
-    try {
-      const parsed = new URL(rawHref, 'https://duckduckgo.com/html/');
-      const uddg = parsed.searchParams.get('uddg');
-      if (uddg) resolvedUrl = decodeURIComponent(uddg);
-    } catch {
-      // keep raw href
-    }
-
-    const snippetMatch =
-      block.match(/<a[^>]+class="[^"]*\bresult__snippet\b[^"]*"[^>]*>([\s\S]*?)<\/a>/i)
-      ?? block.match(/<div[^>]+class="[^"]*\bresult__snippet\b[^"]*"[^>]*>([\s\S]*?)<\/div>/i)
-      ?? block.match(/<span[^>]+class="[^"]*\bresult__snippet\b[^"]*"[^>]*>([\s\S]*?)<\/span>/i);
-
-    const title = stripHtmlTags(linkMatch[2] ?? '');
-    const snippet = stripHtmlTags(snippetMatch?.[1] ?? '');
-    if (!title || !resolvedUrl || !/^https?:\/\//i.test(resolvedUrl)) continue;
-    results.push({ title, url: resolvedUrl, snippet });
+  const current = db.read(CONVINCE_TRACKING_FILE, {});
+  const previousClaim = current?.[guildId]?.[userId];
+  if (previousClaim && Number(previousClaim.day_start_ms) === dayStartMs) {
+    const snapshot = economy.getUserSnapshot(guildId, userId);
+    return {
+      success: false,
+      user_id: userId,
+      amount_granted: 0,
+      daily_limit: CONVINCE_DAILY_MAX_COOKIES,
+      already_claimed: true,
+      next_claim_at: nextClaimAt,
+      last_claimed_at: previousClaim.claimed_at ?? null,
+      last_amount_granted: Number(previousClaim.amount ?? 0),
+      cookies_balance: snapshot.user?.cookies ?? 0,
+      message: `Convince reward already claimed today. Try again after ${nextClaimAt}.`,
+    };
   }
 
-  return results;
-}
-
-/**
- * Extract web results from DuckDuckGo Instant Answer JSON.
- * @param {object} data
- * @returns {Array<{title:string,url:string,snippet:string}>}
- */
-function extractDuckDuckGoApiResults(data) {
-  const results = [];
-  const pushResult = (item) => {
-    if (results.length >= 5 || !item) return;
-    const url = String(item.FirstURL ?? item.url ?? '').trim();
-    const text = stripHtmlTags(String(item.Text ?? item.text ?? '').trim());
-    if (!url || !/^https?:\/\//i.test(url) || !text) return;
-    const [title, ...rest] = text.split(/ - | — |: /);
-    results.push({
-      title: title?.trim() || text.slice(0, 80),
-      url,
-      snippet: rest.join(' - ').trim() || text,
-    });
+  economy.adminGiveCookies(guildId, userId, amount);
+  db.update(CONVINCE_TRACKING_FILE, {}, (data) => {
+    if (!data[guildId]) data[guildId] = {};
+    data[guildId][userId] = {
+      day_start_ms: dayStartMs,
+      claimed_at: new Date(nowMs).toISOString(),
+      amount,
+    };
+  });
+  const snapshot = economy.getUserSnapshot(guildId, userId);
+  return {
+    success: true,
+    user_id: userId,
+    amount_granted: amount,
+    daily_limit: CONVINCE_DAILY_MAX_COOKIES,
+    already_claimed: false,
+    next_claim_at: nextClaimAt,
+    cookies_balance: snapshot.user?.cookies ?? 0,
+    message: `Convince reward granted: ${amount} cookies.`,
   };
-
-  if (Array.isArray(data?.Results)) {
-    for (const item of data.Results) pushResult(item);
-  }
-  if (Array.isArray(data?.RelatedTopics)) {
-    for (const item of data.RelatedTopics) {
-      if (Array.isArray(item?.Topics)) {
-        for (const nested of item.Topics) pushResult(nested);
-      } else {
-        pushResult(item);
-      }
-      if (results.length >= 5) break;
-    }
-  }
-
-  return results;
-}
-
-/**
- * Fetch up to 5 web search results from DuckDuckGo with robust fallback.
- * @param {string} query
- * @returns {Promise<Array<{title:string, url:string, snippet:string}>>}
- */
-async function duckDuckGoSearch(query) {
-  const q = String(query ?? '').trim();
-  if (!q) return [];
-
-  const headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept-Language': 'en-US,en;q=0.9',
-  };
-
-  try {
-    const html = await fetchTextWithTimeout(
-      `https://duckduckgo.com/html/?q=${encodeURIComponent(q)}&kl=us-en`,
-      { method: 'GET', headers },
-      15_000,
-    );
-    const htmlResults = extractDuckDuckGoHtmlResults(html);
-    if (htmlResults.length > 0) return htmlResults;
-  } catch {
-    // fallback below
-  }
-
-  const apiText = await fetchTextWithTimeout(
-    `https://api.duckduckgo.com/?q=${encodeURIComponent(q)}&format=json&no_html=1&skip_disambig=1`,
-    { method: 'GET', headers: { ...headers, Accept: 'application/json' } },
-    15_000,
-  );
-  const apiData = JSON.parse(apiText);
-  return extractDuckDuckGoApiResults(apiData);
 }
 
 /**
@@ -1814,9 +1778,8 @@ async function executeTool(toolName, args, interaction) {
       };
     }
 
-    case 'search_web': {
-      const results = await duckDuckGoSearch(args.query);
-      return results;
+    case 'convince': {
+      return claimConvinceDailyCookies(guild.id, interaction.user.id, args.amount, args.argument);
     }
 
     case 'search_roblox_players': {
@@ -2124,9 +2087,9 @@ function buildFinalOutput(rawContent, options = {}) {
   const parsed = parseAiOutput(rawContent);
   let description = parsed.description;
   if (options.showThinking && options.thinkingText) {
-    const thinkingText = String(options.thinkingText).trim();
-    if (thinkingText) {
-      description = `${THINKING_SECTION_HEADING}\n${thinkingText}\n\n${parsed.description}`;
+    const thinkingBlockquotes = formatThinkingForDisplay(options.thinkingText);
+    if (thinkingBlockquotes) {
+      description = `${thinkingBlockquotes}\n\n${parsed.description}`;
     }
   }
   const chunks = chunkText(description, DESC_MAX);
@@ -2895,7 +2858,7 @@ function buildErrorEmbed(message, statusCode) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('ai')
-    .setDescription('[Dev] Send a prompt to Valley AI with Discord tools and web search.')
+    .setDescription('[Dev] Send a prompt to Valley AI with Discord tools.')
     .addStringOption((o) =>
       o
         .setName('prompt')
@@ -2905,13 +2868,13 @@ module.exports = {
 
   async execute(interaction) {
     // ── Auth check ────────────────────────────────────────────────────────────
-    if (!canUseAiCommand(interaction.user.id, interaction.member)) {
+    if (!canUseAiCommand(interaction.member, interaction.guild)) {
       return interaction.reply({
         embeds: [
           new EmbedBuilder()
             .setColor(0xed4245)
             .setTitle('Access Denied')
-            .setDescription('You need developer access or the AI access role to use this command.')
+            .setDescription('You must be an allowed developer user or have the Valley AI role to use this command.')
             .setTimestamp(),
         ],
         flags: MessageFlags.Ephemeral,
