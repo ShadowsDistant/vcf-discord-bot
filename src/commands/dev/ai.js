@@ -5,9 +5,13 @@ const {
   ButtonBuilder,
   ButtonStyle,
   ChannelType,
+  ModalBuilder,
   EmbedBuilder,
   MessageFlags,
   SlashCommandBuilder,
+  StringSelectMenuBuilder,
+  TextInputBuilder,
+  TextInputStyle,
 } = require('discord.js');
 const OpenAI = require('openai');
 const { isDevUser } = require('../../utils/roles');
@@ -20,7 +24,7 @@ const MAX_TOKENS = 4096;
 const TEMPERATURE = 1.0;
 const TOP_P = 1.0;
 const MAX_ITERATIONS = 10;
-const DEFAULT_COLOR = 0x76b900; // NVIDIA green
+const DEFAULT_COLOR = 0x99aab5; // default grey
 const CONFIRMATION_TIMEOUT_MS = 30_000;
 const REVIEW_TIMEOUT_MS = 15 * 60_000;
 const DESC_MAX = 4096;
@@ -30,6 +34,16 @@ const MAX_LINK_BUTTONS = 10;
 const AI_HARDCODED_ALLOW_IDS = new Set(['1272344731526889544']);
 const AI_REVIEW_BUTTON_ID = 'ai_review_details';
 const AI_OUTPUT_BUTTON_ID = 'ai_output_view';
+const AI_CONTINUE_BUTTON_ID = 'ai_continue_conversation';
+const AI_PAGE_PREV_BUTTON_ID = 'ai_page_prev';
+const AI_PAGE_NEXT_BUTTON_ID = 'ai_page_next';
+const AI_CONTINUE_MODAL_ID = 'ai_continue_modal';
+const AI_CONTINUE_PROMPT_INPUT_ID = 'ai_continue_prompt';
+const AI_UI_BUTTON_PREFIX = 'ai_ui_button:';
+const AI_UI_SELECT_PREFIX = 'ai_ui_select:';
+const AI_UI_MODAL_PREFIX = 'ai_ui_modal:';
+const AI_MODEL_LABEL = 'Valley AI (GPT OSS 120B)';
+const AI_SESSIONS = new Map();
 
 const aiClient = new OpenAI({
   baseURL: NVIDIA_API_BASE,
@@ -37,7 +51,9 @@ const aiClient = new OpenAI({
 });
 
 // ── System prompt ────────────────────────────────────────────────────────────────
-const SYSTEM_PROMPT = `You are an AI assistant inside a Discord server. You have access to Discord management tools and a web search tool.
+const SYSTEM_PROMPT = `You are Valley AI (model: GPT OSS 120B), created by shadowsdistant.
+You are an assistant operating inside VCF (Valley Correctional Facility), a roleplay faction for the Roblox game Valley Prison.
+You have access to Discord management tools and a web search tool.
 
 Guidelines:
 - Use Discord tools only when the request explicitly requires Discord interaction (reading/modifying the server).
@@ -56,14 +72,18 @@ Guidelines:
   "image_url": "Optional image URL or null",
   "author_name": "Optional author name override or null",
   "author_icon_url": "Optional author icon URL or null",
-  "link_buttons": [{ "label": "Button label", "url": "https://example.com" }]
+  "link_buttons": [{ "label": "Button label", "url": "https://example.com" }],
+  "buttons": [{ "id": "action_key", "label": "Button label", "style": "primary|secondary|success|danger", "ack_message": "Optional short confirmation text or null" }],
+  "select_menus": [{ "id": "menu_key", "placeholder": "Choose an option", "min_values": 1, "max_values": 1, "options": [{ "label": "Option", "value": "opt_1", "description": "Optional description", "default": false }] }],
+  "modal_buttons": [{ "id": "modal_key", "button_label": "Open form", "button_style": "primary|secondary|success|danger", "title": "Modal title", "submit_message": "Optional short confirmation text or null", "fields": [{ "id": "field_key", "label": "Field label", "style": "short|paragraph", "placeholder": "Optional placeholder", "required": true, "min_length": 0, "max_length": 4000, "value": "Optional default value" }] }]
 }
 
 - Use fields for structured/tabular data.
-- Use color for thematic tone: red (#ed4245) = error/danger, green (#57f287) = success, blue (#5865f2) = info, yellow (#fee75c) = warning, null = default NVIDIA green.
+- Use color for thematic tone: red (#ed4245) = error/danger, green (#57f287) = success, blue (#5865f2) = info, yellow (#fee75c) = warning, null = default grey.
 - Markdown works in description and field values.
 - description max 4096 chars, field values max 1024 chars, max 25 fields.
 - If useful, include 0-10 link_buttons using valid https/http URLs.
+- You may include interactive buttons/select menus/modal buttons to collect input from the user when helpful.
 - Keep responses concise and useful.`;
 
 // ── Dangerous tools ──────────────────────────────────────────────────────────────
@@ -73,6 +93,7 @@ const DANGEROUS_TOOLS = new Set([
   'timeout_member',
   'delete_message',
   'create_role',
+  'delete_role',
   'delete_channel',
 ]);
 
@@ -136,6 +157,14 @@ const TOOL_SCHEMAS = [
         },
         required: ['channel_id'],
       },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_current_channel_info',
+      description: 'Get information about the channel where /ai was used.',
+      parameters: { type: 'object', properties: {} },
     },
   },
   {
@@ -218,6 +247,38 @@ const TOOL_SCHEMAS = [
           mentionable: { type: 'boolean', description: 'Whether the role can be mentioned. Optional.' },
         },
         required: ['name'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'edit_role',
+      description: 'Edit an existing role in the guild.',
+      parameters: {
+        type: 'object',
+        properties: {
+          role_id: { type: 'string', description: 'The role ID to edit.' },
+          name: { type: 'string', description: 'Optional new role name.' },
+          color: { type: 'string', description: 'Optional hex color (e.g. "#ff0000").' },
+          hoist: { type: 'boolean', description: 'Optional hoist state.' },
+          mentionable: { type: 'boolean', description: 'Optional mentionable state.' },
+        },
+        required: ['role_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_role',
+      description: 'Delete an existing role in the guild. DANGEROUS — requires confirmation.',
+      parameters: {
+        type: 'object',
+        properties: {
+          role_id: { type: 'string', description: 'The role ID to delete.' },
+        },
+        required: ['role_id'],
       },
     },
   },
@@ -391,6 +452,52 @@ const TOOL_SCHEMAS = [
           emoji: { type: 'string', description: 'The emoji to react with (e.g. "👍" or a custom emoji ID).' },
         },
         required: ['channel_id', 'message_id', 'emoji'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_audit_logs',
+      description: 'Get recent guild audit logs for moderation/server management actions.',
+      parameters: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Maximum entries to return (1–50). Defaults to 10.' },
+          user_id: { type: 'string', description: 'Optional user ID to filter by actor.' },
+          action_type: { type: 'number', description: 'Optional Discord audit log action type integer.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_bans',
+      description: 'List currently banned users in the guild.',
+      parameters: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Maximum entries to return (1–100). Defaults to 25.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_invite',
+      description: 'Create a channel invite for a guild channel.',
+      parameters: {
+        type: 'object',
+        properties: {
+          channel_id: { type: 'string', description: 'Channel ID where the invite is created.' },
+          max_age: { type: 'number', description: 'Optional invite expiration in seconds (0 = never).' },
+          max_uses: { type: 'number', description: 'Optional max uses (0 = unlimited).' },
+          temporary: { type: 'boolean', description: 'Optional temporary membership flag.' },
+          unique: { type: 'boolean', description: 'Optional unique invite generation.' },
+        },
+        required: ['channel_id'],
       },
     },
   },
@@ -642,6 +749,20 @@ async function executeTool(toolName, args, interaction) {
       };
     }
 
+    case 'get_current_channel_info': {
+      const ch = interaction.channel;
+      if (!ch) throw new Error('Current channel is unavailable.');
+      return {
+        id: ch.id,
+        name: ch.name ?? null,
+        type: ch.type,
+        topic: ch.topic ?? null,
+        parent_id: ch.parentId ?? null,
+        nsfw: ch.nsfw ?? false,
+        created_at: ch.createdAt?.toISOString() ?? null,
+      };
+    }
+
     case 'list_channels': {
       const channels = await guild.channels.fetch();
       return channels.map((ch) => ({
@@ -724,6 +845,25 @@ async function executeTool(toolName, args, interaction) {
       if (typeof args.mentionable === 'boolean') options.mentionable = args.mentionable;
       const role = await guild.roles.create(options);
       return { success: true, role_id: role.id, name: role.name };
+    }
+
+    case 'edit_role': {
+      const role = await guild.roles.fetch(args.role_id);
+      if (!role) throw new Error('Role not found.');
+      const options = {};
+      if (typeof args.name === 'string' && args.name.trim()) options.name = args.name.trim();
+      if (typeof args.color === 'string' && args.color.trim()) options.color = hexToInt(args.color);
+      if (typeof args.hoist === 'boolean') options.hoist = args.hoist;
+      if (typeof args.mentionable === 'boolean') options.mentionable = args.mentionable;
+      await role.edit(options);
+      return { success: true, role_id: role.id, name: role.name };
+    }
+
+    case 'delete_role': {
+      const role = await guild.roles.fetch(args.role_id);
+      if (!role) throw new Error('Role not found.');
+      await role.delete();
+      return { success: true, role_id: args.role_id };
     }
 
     case 'add_role': {
@@ -821,6 +961,51 @@ async function executeTool(toolName, args, interaction) {
       return { success: true };
     }
 
+    case 'get_audit_logs': {
+      const limit = Math.min(50, Math.max(1, args.limit ?? 10));
+      const fetchOptions = { limit };
+      if (args.user_id) fetchOptions.user = args.user_id;
+      if (Number.isInteger(args.action_type)) fetchOptions.type = args.action_type;
+      const logs = await guild.fetchAuditLogs(fetchOptions);
+      return [...logs.entries.values()].slice(0, limit).map((entry) => ({
+        id: entry.id,
+        action: entry.action,
+        action_type: entry.actionType ?? null,
+        target_id: entry.targetId ?? null,
+        executor_id: entry.executorId ?? null,
+        reason: entry.reason ?? null,
+        created_at: entry.createdAt?.toISOString() ?? null,
+      }));
+    }
+
+    case 'list_bans': {
+      const limit = Math.min(100, Math.max(1, args.limit ?? 25));
+      const bans = await guild.bans.fetch();
+      return [...bans.values()].slice(0, limit).map((ban) => ({
+        user_id: ban.user.id,
+        username: ban.user.username,
+        reason: ban.reason ?? null,
+      }));
+    }
+
+    case 'create_invite': {
+      const ch = await guild.channels.fetch(args.channel_id);
+      if (!ch?.isTextBased()) throw new Error('Channel not found or not text-based.');
+      const invite = await ch.createInvite({
+        maxAge: Math.max(0, args.max_age ?? 0),
+        maxUses: Math.max(0, args.max_uses ?? 0),
+        temporary: Boolean(args.temporary),
+        unique: typeof args.unique === 'boolean' ? args.unique : true,
+      });
+      return {
+        code: invite.code,
+        url: invite.url,
+        channel_id: ch.id,
+        expires_at: invite.expiresAt?.toISOString() ?? null,
+        max_uses: invite.maxUses,
+      };
+    }
+
     case 'search_web': {
       const results = await duckDuckGoSearch(args.query);
       return results;
@@ -868,6 +1053,7 @@ function buildDangerousActionUI(toolName, args) {
     timeout_member: `**Timeout member** \`${args.user_id}\` for **${args.duration_seconds}s**${args.reason ? `\nReason: ${args.reason}` : ''}`,
     delete_message: `**Delete message** \`${args.message_id}\` in channel \`${args.channel_id}\``,
     create_role: `**Create role** named \`${args.name}\`${args.color ? ` (color: ${args.color})` : ''}`,
+    delete_role: `**Delete role** \`${args.role_id}\``,
     delete_channel: `**Delete channel** \`${args.channel_id}\``,
   };
 
@@ -922,14 +1108,60 @@ async function awaitConfirmation(interaction, replyMsg, toolName, args) {
 }
 
 /**
- * Build the final response embed from the AI's JSON output.
- * @param {string} rawContent
- * @returns {{embed: EmbedBuilder, linkButtons: Array<{label:string,url:string}>}}
+ * Split text into chunks suitable for embed descriptions.
+ * @param {string} text
+ * @param {number} maxLen
+ * @returns {string[]}
  */
-function buildFinalEmbed(rawContent) {
+function chunkText(text, maxLen) {
+  const chunks = [];
+  let remaining = String(text ?? '');
+  while (remaining.length > maxLen) {
+    let splitAt = remaining.lastIndexOf('\n', maxLen);
+    if (splitAt < maxLen * 0.5) splitAt = maxLen;
+    chunks.push(remaining.slice(0, splitAt).trim());
+    remaining = remaining.slice(splitAt).trimStart();
+  }
+  if (remaining.length > 0) chunks.push(remaining);
+  return chunks.length > 0 ? chunks : ['*(No response)*'];
+}
+
+/**
+ * Map AI style strings to Discord button styles.
+ * @param {string} style
+ * @returns {ButtonStyle}
+ */
+function toButtonStyle(style) {
+  const key = String(style ?? '').toLowerCase();
+  if (key === 'primary') return ButtonStyle.Primary;
+  if (key === 'success') return ButtonStyle.Success;
+  if (key === 'danger') return ButtonStyle.Danger;
+  return ButtonStyle.Secondary;
+}
+
+/**
+ * Sanitize AI-supplied identifiers.
+ * @param {string} value
+ * @param {string} fallback
+ * @returns {string}
+ */
+function sanitizeId(value, fallback) {
+  const clean = String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, '_')
+    .slice(0, 48);
+  return clean || fallback;
+}
+
+/**
+ * Parse AI output JSON and apply defaults/sanitization.
+ * @param {string} rawContent
+ * @returns {object}
+ */
+function parseAiOutput(rawContent) {
   const cleaned = stripThinkBlocks(rawContent);
 
-  // Attempt JSON parse — strip markdown code fences if present
   let data = null;
   const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
   const jsonStr = fenceMatch ? fenceMatch[1].trim() : cleaned.trim();
@@ -939,40 +1171,15 @@ function buildFinalEmbed(rawContent) {
     data = null;
   }
 
-  // Apply defaults
   if (!data || typeof data !== 'object') {
-    data = { description: truncate(stripCodeMarkup(cleaned || '*(No response)*'), DESC_MAX, '\n\n*[Response truncated]*') };
+    data = { description: stripCodeMarkup(cleaned || '*(No response)*') };
   }
 
   const color = hexToInt(data.color);
-  const authorName = stripCodeMarkup(stripThinkBlocks(String(data.author_name ?? 'GPT OSS 120B')));
+  const authorName = stripCodeMarkup(stripThinkBlocks(String(data.author_name ?? AI_MODEL_LABEL)));
   const footerText = data.footer ? stripCodeMarkup(stripThinkBlocks(String(data.footer))) : null;
   const title = data.title ? truncate(stripCodeMarkup(stripThinkBlocks(String(data.title))), 256) : null;
-  const description = truncate(
-    stripCodeMarkup(stripThinkBlocks(String(data.description ?? '*(No response)*'))),
-    DESC_MAX,
-    '\n\n*[Response truncated]*',
-  );
-
-  const embed = new EmbedBuilder()
-    .setColor(color)
-    .setDescription(description)
-    .setTimestamp();
-
-  if (title) embed.setTitle(title);
-
-  const authorIconUrl = data.author_icon_url ? String(data.author_icon_url) : undefined;
-  embed.setAuthor({ name: authorName, iconURL: authorIconUrl });
-  if (footerText) embed.setFooter({ text: footerText });
-
-  if (data.thumbnail_url) {
-    try { embed.setThumbnail(String(data.thumbnail_url)); } catch { /* invalid url */ }
-  }
-  if (data.image_url) {
-    try { embed.setImage(String(data.image_url)); } catch { /* invalid url */ }
-  }
-
-  // Fields from AI
+  const description = stripCodeMarkup(stripThinkBlocks(String(data.description ?? '*(No response)*')));
   const fields = [];
   if (Array.isArray(data.fields)) {
     for (const f of data.fields) {
@@ -986,8 +1193,6 @@ function buildFinalEmbed(rawContent) {
     }
   }
 
-  if (fields.length > 0) embed.addFields(fields);
-
   const linkButtons = [];
   if (Array.isArray(data.link_buttons)) {
     for (const b of data.link_buttons) {
@@ -1000,7 +1205,152 @@ function buildFinalEmbed(rawContent) {
     }
   }
 
-  return { embed, linkButtons };
+  return {
+    color,
+    authorName,
+    authorIconUrl: data.author_icon_url ? String(data.author_icon_url) : undefined,
+    footerText,
+    title,
+    description,
+    thumbnailUrl: data.thumbnail_url ? String(data.thumbnail_url) : null,
+    imageUrl: data.image_url ? String(data.image_url) : null,
+    fields,
+    linkButtons,
+    buttons: Array.isArray(data.buttons) ? data.buttons : [],
+    selectMenus: Array.isArray(data.select_menus) ? data.select_menus : [],
+    modalButtons: Array.isArray(data.modal_buttons) ? data.modal_buttons : [],
+  };
+}
+
+/**
+ * Build paginated output embeds and AI-defined interactive rows.
+ * @param {string} rawContent
+ * @returns {{outputEmbeds:EmbedBuilder[],linkButtons:Array,uiRows:Array<ActionRowBuilder>,uiState:object}}
+ */
+function buildFinalOutput(rawContent) {
+  const parsed = parseAiOutput(rawContent);
+  const chunks = chunkText(parsed.description, DESC_MAX);
+  const outputEmbeds = chunks.map((chunk, index) => {
+    const embed = new EmbedBuilder()
+      .setColor(parsed.color)
+      .setDescription(chunk || '*(No response)*')
+      .setTimestamp();
+    if (parsed.title) embed.setTitle(parsed.title);
+    embed.setAuthor({ name: parsed.authorName, iconURL: parsed.authorIconUrl });
+    if (parsed.footerText || chunks.length > 1) {
+      const base = parsed.footerText ? `${parsed.footerText}` : '';
+      const page = chunks.length > 1 ? `Page ${index + 1}/${chunks.length}` : '';
+      const footer = [base, page].filter(Boolean).join(' • ');
+      embed.setFooter({ text: footer });
+    }
+    if (parsed.thumbnailUrl) {
+      try { embed.setThumbnail(parsed.thumbnailUrl); } catch { /* invalid url */ }
+    }
+    if (parsed.imageUrl && index === 0) {
+      try { embed.setImage(parsed.imageUrl); } catch { /* invalid url */ }
+    }
+    if (index === 0 && parsed.fields.length > 0) embed.addFields(parsed.fields);
+    return embed;
+  });
+
+  const uiRows = [];
+  const uiState = { buttons: {}, selects: {}, modals: {} };
+
+  if (parsed.buttons.length > 0) {
+    let row = new ActionRowBuilder();
+    for (let i = 0; i < parsed.buttons.length; i++) {
+      const button = parsed.buttons[i];
+      if (!button?.label) continue;
+      if (row.components.length >= 5) {
+        uiRows.push(row);
+        row = new ActionRowBuilder();
+      }
+      const customId = `${AI_UI_BUTTON_PREFIX}${sanitizeId(button.id, `button_${i + 1}`)}`;
+      uiState.buttons[customId] = {
+        id: sanitizeId(button.id, `button_${i + 1}`),
+        ackMessage: button.ack_message ? truncate(String(button.ack_message), 120) : null,
+      };
+      row.addComponents(
+        new ButtonBuilder()
+          .setCustomId(customId)
+          .setLabel(truncate(stripCodeMarkup(String(button.label)), 80))
+          .setStyle(toButtonStyle(button.style)),
+      );
+    }
+    if (row.components.length > 0) uiRows.push(row);
+  }
+
+  for (let i = 0; i < parsed.selectMenus.length; i++) {
+    const menu = parsed.selectMenus[i];
+    if (!Array.isArray(menu?.options) || menu.options.length === 0) continue;
+    const customId = `${AI_UI_SELECT_PREFIX}${sanitizeId(menu.id, `menu_${i + 1}`)}`;
+    const options = [];
+    for (const option of menu.options.slice(0, 25)) {
+      if (!option?.label || !option?.value) continue;
+      options.push({
+        label: truncate(stripCodeMarkup(String(option.label)), 100),
+        value: truncate(String(option.value), 100),
+        description: option.description ? truncate(stripCodeMarkup(String(option.description)), 100) : undefined,
+        default: Boolean(option.default),
+      });
+    }
+    if (options.length === 0) continue;
+    const minValues = Math.min(options.length, Math.max(1, menu.min_values ?? 1));
+    const maxValues = Math.min(options.length, Math.max(minValues, menu.max_values ?? minValues));
+    uiState.selects[customId] = { id: sanitizeId(menu.id, `menu_${i + 1}`) };
+    uiRows.push(
+      new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId(customId)
+          .setPlaceholder(truncate(String(menu.placeholder ?? 'Select an option'), 150))
+          .setMinValues(minValues)
+          .setMaxValues(maxValues)
+          .addOptions(options),
+      ),
+    );
+  }
+
+  if (parsed.modalButtons.length > 0) {
+    let row = new ActionRowBuilder();
+    for (let i = 0; i < parsed.modalButtons.length; i++) {
+      const modal = parsed.modalButtons[i];
+      if (!modal?.button_label || !Array.isArray(modal.fields) || modal.fields.length === 0) continue;
+      if (row.components.length >= 5) {
+        uiRows.push(row);
+        row = new ActionRowBuilder();
+      }
+      const customId = `${AI_UI_MODAL_PREFIX}${sanitizeId(modal.id, `modal_${i + 1}`)}`;
+      uiState.modals[customId] = {
+        id: sanitizeId(modal.id, `modal_${i + 1}`),
+        title: truncate(String(modal.title ?? 'Form'), 45),
+        submitMessage: modal.submit_message ? truncate(String(modal.submit_message), 120) : null,
+        fields: modal.fields.slice(0, 5).map((field, fieldIndex) => ({
+          id: sanitizeId(field.id, `field_${fieldIndex + 1}`),
+          label: truncate(stripCodeMarkup(String(field.label ?? `Field ${fieldIndex + 1}`)), 45),
+          style: String(field.style ?? 'short').toLowerCase() === 'paragraph' ? TextInputStyle.Paragraph : TextInputStyle.Short,
+          placeholder: field.placeholder ? truncate(String(field.placeholder), 100) : null,
+          required: field.required !== false,
+          minLength: Math.max(0, field.min_length ?? 0),
+          maxLength: Math.min(4000, Math.max(1, field.max_length ?? 4000)),
+          value: field.value ? truncate(String(field.value), 4000) : null,
+        })),
+      };
+      row.addComponents(
+        new ButtonBuilder()
+          .setCustomId(customId)
+          .setLabel(truncate(stripCodeMarkup(String(modal.button_label)), 80))
+          .setStyle(toButtonStyle(modal.button_style)),
+      );
+    }
+    if (row.components.length > 0) uiRows.push(row);
+  }
+
+  return {
+    outputEmbeds,
+    linkButtons: parsed.linkButtons,
+    uiRows,
+    uiState,
+  };
 }
 
 /**
@@ -1025,7 +1375,7 @@ function buildReviewEmbed(stats, toolsUsed) {
     .setTitle('🧾 AI Review')
     .setDescription('Diagnostics for this AI response.')
     .addFields(
-      { name: 'Model', value: MODEL, inline: false },
+      { name: 'Model', value: `${AI_MODEL_LABEL} • ${MODEL}`, inline: false },
       { name: 'TTFT', value: stats.ttftMs != null ? `${stats.ttftMs} ms` : 'N/A', inline: true },
       { name: 'Total Time', value: `${stats.totalMs} ms`, inline: true },
       { name: 'Iterations', value: String(stats.iterations), inline: true },
@@ -1037,35 +1387,55 @@ function buildReviewEmbed(stats, toolsUsed) {
 }
 
 /**
- * Build interactive components for output/review views.
- * @param {Array<{label:string,url:string}>} linkButtons
- * @param {'output'|'review'} mode
+ * Build interactive components for output/review pages.
+ * @param {{viewMode:'output'|'review',pageIndex:number,outputEmbeds:EmbedBuilder[],linkButtons:Array<{label:string,url:string}>,uiRows:ActionRowBuilder[]}} state
  * @returns {ActionRowBuilder[]}
  */
-function buildFinalComponents(linkButtons, mode = 'output') {
+function buildFinalComponents(state) {
+  const mode = state.viewMode ?? 'output';
+  const pageCount = Math.max(1, state.outputEmbeds?.length ?? 1);
+  const pageIndex = Math.min(Math.max(0, state.pageIndex ?? 0), pageCount - 1);
   const rows = [];
-  const toggle = new ButtonBuilder()
-    .setCustomId(mode === 'output' ? AI_REVIEW_BUTTON_ID : AI_OUTPUT_BUTTON_ID)
-    .setStyle(ButtonStyle.Secondary)
-    .setLabel(mode === 'output' ? 'Review' : 'Back to Output');
 
-  let index = 0;
-  const firstRow = new ActionRowBuilder().addComponents(toggle);
-  while (index < linkButtons.length && firstRow.components.length < 5) {
-    const item = linkButtons[index++];
-    firstRow.addComponents(
+  const controls = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(mode === 'output' ? AI_REVIEW_BUTTON_ID : AI_OUTPUT_BUTTON_ID)
+      .setStyle(ButtonStyle.Secondary)
+      .setLabel(mode === 'output' ? 'Review' : 'Back to Output'),
+    new ButtonBuilder()
+      .setCustomId(AI_CONTINUE_BUTTON_ID)
+      .setStyle(ButtonStyle.Primary)
+      .setLabel('Continue'),
+  );
+
+  if (mode === 'output' && pageCount > 1) {
+    controls.addComponents(
       new ButtonBuilder()
-        .setStyle(ButtonStyle.Link)
-        .setLabel(item.label)
-        .setURL(item.url),
+        .setCustomId(AI_PAGE_PREV_BUTTON_ID)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel('Prev')
+        .setDisabled(pageIndex === 0),
+      new ButtonBuilder()
+        .setCustomId(AI_PAGE_NEXT_BUTTON_ID)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel('Next')
+        .setDisabled(pageIndex >= pageCount - 1),
     );
   }
-  rows.push(firstRow);
+  rows.push(controls);
 
-  while (index < linkButtons.length) {
+  if (mode === 'output' && Array.isArray(state.uiRows)) {
+    for (const row of state.uiRows) {
+      if (rows.length >= 5) break;
+      rows.push(row);
+    }
+  }
+
+  let index = 0;
+  while (mode === 'output' && index < state.linkButtons?.length && rows.length < 5) {
     const row = new ActionRowBuilder();
-    while (index < linkButtons.length && row.components.length < 5) {
-      const item = linkButtons[index++];
+    while (index < state.linkButtons.length && row.components.length < 5) {
+      const item = state.linkButtons[index++];
       row.addComponents(
         new ButtonBuilder()
           .setStyle(ButtonStyle.Link)
@@ -1080,27 +1450,313 @@ function buildFinalComponents(linkButtons, mode = 'output') {
 }
 
 /**
- * Handle review/output button interactions for a response message.
+ * Execute one AI turn (supports tool calls) and return render state.
+ * @param {import('discord.js').ChatInputCommandInteraction} interaction
  * @param {import('discord.js').Message} replyMsg
- * @param {string} allowedUserId
- * @param {EmbedBuilder} outputEmbed
- * @param {EmbedBuilder} reviewEmbed
- * @param {Array<{label:string,url:string}>} linkButtons
+ * @param {Array<object>} messages
+ * @param {Array<object>} toolsUsed
+ * @returns {Promise<{outputEmbeds:EmbedBuilder[],reviewEmbed:EmbedBuilder,linkButtons:Array,uiRows:Array<ActionRowBuilder>,uiState:object}>}
  */
-function attachReviewHandler(replyMsg, allowedUserId, outputEmbed, reviewEmbed, linkButtons) {
+async function runAiTurn(interaction, replyMsg, messages, toolsUsed) {
+  const requestStartMs = Date.now();
+  let ttftMs = null;
+  let promptTokens = null;
+  let completionTokens = null;
+
+  for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
+    if (iteration > 0) {
+      await interaction.editReply({
+        embeds: [buildProcessingEmbed(`Processing results… (iteration ${iteration + 1}/${MAX_ITERATIONS})`)],
+        components: [],
+      });
+    }
+
+    let apiData;
+    const iterationStartMs = Date.now();
+    try {
+      apiData = await callNvidiaApi(messages);
+    } catch (err) {
+      throw err;
+    }
+    if (ttftMs == null) ttftMs = Date.now() - iterationStartMs;
+
+    if (apiData?.usage) {
+      promptTokens = apiData.usage.prompt_tokens ?? promptTokens;
+      completionTokens = apiData.usage.completion_tokens ?? completionTokens;
+    }
+
+    const choice = apiData?.choices?.[0];
+    if (!choice) throw new Error('Received an empty response from the AI API.');
+
+    const assistantMessage = choice.message ?? {};
+    const toolCalls = normalizeToolCalls(assistantMessage.tool_calls);
+    messages.push({
+      role: 'assistant',
+      content: assistantMessage.content ?? '',
+      tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+    });
+
+    const iterationCount = iteration + 1;
+    if (!toolCalls || toolCalls.length === 0) {
+      const content = assistantMessage.content ?? '';
+      const { outputEmbeds, linkButtons, uiRows, uiState } = buildFinalOutput(content);
+      const reviewEmbed = buildReviewEmbed(
+        {
+          ttftMs,
+          totalMs: Date.now() - requestStartMs,
+          iterations: iterationCount,
+          promptTokens,
+          completionTokens,
+        },
+        toolsUsed,
+      );
+      return { outputEmbeds, reviewEmbed, linkButtons, uiRows, uiState };
+    }
+
+    for (const toolCall of toolCalls) {
+      const toolName = toolCall.function?.name;
+      let toolArgs = {};
+      try {
+        toolArgs = JSON.parse(toolCall.function?.arguments ?? '{}');
+      } catch {
+        toolArgs = {};
+      }
+
+      let toolResult;
+      if (DANGEROUS_TOOLS.has(toolName)) {
+        await interaction.editReply({
+          embeds: [buildProcessingEmbed(`Waiting for confirmation of \`${toolName}\`…`)],
+          components: [],
+        });
+        const confirmed = await awaitConfirmation(interaction, replyMsg, toolName, toolArgs);
+        if (!confirmed) {
+          toolResult = 'Action was denied by the user (or timed out). Do not attempt this action again without asking the user.';
+          toolsUsed.push({ name: toolName, args: toolArgs, denied: true });
+          await interaction.editReply({
+            embeds: [buildProcessingEmbed('Action denied. Continuing…')],
+            components: [],
+          });
+        } else {
+          try {
+            toolResult = await executeTool(toolName, toolArgs, interaction);
+            toolsUsed.push({ name: toolName, args: toolArgs, success: true });
+          } catch (err) {
+            toolResult = `Error executing ${toolName}: ${err.message}`;
+            toolsUsed.push({ name: toolName, args: toolArgs, error: err.message });
+          }
+          await interaction.editReply({
+            embeds: [buildProcessingEmbed('Action executed. Continuing…')],
+            components: [],
+          });
+        }
+      } else {
+        try {
+          toolResult = await executeTool(toolName, toolArgs, interaction);
+          toolsUsed.push({ name: toolName, args: toolArgs, success: true });
+        } catch (err) {
+          toolResult = `Error executing ${toolName}: ${err.message}`;
+          toolsUsed.push({ name: toolName, args: toolArgs, error: err.message });
+        }
+      }
+
+      messages.push({
+        role: 'tool',
+        tool_call_id: toolCall.id,
+        content: typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult),
+      });
+    }
+  }
+
+  const { outputEmbeds, linkButtons, uiRows, uiState } = buildFinalOutput(
+    JSON.stringify({ description: 'Maximum tool-call iterations reached. The AI could not produce a final response.' }),
+  );
+  const reviewEmbed = buildReviewEmbed(
+    {
+      ttftMs,
+      totalMs: Date.now() - requestStartMs,
+      iterations: MAX_ITERATIONS,
+      promptTokens,
+      completionTokens,
+    },
+    toolsUsed,
+  );
+  return { outputEmbeds, reviewEmbed, linkButtons, uiRows, uiState };
+}
+
+/**
+ * Build the active embed for current session mode.
+ * @param {object} session
+ * @returns {EmbedBuilder}
+ */
+function getActiveEmbed(session) {
+  if (session.viewMode === 'review') return session.reviewEmbed;
+  return session.outputEmbeds[session.pageIndex] ?? session.outputEmbeds[0];
+}
+
+/**
+ * Handle component interactions for a response message/session.
+ * @param {import('discord.js').Message} replyMsg
+ * @param {import('discord.js').ChatInputCommandInteraction} interaction
+ * @param {object} session
+ */
+function attachReviewHandler(replyMsg, interaction, session) {
   const collector = replyMsg.createMessageComponentCollector({
     time: REVIEW_TIMEOUT_MS,
-    filter: (i) =>
-      (i.customId === AI_REVIEW_BUTTON_ID || i.customId === AI_OUTPUT_BUTTON_ID) &&
-      i.user.id === allowedUserId,
+    filter: (i) => i.user.id === session.allowedUserId && i.customId.startsWith('ai_'),
   });
 
   collector.on('collect', async (i) => {
-    if (i.customId === AI_REVIEW_BUTTON_ID) {
-      await i.update({ embeds: [reviewEmbed], components: buildFinalComponents(linkButtons, 'review') }).catch(() => null);
+    if (session.busy) {
+      await i.reply({ content: 'Already processing a request. Please wait…', flags: MessageFlags.Ephemeral }).catch(() => null);
       return;
     }
-    await i.update({ embeds: [outputEmbed], components: buildFinalComponents(linkButtons, 'output') }).catch(() => null);
+
+    if (i.customId === AI_REVIEW_BUTTON_ID) {
+      session.viewMode = 'review';
+      await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
+      return;
+    }
+    if (i.customId === AI_OUTPUT_BUTTON_ID) {
+      session.viewMode = 'output';
+      await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
+      return;
+    }
+    if (i.customId === AI_PAGE_PREV_BUTTON_ID) {
+      if (session.viewMode === 'output') session.pageIndex = Math.max(0, session.pageIndex - 1);
+      await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
+      return;
+    }
+    if (i.customId === AI_PAGE_NEXT_BUTTON_ID) {
+      if (session.viewMode === 'output') session.pageIndex = Math.min(session.outputEmbeds.length - 1, session.pageIndex + 1);
+      await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
+      return;
+    }
+
+    if (i.customId === AI_CONTINUE_BUTTON_ID) {
+      const modal = new ModalBuilder()
+        .setCustomId(AI_CONTINUE_MODAL_ID)
+        .setTitle('Continue Conversation')
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId(AI_CONTINUE_PROMPT_INPUT_ID)
+              .setLabel('Next message')
+              .setStyle(TextInputStyle.Paragraph)
+              .setRequired(true)
+              .setMaxLength(2000),
+          ),
+        );
+
+      await i.showModal(modal).catch(() => null);
+      let modalSubmit;
+      try {
+        modalSubmit = await i.awaitModalSubmit({
+          filter: (m) => m.customId === AI_CONTINUE_MODAL_ID && m.user.id === session.allowedUserId,
+          time: 120_000,
+        });
+      } catch {
+        return;
+      }
+
+      const prompt = modalSubmit.fields.getTextInputValue(AI_CONTINUE_PROMPT_INPUT_ID)?.trim();
+      if (!prompt) {
+        await modalSubmit.reply({ content: 'Prompt cannot be empty.', flags: MessageFlags.Ephemeral }).catch(() => null);
+        return;
+      }
+
+      session.busy = true;
+      await modalSubmit.deferUpdate().catch(() => null);
+      session.messages.push({ role: 'user', content: prompt });
+      await replyMsg.edit({ embeds: [buildProcessingEmbed('Sending follow-up prompt to AI…')], components: [] }).catch(() => null);
+
+      try {
+        const result = await runAiTurn(interaction, replyMsg, session.messages, session.toolsUsed);
+        session.outputEmbeds = result.outputEmbeds;
+        session.reviewEmbed = result.reviewEmbed;
+        session.linkButtons = result.linkButtons;
+        session.uiRows = result.uiRows;
+        session.uiState = result.uiState;
+        session.pageIndex = 0;
+        session.viewMode = 'output';
+        await replyMsg.edit({
+          embeds: [getActiveEmbed(session)],
+          components: buildFinalComponents(session),
+        });
+      } catch (err) {
+        await replyMsg.edit({
+          embeds: [buildErrorEmbed(err.message, err.status)],
+          components: [],
+        }).catch(() => null);
+      } finally {
+        session.busy = false;
+      }
+      return;
+    }
+
+    if (i.customId.startsWith(AI_UI_BUTTON_PREFIX)) {
+      const button = session.uiState.buttons[i.customId];
+      if (!button) return i.reply({ content: 'Button configuration is unavailable.', flags: MessageFlags.Ephemeral }).catch(() => null);
+      session.messages.push({ role: 'user', content: `UI button clicked: ${button.id}` });
+      await i.reply({
+        content: button.ackMessage ?? `Captured button click: \`${button.id}\`.`,
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => null);
+      return;
+    }
+
+    if (i.customId.startsWith(AI_UI_SELECT_PREFIX)) {
+      const select = session.uiState.selects[i.customId];
+      if (!select) return i.reply({ content: 'Select menu configuration is unavailable.', flags: MessageFlags.Ephemeral }).catch(() => null);
+      const values = i.values?.join(', ') || 'none';
+      session.messages.push({ role: 'user', content: `UI select used: ${select.id} -> ${values}` });
+      await i.reply({
+        content: `Captured selection for \`${select.id}\`: ${values}`,
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => null);
+      return;
+    }
+
+    if (i.customId.startsWith(AI_UI_MODAL_PREFIX)) {
+      const modalDef = session.uiState.modals[i.customId];
+      if (!modalDef) return i.reply({ content: 'Modal configuration is unavailable.', flags: MessageFlags.Ephemeral }).catch(() => null);
+      const modalCustomId = `${i.customId}:submit`;
+      const modal = new ModalBuilder()
+        .setCustomId(modalCustomId)
+        .setTitle(modalDef.title);
+      const rows = modalDef.fields.map((field) => {
+        const input = new TextInputBuilder()
+          .setCustomId(field.id)
+          .setLabel(field.label)
+          .setStyle(field.style)
+          .setRequired(field.required)
+          .setMinLength(field.minLength)
+          .setMaxLength(field.maxLength);
+        if (field.placeholder) input.setPlaceholder(field.placeholder);
+        if (field.value) input.setValue(field.value);
+        return new ActionRowBuilder().addComponents(input);
+      });
+      modal.addComponents(rows);
+      await i.showModal(modal).catch(() => null);
+      let modalSubmit;
+      try {
+        modalSubmit = await i.awaitModalSubmit({
+          filter: (m) => m.customId === modalCustomId && m.user.id === session.allowedUserId,
+          time: 120_000,
+        });
+      } catch {
+        return;
+      }
+      const collected = modalDef.fields.map((field) => `${field.id}: ${modalSubmit.fields.getTextInputValue(field.id)}`);
+      session.messages.push({ role: 'user', content: `UI modal submitted: ${modalDef.id} -> ${collected.join(' | ')}` });
+      await modalSubmit.reply({
+        content: modalDef.submitMessage ?? `Captured modal submission for \`${modalDef.id}\`.`,
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => null);
+    }
+  });
+
+  collector.on('end', async () => {
+    AI_SESSIONS.delete(replyMsg.id);
   });
 }
 
@@ -1139,7 +1795,7 @@ function buildErrorEmbed(message, statusCode) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('ai')
-    .setDescription('[Dev] Send a prompt to GPT OSS 120B with Discord tools and web search.')
+    .setDescription('[Dev] Send a prompt to Valley AI (GPT OSS 120B) with Discord tools and web search.')
     .addStringOption((o) =>
       o
         .setName('prompt')
@@ -1170,10 +1826,6 @@ module.exports = {
     }
 
     const prompt = interaction.options.getString('prompt', true);
-    const requestStartMs = Date.now();
-    let ttftMs = null;
-    let promptTokens = null;
-    let completionTokens = null;
 
     // ── Defer reply immediately ───────────────────────────────────────────────
     await interaction.deferReply();
@@ -1189,167 +1841,41 @@ module.exports = {
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: prompt },
     ];
-
     const toolsUsed = [];
-
-    // ── Tool execution loop ───────────────────────────────────────────────────
-    for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
-      // Update processing status on subsequent iterations
-      if (iteration > 0) {
-        await interaction.editReply({
-          embeds: [buildProcessingEmbed(`Processing results… (iteration ${iteration + 1}/${MAX_ITERATIONS})`)],
-          components: [],
-        });
-      }
-
-      // Call NVIDIA API
-      let apiData;
-      const iterationStartMs = Date.now();
-      try {
-        apiData = await callNvidiaApi(messages);
-      } catch (err) {
-        return interaction.editReply({
-          embeds: [buildErrorEmbed(err.message, err.status)],
-          components: [],
-        });
-      }
-      if (ttftMs == null) ttftMs = Date.now() - iterationStartMs;
-
-      if (apiData?.usage) {
-        promptTokens = apiData.usage.prompt_tokens ?? promptTokens;
-        completionTokens = apiData.usage.completion_tokens ?? completionTokens;
-      }
-
-      const choice = apiData?.choices?.[0];
-      if (!choice) {
-        return interaction.editReply({
-          embeds: [buildErrorEmbed('Received an empty response from the AI API.')],
-          components: [],
-        });
-      }
-
-      const assistantMessage = choice.message ?? {};
-      const toolCalls = normalizeToolCalls(assistantMessage.tool_calls);
-
-      // Add assistant turn to history (normalized for OpenAI schema)
-      messages.push({
-        role: 'assistant',
-        content: assistantMessage.content ?? '',
-        tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+    let result;
+    try {
+      result = await runAiTurn(interaction, replyMsg, messages, toolsUsed);
+    } catch (err) {
+      return interaction.editReply({
+        embeds: [buildErrorEmbed(err.message, err.status)],
+        components: [],
       });
-
-      const iterationCount = iteration + 1;
-
-      // No tool calls → final response
-      if (!toolCalls || toolCalls.length === 0) {
-        const content = assistantMessage.content ?? '';
-        const { embed: outputEmbed, linkButtons } = buildFinalEmbed(content);
-        const reviewEmbed = buildReviewEmbed(
-          {
-            ttftMs,
-            totalMs: Date.now() - requestStartMs,
-            iterations: iterationCount,
-            promptTokens,
-            completionTokens,
-          },
-          toolsUsed,
-        );
-        const components = buildFinalComponents(linkButtons, 'output');
-
-        await interaction.editReply({
-          embeds: [outputEmbed],
-          components,
-        });
-
-        const finalMsg = await interaction.fetchReply().catch(() => null);
-        if (finalMsg) {
-          attachReviewHandler(finalMsg, interaction.user.id, outputEmbed, reviewEmbed, linkButtons);
-        }
-
-        return null;
-      }
-
-      // ── Process tool calls ──────────────────────────────────────────────────
-      for (const toolCall of toolCalls) {
-        const toolName = toolCall.function?.name;
-        let toolArgs = {};
-        try {
-          toolArgs = JSON.parse(toolCall.function?.arguments ?? '{}');
-        } catch {
-          toolArgs = {};
-        }
-
-        let toolResult;
-
-        if (DANGEROUS_TOOLS.has(toolName)) {
-          // Show confirmation UI and wait for user response
-          await interaction.editReply({
-            embeds: [buildProcessingEmbed(`Waiting for confirmation of \`${toolName}\`…`)],
-            components: [],
-          });
-          const confirmed = await awaitConfirmation(interaction, replyMsg, toolName, toolArgs);
-
-          if (!confirmed) {
-            toolResult = 'Action was denied by the user (or timed out). Do not attempt this action again without asking the user.';
-            toolsUsed.push({ name: toolName, args: toolArgs, denied: true });
-            // Restore processing embed
-            await interaction.editReply({
-              embeds: [buildProcessingEmbed('Action denied. Continuing…')],
-              components: [],
-            });
-          } else {
-            try {
-              toolResult = await executeTool(toolName, toolArgs, interaction);
-              toolsUsed.push({ name: toolName, args: toolArgs, success: true });
-            } catch (err) {
-              toolResult = `Error executing ${toolName}: ${err.message}`;
-              toolsUsed.push({ name: toolName, args: toolArgs, error: err.message });
-            }
-            // Restore processing embed
-            await interaction.editReply({
-              embeds: [buildProcessingEmbed('Action executed. Continuing…')],
-              components: [],
-            });
-          }
-        } else {
-          // Non-dangerous tool — execute immediately
-          try {
-            toolResult = await executeTool(toolName, toolArgs, interaction);
-            toolsUsed.push({ name: toolName, args: toolArgs, success: true });
-          } catch (err) {
-            toolResult = `Error executing ${toolName}: ${err.message}`;
-            toolsUsed.push({ name: toolName, args: toolArgs, error: err.message });
-          }
-        }
-
-        // Add tool result to message history
-        messages.push({
-          role: 'tool',
-          tool_call_id: toolCall.id,
-          content: typeof toolResult === 'string' ? toolResult : JSON.stringify(toolResult),
-        });
-      }
     }
 
-    // Max iterations reached — use whatever we have
-    const { embed: outputEmbed, linkButtons } = buildFinalEmbed(
-      JSON.stringify({ description: 'Maximum tool-call iterations reached. The AI could not produce a final response.' }),
-    );
-    const reviewEmbed = buildReviewEmbed(
-      {
-        ttftMs,
-        totalMs: Date.now() - requestStartMs,
-        iterations: MAX_ITERATIONS,
-        promptTokens,
-        completionTokens,
-      },
+    const session = {
+      allowedUserId: interaction.user.id,
+      messages,
       toolsUsed,
-    );
-    const components = buildFinalComponents(linkButtons, 'output');
-    await interaction.editReply({ embeds: [outputEmbed], components });
+      outputEmbeds: result.outputEmbeds,
+      reviewEmbed: result.reviewEmbed,
+      linkButtons: result.linkButtons,
+      uiRows: result.uiRows,
+      uiState: result.uiState,
+      pageIndex: 0,
+      viewMode: 'output',
+      busy: false,
+    };
+
+    const components = buildFinalComponents(session);
+    await interaction.editReply({
+      embeds: [getActiveEmbed(session)],
+      components,
+    });
+
     const finalMsg = await interaction.fetchReply().catch(() => null);
     if (finalMsg) {
-      attachReviewHandler(finalMsg, interaction.user.id, outputEmbed, reviewEmbed, linkButtons);
+      AI_SESSIONS.set(finalMsg.id, session);
+      attachReviewHandler(finalMsg, interaction, session);
     }
     return null;
   },
