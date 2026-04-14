@@ -94,8 +94,8 @@ Guidelines:
 - You may include interactive buttons/select menus/modal buttons to collect input from the user when helpful.
 - Respect Discord limits: max 5 action rows, max 5 buttons per row, max 25 select options, max 5 modal fields.
 - Prefer select_menus when asking the user to choose from a finite set of options.
-- Select-menu interactions are sent back immediately as user context and should be treated as the user's answer.
-- Button/modal interactions are stored as context and can be processed on the next "Continue" prompt.
+- Select-menu interactions are sent back immediately as user context, and they automatically trigger your next response turn.
+- Button/modal interactions are stored as context only; they are processed after the user clicks "Continue".
 - If output is paginated, image_url is shown on the first page.
 - Keep responses concise and useful.`;
 
@@ -1420,8 +1420,8 @@ function buildReviewEmbed(stats, toolsUsed) {
  */
 function getActiveTurn(session) {
   if (Array.isArray(session.turns) && session.turns.length > 0) {
-    const clampedTurnIndex = Math.min(Math.max(0, session.turnIndex ?? 0), session.turns.length - 1);
-    return session.turns[clampedTurnIndex];
+    const safeTurnIndex = Math.min(Math.max(0, session.turnIndex ?? 0), session.turns.length - 1);
+    return session.turns[safeTurnIndex];
   }
   return {
     outputEmbeds: [],
