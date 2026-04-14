@@ -43,7 +43,9 @@ const MAX_LINK_BUTTONS = 10;
 const NO_RESPONSE_TEXT = '*(No response)*';
 const THINKING_SECTION_HEADING = '### Thinking';
 const CHUNK_NEWLINE_SPLIT_THRESHOLD = 0.5;
-const ROBLOX_API_BASE = 'https://users.roblox.com';
+const ROBLOX_USERS_API_BASE = 'https://users.roblox.com';
+const ROBLOX_GROUPS_API_BASE = 'https://groups.roblox.com';
+const ROBLOX_GAMES_API_BASE = 'https://games.roblox.com';
 const LOADING_EMOJI = '<a:loading:1493407458180468996>';
 const AI_HARDCODED_ALLOW_IDS = new Set(['1272344731526889544']);
 const AI_REVIEW_BUTTON_ID = 'ai_review_details';
@@ -1723,7 +1725,7 @@ async function executeTool(toolName, args, interaction) {
       const query = String(args.query ?? '').trim();
       if (!query) throw new Error('Query is required.');
       const limit = getRobloxSearchLimit(args.limit);
-      const data = await fetchRobloxJson(`${ROBLOX_API_BASE}/v1/users/search?keyword=${encodeURIComponent(query)}&limit=${limit}`);
+      const data = await fetchRobloxJson(`${ROBLOX_USERS_API_BASE}/v1/users/search?keyword=${encodeURIComponent(query)}&limit=${limit}`);
       const results = Array.isArray(data?.data) ? data.data : [];
       return results.slice(0, limit).map((user) => ({
         id: user.id,
@@ -1738,7 +1740,7 @@ async function executeTool(toolName, args, interaction) {
       const query = String(args.query ?? '').trim();
       if (!query) throw new Error('Query is required.');
       const limit = getRobloxSearchLimit(args.limit);
-      const data = await fetchRobloxJson(`https://groups.roblox.com/v1/groups/search?keyword=${encodeURIComponent(query)}&limit=${limit}`);
+      const data = await fetchRobloxJson(`${ROBLOX_GROUPS_API_BASE}/v1/groups/search?keyword=${encodeURIComponent(query)}&limit=${limit}`);
       const results = Array.isArray(data?.data) ? data.data : [];
       return results.slice(0, limit).map((group) => ({
         id: group.id,
@@ -1754,7 +1756,7 @@ async function executeTool(toolName, args, interaction) {
       const query = String(args.query ?? '').trim();
       if (!query) throw new Error('Query is required.');
       const limit = getRobloxSearchLimit(args.limit);
-      const data = await fetchRobloxJson(`https://games.roblox.com/v1/games/search?keyword=${encodeURIComponent(query)}&limit=${limit}`);
+      const data = await fetchRobloxJson(`${ROBLOX_GAMES_API_BASE}/v1/games/search?keyword=${encodeURIComponent(query)}&limit=${limit}`);
       const results = Array.isArray(data?.data) ? data.data : [];
       return results.slice(0, limit).map((game) => ({
         universe_id: game.universeId ?? game.id ?? null,
