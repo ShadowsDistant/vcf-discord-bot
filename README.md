@@ -1,12 +1,13 @@
 # vcf-discord-bot
 
-A modern, feature-rich Discord bot built with **discord.js v14** featuring advanced moderation, utility commands, a Melonly-style staff shift system, server setup commands, and restricted developer tools. All responses use rich, consistently-styled embeds with colour-coded feedback.
+A modern, feature-rich Discord bot built with **discord.js v14** featuring advanced moderation, utility commands, a Melonly-style staff shift system, server setup commands, a full cookie-baking economy game, alliance system, and restricted developer tools. All responses use rich, consistently-styled embeds with colour-coded feedback.
 
 ---
 
 ## Table of Contents
 
 - [Features Overview](#features-overview)
+- [Baking Economy](#baking-economy)
 - [Command Reference](#command-reference)
   - [Moderation](#moderation)
   - [Utility](#utility)
@@ -39,6 +40,71 @@ A modern, feature-rich Discord bot built with **discord.js v14** featuring advan
 | **Reasons** | Per-server preset ban/kick/warn reasons with autocomplete in mod commands |
 | **Developer** | Set bot presence, list guilds, broadcast announcements |
 | **Embeds** | Colour-coded, titled embeds for all responses; welcome message on member join; quota notifications |
+
+---
+
+## Baking Economy
+
+The bot includes a fully-featured cookie-baking economy game inspired by incremental/idle games. Players bake cookies, collect items, build their bakery, join alliances, and climb the leaderboards.
+
+### Core Commands
+
+| Command | Description |
+|---|---|
+| `/bake` | Bake cookies with a 30-second cooldown. Earns manual yield based on item rarity plus passive CPS gains. Triggers events, golden cookies, and achievements. |
+| `/bakery` | View your bakery profile — name, CPS, total baked, inventory, milestones, and rank progress. |
+| `/marketplace` | Browse and trade items with other players. Supports buying, selling, and listing items for cookies. |
+| `/daily` | Claim daily bakery challenges and rewards. Rotates weekly with tiered difficulty. |
+| `/alliance` | Full alliance management panel — create/join/leave, weekly challenges with progress tracking, alliance store upgrades, leaderboard, and member management. |
+| `/messages` | Claim pending rewards, staff messages, and gift boxes from your inbox. |
+
+### Gameplay Systems
+
+**Cookie Items & Rarity**
+- Items range from Common → Uncommon → Rare → Epic → Legendary → Celestial → Mythic
+- Each rarity has distinct drop chances and sell values
+- Special event items (Perfect Cookie, Gold Cookie, Spoopier Cookie) trigger server-wide announcements
+
+**Buildings & Upgrades**
+- 19 building types: Cursor, Grandma, Farm, Mine, Factory, Bank, Temple, Wizard Tower, Shipment, Alchemy Lab, Portal, Time Machine, Antimatter Condenser, Prism, Chancemaker, Fractal Engine, JavaScript Console, Idleverse, Cortex Baker
+- Upgrades boost CPS and unlock new mechanics (Golden Switch, Oven Overclock, Kitten Helpers, etc.)
+
+**Passive Income (CPS)**
+- Cookies Per Second generates income even while offline
+- CPS scales with buildings, upgrades, alliance boosts, and rank bonuses
+- Alliance members receive CPS boost from alliance upgrades
+
+**Golden Cookies**
+- Random chance to spawn during `/bake`
+- Must be claimed within a time limit for bonus rewards
+- Golden Cookie count tracked for achievements
+
+**Achievements & Milestones**
+- 30+ milestones: bake counts, spend thresholds, CPS targets, discovery milestones
+- Rank system: Cookie Novice → Dough Scout → Oven Knight → Crumb Commander → Sugar Overlord → Cosmic Baker → Stellar Confectioner → Galactic Pâtissier → Void Oven Archon
+- Rank rewards unlock after meeting requirements (cookies baked, total bakes, CPS, etc.)
+
+**Alliance System**
+- Create or join alliances with other players
+- Weekly rotating challenges with contribution tracking
+- Alliance store upgrades benefit all members (CPS boost, shared flour vault, etc.)
+- Join-by-request mode with approval queue
+- Alliance leaderboard ranks by total member CPS
+
+### Staff Tools
+
+| Command | Description |
+|---|---|
+| `/bakeadmin` | Moderator dashboard for baking economy — view user stats, edit cookies/bakes, ban/unban users from baking, manage items. Requires `Manage Guild` permission or configured bake admin role. |
+| `/staffmessage` | Send notification messages or gift boxes to specific users or all bakery players. Staff-only. |
+| `/staffinfraction` | Issue infraction templates to users with configurable consequences. Staff-only. |
+
+### Economy Data Persistence
+
+| File | Contents |
+|---|---|
+| `bake_economy.json` | Per-guild user bakery data — cookies, buildings, upgrades, inventory, milestones, rank, alliance membership, pending messages |
+| `bake_alliances.json` | Per-guild alliance data — members, challenges, upgrades, store credits, join requests |
 
 ---
 
