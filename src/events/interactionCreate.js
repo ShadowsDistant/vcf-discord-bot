@@ -494,6 +494,14 @@ function parseMentionUserId(value) {
   return match?.[1] ?? null;
 }
 
+async function tryDeferReplyEphemeral(interaction) {
+  return interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => null);
+}
+
+async function tryDeferUpdate(interaction) {
+  return interaction.deferUpdate().catch(() => null);
+}
+
 module.exports = {
   name: Events.InteractionCreate,
   async execute(interaction) {
@@ -546,11 +554,11 @@ module.exports = {
         }
         const [, actionWithTarget] = interaction.customId.split('ctx_mod_');
         const [action, targetId] = actionWithTarget.split(':');
+        await tryDeferReplyEphemeral(interaction);
         const member = await interaction.guild.members.fetch(targetId).catch(() => null);
         if (!member) {
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [embeds.error('That user is no longer in this server.', interaction.guild)],
-            flags: MessageFlags.Ephemeral,
           });
         }
         if (action === 'warn') {
@@ -566,9 +574,8 @@ module.exports = {
             reason,
             moderatorTag: interaction.user.tag,
           });
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [embeds.success(`Warned <@${targetId}>.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
           });
         }
         if (action === 'timeout5m' || action === 'timeout1h') {
@@ -586,14 +593,12 @@ module.exports = {
             .then(() => true)
             .catch(() => false);
           if (!ok) {
-            return interaction.reply({
+            return interaction.editReply({
               embeds: [embeds.error('Failed to timeout user (permissions or hierarchy).', interaction.guild)],
-              flags: MessageFlags.Ephemeral,
             });
           }
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [embeds.success(`Timed out <@${targetId}> for **${Math.floor(durationMs / 60_000)}m**.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
           });
         }
         if (action === 'kick') {
@@ -609,14 +614,12 @@ module.exports = {
             .then(() => true)
             .catch(() => false);
           if (!ok) {
-            return interaction.reply({
+            return interaction.editReply({
               embeds: [embeds.error('Failed to kick user (permissions or hierarchy).', interaction.guild)],
-              flags: MessageFlags.Ephemeral,
             });
           }
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [embeds.success(`Kicked <@${targetId}>.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
           });
         }
         if (action === 'ban') {
@@ -633,14 +636,12 @@ module.exports = {
             .then(() => true)
             .catch(() => false);
           if (!ok) {
-            return interaction.reply({
+            return interaction.editReply({
               embeds: [embeds.error('Failed to ban user (permissions or hierarchy).', interaction.guild)],
-              flags: MessageFlags.Ephemeral,
             });
           }
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [embeds.success(`Banned <@${targetId}>.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
           });
         }
       }
@@ -680,11 +681,27 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+        if (action === 'dismiss') {
+          const modal = new ModalBuilder()
+            .setCustomId(`report_dismiss_reason:${interaction.message.id}:${reporterId ?? ''}`)
+            .setTitle('Dismiss Report')
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId('reason')
+                  .setLabel('Dismissal reason')
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setMaxLength(500),
+              ),
+            );
+          return interaction.showModal(modal);
+        }
+        await tryDeferReplyEphemeral(interaction);
         const targetChannel = await interaction.guild.channels.fetch(sourceChannelId).catch(() => null);
         if (!targetChannel || !targetChannel.isTextBased()) {
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [embeds.error('Source channel is unavailable for this report.', interaction.guild)],
-            flags: MessageFlags.Ephemeral,
           });
         }
         const targetMessage = await targetChannel.messages.fetch(messageId).catch(() => null);
@@ -695,7 +712,7 @@ module.exports = {
             const reporter = await interaction.client.users.fetch(reporterId).catch(() => null);
             await sendReporterStatusDm({ user: reporter, guild: interaction.guild, status: 'action_taken' });
           }
-          return interaction.reply({ embeds: [embeds.success('Reported message deleted.', interaction.guild)], flags: MessageFlags.Ephemeral });
+          return interaction.editReply({ embeds: [embeds.success('Reported message deleted.', interaction.guild)] });
         }
         if (action === 'warn_author') {
           const reportedContent = (targetMessage?.content ?? '(message unavailable)').slice(0, 700);
@@ -717,7 +734,7 @@ module.exports = {
             const reporter = await interaction.client.users.fetch(reporterId).catch(() => null);
             await sendReporterStatusDm({ user: reporter, guild: interaction.guild, status: 'action_taken' });
           }
-          return interaction.reply({ embeds: [embeds.success('Author warned.', interaction.guild)], flags: MessageFlags.Ephemeral });
+          return interaction.editReply({ embeds: [embeds.success('Author warned.', interaction.guild)] });
         }
         if (action === 'timeout_author' && targetMember) {
           const reason = 'Timeout issued from report queue.';
@@ -734,23 +751,7 @@ module.exports = {
             const reporter = await interaction.client.users.fetch(reporterId).catch(() => null);
             await sendReporterStatusDm({ user: reporter, guild: interaction.guild, status: 'action_taken' });
           }
-          return interaction.reply({ embeds: [embeds.success('Author timed out for 1 hour.', interaction.guild)], flags: MessageFlags.Ephemeral });
-        }
-        if (action === 'dismiss') {
-          const modal = new ModalBuilder()
-            .setCustomId(`report_dismiss_reason:${interaction.message.id}:${reporterId ?? ''}`)
-            .setTitle('Dismiss Report')
-            .addComponents(
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId('reason')
-                  .setLabel('Dismissal reason')
-                  .setStyle(TextInputStyle.Paragraph)
-                  .setRequired(true)
-                  .setMaxLength(500),
-              ),
-            );
-          return interaction.showModal(modal);
+          return interaction.editReply({ embeds: [embeds.success('Author timed out for 1 hour.', interaction.guild)] });
         }
       }
 
@@ -1441,18 +1442,19 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+        await tryDeferUpdate(interaction);
         const selectedReason = interaction.values?.[0] ?? 'other';
         const reasonLabel = REPORT_REASON_LABELS.get(selectedReason) ?? 'Other';
         const reportChannel = await interaction.guild.channels.fetch(REPORTS_CHANNEL_ID).catch(() => null);
         if (!reportChannel || !reportChannel.isTextBased()) {
-          return interaction.reply({
+          return interaction.followUp({
             embeds: [embeds.error('Reports channel is not configured correctly.', interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
         const sourceChannel = await interaction.guild.channels.fetch(sourceChannelId).catch(() => null);
         if (!sourceChannel || !sourceChannel.isTextBased()) {
-          return interaction.reply({
+          return interaction.followUp({
             embeds: [embeds.error('Original channel is no longer available.', interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
@@ -1496,7 +1498,7 @@ module.exports = {
         touchReportCooldown(interaction.guild.id, interaction.user.id, Date.now());
         await sendReporterStatusDm({ user: interaction.user, guild: interaction.guild, status: 'submitted' });
 
-        return interaction.update({
+        return interaction.editReply({
           embeds: [embeds.success('Report submitted to moderators.', interaction.guild)],
           components: [],
         });
@@ -1716,6 +1718,7 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+        await tryDeferUpdate(interaction);
         const seller = await interaction.client.users.fetch(result.listing.sellerId).catch(() => null);
         if (seller) {
           const purchasedItem = economy.ITEM_MAP.get(result.listing.itemId);
@@ -1740,7 +1743,7 @@ module.exports = {
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const market = economy.getMarketplaceEmbed(interaction.guild, snapshot.guildState, snapshot.user, 0, 'all');
         const components = economy.getMarketplaceComponents(snapshot.guildState, 0, 'all');
-        return interaction.update({ embeds: [market.embed], components });
+        return interaction.editReply({ embeds: [market.embed], components });
       }
 
       if (interaction.customId.startsWith('bakeadmin_action:')) {
@@ -1930,19 +1933,19 @@ module.exports = {
         }
         if (action === 'trigger_golden') {
           economy.adminForceGolden(interaction.guild.id, targetId);
+          await tryDeferReplyEphemeral(interaction);
           await sendBakeAdminLog(interaction, targetId, 'Trigger Golden Cookie', 'Forced Golden Cookie on next /bake');
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [embeds.success(`Forced Golden Cookie for <@${targetId}> on next bake.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
           });
         }
         if (action === 'ban_bake' || action === 'unban_bake') {
           const banned = action === 'ban_bake';
           economy.adminSetBakeBan(interaction.guild.id, targetId, banned);
+          await tryDeferReplyEphemeral(interaction);
           await sendBakeAdminLog(interaction, targetId, banned ? 'Ban Bake Commands' : 'Unban Bake Commands', banned ? 'User blocked from /bake and Bake Again' : 'User unblocked for /bake and Bake Again');
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [embeds.success(`${banned ? 'Banned' : 'Unbanned'} <@${targetId}> ${banned ? 'from' : 'for'} baking commands.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
           });
         }
         if (action === 'reset_user') {
@@ -2208,10 +2211,10 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+        await tryDeferReplyEphemeral(interaction);
         await sendBakeAdminLog(interaction, targetId, 'Unlock Upgrade', `Upgrade: ${upgradeId}`);
-        return interaction.reply({
+        return interaction.editReply({
           embeds: [embeds.success(`Unlocked upgrade \`${upgradeId}\` for <@${targetId}>.`, interaction.guild)],
-          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -2346,6 +2349,7 @@ module.exports = {
           });
         }
         const alliance = alliances.listAlliances(interaction.guild.id).find((entry) => entry.id === allianceId);
+        await tryDeferReplyEphemeral(interaction);
         await sendBakeAdminLog(
           interaction,
           targetId,
@@ -2357,9 +2361,8 @@ module.exports = {
           `Added: ${added.map((name) => `**${name}**`).join(', ')}`,
           skipped.length ? `Skipped: ${skipped.join(' • ')}` : null,
         ].filter(Boolean).join('\n');
-        return interaction.reply({
+        return interaction.editReply({
           embeds: [embeds.success(summary.slice(0, 4096), interaction.guild)],
-          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -2389,6 +2392,7 @@ module.exports = {
           });
         }
         const alliance = alliances.listAlliances(interaction.guild.id).find((entry) => entry.id === allianceId);
+        await tryDeferReplyEphemeral(interaction);
         await sendBakeAdminLog(
           interaction,
           targetId,
@@ -2400,9 +2404,8 @@ module.exports = {
           `Removed: ${removed.map((name) => `**${name}**`).join(', ')}`,
           skipped.length ? `Skipped: ${skipped.join(' • ')}` : null,
         ].filter(Boolean).join('\n');
-        return interaction.reply({
+        return interaction.editReply({
           embeds: [embeds.success(summary.slice(0, 4096), interaction.guild)],
-          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -2453,10 +2456,10 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+        await tryDeferReplyEphemeral(interaction);
         await sendBakeAdminLog(interaction, targetId, 'Grant Achievement', `Achievement: ${achievementId}`);
-        return interaction.reply({
+        return interaction.editReply({
           embeds: [embeds.success(`Granted achievement \`${achievementId}\` to <@${targetId}>.`, interaction.guild)],
-          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -2477,10 +2480,10 @@ module.exports = {
           });
         }
         const rank = economy.RANKS.find((entry) => entry.id === rankId);
+        await tryDeferReplyEphemeral(interaction);
         await sendBakeAdminLog(interaction, targetId, 'Set Rank', `Rank: ${rankId}`);
-        return interaction.reply({
+        return interaction.editReply({
           embeds: [embeds.success(`Set rank for <@${targetId}> to ${economy.getRankEmoji(rank, interaction.guild)} **${rank?.name ?? rankId}**.`, interaction.guild)],
-          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -2661,21 +2664,20 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+        await tryDeferReplyEphemeral(interaction);
         const category = interaction.fields.getTextInputValue('category').trim();
         const reason = interaction.fields.getTextInputValue('reason').trim();
         const reportChannel = await interaction.guild.channels.fetch(REPORTS_CHANNEL_ID).catch(() => null);
         if (!reportChannel || !reportChannel.isTextBased()) {
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [embeds.error('Reports channel is not configured correctly.', interaction.guild)],
-            flags: MessageFlags.Ephemeral,
           });
         }
 
         const sourceChannel = await interaction.guild.channels.fetch(sourceChannelId).catch(() => null);
         if (!sourceChannel || !sourceChannel.isTextBased()) {
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [embeds.error('Original channel is no longer available.', interaction.guild)],
-            flags: MessageFlags.Ephemeral,
           });
         }
         const sourceMessage = await sourceChannel.messages.fetch(messageId).catch(() => null);
@@ -2718,9 +2720,8 @@ module.exports = {
         touchReportCooldown(interaction.guild.id, interaction.user.id, Date.now());
         await sendReporterStatusDm({ user: interaction.user, guild: interaction.guild, status: 'submitted' });
 
-        return interaction.reply({
+        return interaction.editReply({
           embeds: [embeds.success('Report submitted to moderators.', interaction.guild)],
-          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -2733,6 +2734,7 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+        await tryDeferReplyEphemeral(interaction);
         const reportChannel = await interaction.guild.channels.fetch(REPORTS_CHANNEL_ID).catch(() => null);
         const reportMessage = reportChannel?.isTextBased()
           ? await reportChannel.messages.fetch(reportMessageId).catch(() => null)
@@ -2753,9 +2755,8 @@ module.exports = {
         if (reportMessage) {
           await reportMessage.edit({ embeds: [existingEmbed], components: [] }).catch(() => null);
         }
-        await interaction.reply({
+        await interaction.editReply({
           embeds: [embeds.success('Report dismissed with a recorded reason.', interaction.guild)],
-          flags: MessageFlags.Ephemeral,
         });
         if (reporterId) {
           const reporter = await interaction.client.users.fetch(reporterId).catch(() => null);
@@ -2861,10 +2862,10 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+        await tryDeferReplyEphemeral(interaction);
         await sendBakeAdminLog(interaction, targetId, 'Grant Reward Gift Box', `${rewardBoxId} x${quantity}`);
-        return interaction.reply({
+        return interaction.editReply({
           embeds: [embeds.success(`Granted ${economy.getRewardBoxEmoji(rewardBox, interaction.guild)} **${quantity}x ${rewardBox?.name ?? rewardBoxId}** to <@${targetId}>.`, interaction.guild)],
-          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -2890,10 +2891,10 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+        await tryDeferReplyEphemeral(interaction);
         await sendBakeAdminLog(interaction, targetId, 'Give Item', `${itemId} x${quantity}`);
-        return interaction.reply({
+        return interaction.editReply({
           embeds: [embeds.success(`Gave **${quantity}x ${economy.ITEM_MAP.get(itemId)?.name ?? itemId}** to <@${targetId}>.`, interaction.guild)],
-          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -2919,10 +2920,10 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+        await tryDeferReplyEphemeral(interaction);
         await sendBakeAdminLog(interaction, targetId, 'Set Building Count', `${buildingId}=${count}`);
-        return interaction.reply({
+        return interaction.editReply({
           embeds: [embeds.success(`Set **${buildingId}** to **${count}** for <@${targetId}>.`, interaction.guild)],
-          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -2948,10 +2949,10 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+        await tryDeferReplyEphemeral(interaction);
         await sendBakeAdminLog(interaction, targetId, 'Alliance: Delete', `${result.allianceName} (${result.allianceId}), members removed: ${result.memberCount}`);
-        return interaction.reply({
+        return interaction.editReply({
           embeds: [embeds.success(`Deleted alliance **${result.allianceName}** (\`${result.allianceId}\`).`, interaction.guild)],
-          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -2981,10 +2982,10 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+        await tryDeferReplyEphemeral(interaction);
         await sendBakeAdminLog(interaction, interaction.user.id, 'Gift All Users', `${rewardBoxId} x${quantity} — ${count} users`);
-        return interaction.reply({
+        return interaction.editReply({
           embeds: [embeds.success(`Gifted ${economy.getRewardBoxEmoji(rewardBox, interaction.guild)} **${quantity}x ${rewardBox?.name ?? rewardBoxId}** to **${count}** tracked user(s).`, interaction.guild)],
-          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -3011,11 +3012,11 @@ module.exports = {
           const eventId = extraParam ?? 'special_cookie_hunt';
           const eventDef = economy.COOKIE_EVENT_DEFINITIONS.find((e) => e.id === eventId) ?? economy.COOKIE_EVENT_DEFINITIONS[0];
           const event = economy.adminStartEvent(interaction.guild.id, durationMinutes, eventId);
+          await tryDeferReplyEphemeral(interaction);
           await sendBakeAdminLog(interaction, actorId, 'Global: Start Event', `${eventDef.name} for ${durationMinutes} minute(s)`);
           await sendBakeEventStartLog(interaction, eventDef, durationMinutes, event.startedAt, event.endsAt);
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [embeds.success(`Started **${eventDef.name}** for **${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}**.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
           });
         }
         if (action === 'reset_economy') {
@@ -3027,16 +3028,16 @@ module.exports = {
             });
           }
           economy.adminResetGuildEconomy(interaction.guild.id);
+          await tryDeferReplyEphemeral(interaction);
           await sendBakeAdminLog(interaction, actorId, 'Global: Reset Economy', 'Full guild bakery economy reset');
           const dashboardEmbed = economy.buildBakeAdminDashboardEmbed(interaction.guild, actorId);
           const dashboardComponents = economy.buildBakeAdminDashboardComponents(actorId);
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [
               embeds.success('Entire bakery economy reset completed for this guild.', interaction.guild),
               dashboardEmbed,
             ],
             components: dashboardComponents,
-            flags: MessageFlags.Ephemeral,
           });
         }
       }
@@ -3060,10 +3061,10 @@ module.exports = {
           }
           const delta = action === 'remove_cookies' ? -amount : amount;
           economy.adminGiveCookies(interaction.guild.id, targetId, delta);
+          await tryDeferReplyEphemeral(interaction);
           await sendBakeAdminLog(interaction, targetId, action === 'remove_cookies' ? 'Remove Cookies' : 'Give Cookies', `${delta} cookies`);
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [embeds.success(`${delta >= 0 ? 'Gave' : 'Removed'} **${economy.toCookieNumber(Math.abs(delta))}** cookies ${delta >= 0 ? 'to' : 'from'} <@${targetId}>.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
           });
         }
         if (action === 'reset_user') {
@@ -3075,10 +3076,10 @@ module.exports = {
             });
           }
           economy.adminResetUser(interaction.guild.id, targetId);
+          await tryDeferReplyEphemeral(interaction);
           await sendBakeAdminLog(interaction, targetId, 'Reset User', 'Full economy reset');
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [embeds.success(`Reset all baking data for <@${targetId}>.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
           });
         }
         if (action === 'start_event') {
@@ -3093,11 +3094,11 @@ module.exports = {
           const eventIdParam = interaction.customId.split(':')[4] ?? 'special_cookie_hunt';
           const eventDef = economy.COOKIE_EVENT_DEFINITIONS.find((e) => e.id === eventIdParam) ?? economy.COOKIE_EVENT_DEFINITIONS[0];
           const event = economy.adminStartEvent(interaction.guild.id, durationMinutes, eventDef.id);
+          await tryDeferReplyEphemeral(interaction);
           await sendBakeAdminLog(interaction, targetId, 'Start Event', `${eventDef.name} for ${durationMinutes} minute(s)`);
           await sendBakeEventStartLog(interaction, eventDef, durationMinutes, event.startedAt, event.endsAt);
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [embeds.success(`Started **${eventDef.name}** for **${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}**.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
           });
         }
       }
@@ -3154,6 +3155,7 @@ module.exports = {
         if (!broadcastMessageCommand.hasLeadManagement(interaction.member)) {
           return interaction.reply({ embeds: [embeds.error('Permission denied.', interaction.guild)], flags: MessageFlags.Ephemeral });
         }
+        await tryDeferReplyEphemeral(interaction);
         const title = interaction.fields.getTextInputValue('title').trim();
         const content = interaction.fields.getTextInputValue('content').trim();
 
@@ -3183,9 +3185,8 @@ module.exports = {
         targetUserIds = [...new Set(targetUserIds)];
 
         if (targetUserIds.length === 0) {
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [embeds.warning('No matching users found for the selected audience.', interaction.guild)],
-            flags: MessageFlags.Ephemeral,
           });
         }
 
@@ -3202,9 +3203,8 @@ module.exports = {
         }
         const audienceLabel = getBroadcastAudienceLabel(audience);
 
-        return interaction.reply({
+        return interaction.editReply({
           embeds: [embeds.success(`Broadcast sent to **${targetUserIds.length}** user(s) (audience: *${audienceLabel}*).`, interaction.guild)],
-          flags: MessageFlags.Ephemeral,
         });
       }
     }
