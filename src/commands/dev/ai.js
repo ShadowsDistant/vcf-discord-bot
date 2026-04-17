@@ -3602,7 +3602,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
     } catch (err) {
       await replyMsg.edit({
         embeds: [buildErrorEmbed(err.message, err.status)],
-        components: [],
+        components: buildErrorComponents(session),
       }).catch(() => null);
     } finally {
       session.busy = false;
@@ -3765,7 +3765,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
       } catch (err) {
         await replyMsg.edit({
           embeds: [buildErrorEmbed(err.message, err.status)],
-          components: [],
+          components: buildErrorComponents(session),
         }).catch(() => null);
       } finally {
         session.busy = false;
@@ -3851,6 +3851,29 @@ function buildProcessingEmbed(status = 'Thinking…') {
     .setTitle(`${LOADING_EMOJI} Processing`)
     .setDescription(`${LOADING_EMOJI} ${status}`)
     .setTimestamp();
+}
+
+/**
+ * Build minimal components shown alongside an error embed so the session owner
+ * can still switch model and retry via the Continue button.
+ * @param {object} session
+ * @returns {ActionRowBuilder[]}
+ */
+function buildErrorComponents(session) {
+  const rows = [];
+  rows.push(
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(AI_CONTINUE_BUTTON_ID)
+        .setStyle(ButtonStyle.Primary)
+        .setLabel('Continue'),
+    ),
+  );
+  rows.push(buildModelSelectRow(session.modelKey));
+  if (canToggleAiSafety(session.allowedUserId)) {
+    rows.push(buildSafetySelectRow(session.safetyEnabled));
+  }
+  return rows;
 }
 
 /**
