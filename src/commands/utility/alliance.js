@@ -697,7 +697,7 @@ async function handleAllianceButton(interaction) {
         interaction.guild,
         interaction.user.id,
         'store',
-        `Alliance ad posted in <#1492690923333746790>. Spent **${adSpendResult.spentCredits}** alliance credits. Next ad available <t:${Math.floor(adSpendResult.nextAvailableAt / 1000)}:R>.`,
+        `Alliance ad posted in <#${eventChannel.id}>. Spent **${adSpendResult.spentCredits}** alliance credits. Next ad available <t:${Math.floor(adSpendResult.nextAvailableAt / 1000)}:R>.`,
       ),
     );
   }
