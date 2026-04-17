@@ -486,6 +486,7 @@ function joinAlliance(guildId, userId, allianceIdOrName) {
       type: 'alliance_notification',
       content: `You joined alliance **${result.alliance.name}**.`,
     });
+    refreshGuildAllianceBoosts(guildId);
   }
 
   if (result.ok && result.pendingApproval) {
@@ -522,15 +523,17 @@ function leaveAlliance(guildId, userId) {
     alliance.joinRequests = (alliance.joinRequests ?? []).filter((entry) => entry.userId !== userId);
     delete guild.userAlliance[userId];
 
+    let newOwnerId = null;
     if (alliance.ownerId === userId && alliance.members.length > 0) {
       alliance.ownerId = alliance.members[0];
+      newOwnerId = alliance.members[0];
     }
 
     if (alliance.members.length === 0) {
       delete guild.alliances[alliance.id];
     }
 
-    return { ok: true, alliance };
+    return { ok: true, alliance, newOwnerId };
   });
 
   if (result.ok) {
@@ -538,6 +541,13 @@ function leaveAlliance(guildId, userId) {
       type: 'alliance_notification',
       content: `You left alliance **${result.alliance.name}**.`,
     });
+    if (result.newOwnerId) {
+      economy.addPendingMessage(guildId, result.newOwnerId, {
+        type: 'alliance_notification',
+        content: `You are now the owner of **${result.alliance.name}** because the previous owner left.`,
+      });
+    }
+    refreshGuildAllianceBoosts(guildId);
   }
 
   return result;
@@ -591,7 +601,7 @@ function setAllianceDescription(guildId, actorId, description) {
 }
 
 function transferAllianceOwnership(guildId, actorId, targetUserId) {
-  return db.update(ALLIANCES_FILE, {}, (data) => {
+  const result = db.update(ALLIANCES_FILE, {}, (data) => {
     const guild = getGuildState(data, guildId);
     const allianceId = guild.userAlliance?.[actorId];
     if (!allianceId) return { ok: false, reason: 'You are not in an alliance.' };
@@ -605,6 +615,19 @@ function transferAllianceOwnership(guildId, actorId, targetUserId) {
     alliance.ownerId = targetUserId;
     return { ok: true, alliance };
   });
+
+  if (result.ok) {
+    economy.addPendingMessage(guildId, targetUserId, {
+      type: 'alliance_notification',
+      content: `You are now the owner of **${result.alliance.name}**. <@${actorId}> transferred ownership to you.`,
+    });
+    economy.addPendingMessage(guildId, actorId, {
+      type: 'alliance_notification',
+      content: `You transferred ownership of **${result.alliance.name}** to <@${targetUserId}>.`,
+    });
+  }
+
+  return result;
 }
 
 function removeAllianceMember(guildId, actorId, targetUserId, reason = '') {
@@ -631,6 +654,7 @@ function removeAllianceMember(guildId, actorId, targetUserId, reason = '') {
       type: 'alliance_notification',
       content: `You were kicked from alliance **${result.alliance.name}**.${reasonText}`,
     });
+    refreshGuildAllianceBoosts(guildId);
   }
 
   return result;
@@ -687,6 +711,7 @@ function resolveAllianceJoinRequest(guildId, actorId, targetUserId, approve) {
       notificationType: 'alliance_join_request_owner_approved',
       content: `You approved <@${targetUserId}> to join **${result.alliance.name}**.`,
     });
+    refreshGuildAllianceBoosts(guildId);
   }
   if (result.ok && !result.approved) {
     economy.addPendingMessage(guildId, targetUserId, {
