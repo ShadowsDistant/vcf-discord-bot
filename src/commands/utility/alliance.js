@@ -588,6 +588,19 @@ function buildAllianceAdEmbed(guild, data) {
     .setFooter({ text: guild.name, iconURL: guild.iconURL({ dynamic: true }) ?? undefined });
 }
 
+async function resolveInteractionGuild(interaction) {
+  if (interaction.guild) return interaction.guild;
+  if (!interaction.guildId) return null;
+  return interaction.client?.guilds?.fetch?.(interaction.guildId).catch(() => null) ?? null;
+}
+
+function replyGuildUnavailable(interaction) {
+  return interaction.reply({
+    embeds: [embeds.error('Guild context is unavailable. Please run `/alliance` again.', interaction.guild ?? null)],
+    flags: MessageFlags.Ephemeral,
+  });
+}
+
 async function respondWithPanelUpdate(interaction, panelPayload) {
   await maybeSendChallengeRewardDms(interaction, panelPayload);
   return interaction.update(stripPanelMeta(panelPayload));
@@ -602,17 +615,19 @@ async function respondWithPanelReply(interaction, panelPayload) {
 }
 
 async function handleAllianceButton(interaction) {
+  const guild = await resolveInteractionGuild(interaction);
+  if (!guild) return replyGuildUnavailable(interaction);
   const [, action, viewRaw] = interaction.customId.split(':');
   const view = PANEL_VIEWS.includes(viewRaw) ? viewRaw : 'overview';
 
   if (action === 'refresh') {
-    return respondWithPanelUpdate(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, view));
+    return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, view));
   }
   if (action === 'create') return interaction.showModal(buildCreateAllianceModal());
   if (action === 'join') return interaction.showModal(buildJoinAllianceModal());
   if (action === 'rename') return interaction.showModal(buildRenameAllianceModal());
   if (action === 'edit_description') {
-    const current = alliances.getMemberAlliance(interaction.guild.id, interaction.user.id);
+    const current = alliances.getMemberAlliance(guild.id, interaction.user.id);
     if (!current) {
       return interaction.reply({ embeds: [embeds.error('You are not in an alliance.', interaction.guild)], flags: MessageFlags.Ephemeral });
     }
@@ -622,32 +637,32 @@ async function handleAllianceButton(interaction) {
     return interaction.showModal(buildEditAllianceDescriptionModal(current.description ?? ''));
   }
   if (action === 'toggle_approval') {
-    const current = alliances.getMemberAlliance(interaction.guild.id, interaction.user.id);
+    const current = alliances.getMemberAlliance(guild.id, interaction.user.id);
     if (!current) {
       return interaction.reply({ embeds: [embeds.error('You are not in an alliance.', interaction.guild)], flags: MessageFlags.Ephemeral });
     }
-    const result = alliances.setAllianceJoinApproval(interaction.guild.id, interaction.user.id, !current.joinApprovalEnabled);
+    const result = alliances.setAllianceJoinApproval(guild.id, interaction.user.id, !current.joinApprovalEnabled);
     if (!result.ok) {
       return interaction.reply({ embeds: [embeds.error(result.reason, interaction.guild)], flags: MessageFlags.Ephemeral });
     }
     const statusText = result.alliance.joinApprovalEnabled ? 'enabled' : 'disabled';
     return respondWithPanelUpdate(
-      interaction,
-      buildAlliancePanel(interaction.guild, interaction.user.id, 'manage', `Join approval is now **${statusText}**.`),
-    );
+        interaction,
+        buildAlliancePanel(guild, interaction.user.id, 'manage', `Join approval is now **${statusText}**.`),
+      );
   }
   if (action === 'leave') {
-    const result = alliances.leaveAlliance(interaction.guild.id, interaction.user.id);
+    const result = alliances.leaveAlliance(guild.id, interaction.user.id);
     if (!result.ok) {
       return interaction.reply({
         embeds: [embeds.error(result.reason, interaction.guild)],
         flags: MessageFlags.Ephemeral,
       });
     }
-    return respondWithPanelUpdate(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'overview', 'You left your alliance.'));
+    return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, 'overview', 'You left your alliance.'));
   }
   if (action === 'post_ad') {
-    const adSpendResult = alliances.spendAllianceAdCredits(interaction.guild.id, interaction.user.id, Date.now());
+    const adSpendResult = alliances.spendAllianceAdCredits(guild.id, interaction.user.id, Date.now());
     if (!adSpendResult.ok) {
       if (Number.isFinite(adSpendResult.remainingMs) && adSpendResult.remainingMs > 0) {
         return interaction.reply({
@@ -661,7 +676,7 @@ async function handleAllianceButton(interaction) {
       });
     }
 
-    const refreshed = alliances.getAllianceWithChallenge(interaction.guild.id, interaction.user.id);
+    const refreshed = alliances.getAllianceWithChallenge(guild.id, interaction.user.id);
     if (!refreshed?.alliance) {
       return interaction.reply({
         embeds: [embeds.error('Alliance data is unavailable right now.', interaction.guild)],
@@ -669,15 +684,15 @@ async function handleAllianceButton(interaction) {
       });
     }
 
-    const adEmbed = buildAllianceAdEmbed(interaction.guild, refreshed);
+    const adEmbed = buildAllianceAdEmbed(guild, refreshed);
     const joinButton = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`alliance_ad_join:${refreshed.alliance.id}`)
         .setLabel(refreshed.alliance.joinApprovalEnabled ? 'Request to Join' : 'Join Alliance')
         .setStyle(ButtonStyle.Success)
-        .setEmoji(economy.getButtonEmoji(interaction.guild, ['International_exchange', 'marketplace'], '🤝')),
+        .setEmoji(economy.getButtonEmoji(guild, ['International_exchange', 'marketplace'], '🤝')),
     );
-    const eventChannel = await fetchLogChannel(interaction.guild, 'cookieEvents');
+    const eventChannel = await fetchLogChannel(guild, 'cookieEvents');
     if (!eventChannel) {
       return interaction.reply({
         embeds: [embeds.error('Event channel is unavailable. No credits were refunded.', interaction.guild)],
@@ -693,11 +708,11 @@ async function handleAllianceButton(interaction) {
     }
     return respondWithPanelUpdate(
       interaction,
-      buildAlliancePanel(
-        interaction.guild,
-        interaction.user.id,
-        'store',
-        `Alliance ad posted in <#${eventChannel.id}>. Spent **${adSpendResult.spentCredits}** alliance credits. Next ad available <t:${Math.floor(adSpendResult.nextAvailableAt / 1000)}:R>.`,
+          buildAlliancePanel(
+            guild,
+            interaction.user.id,
+            'store',
+            `Alliance ad posted in <#${eventChannel.id}>. Spent **${adSpendResult.spentCredits}** alliance credits. Next ad available <t:${Math.floor(adSpendResult.nextAvailableAt / 1000)}:R>.`,
       ),
     );
   }
@@ -705,6 +720,8 @@ async function handleAllianceButton(interaction) {
 }
 
 async function handleAllianceAdJoinButton(interaction) {
+  const guild = await resolveInteractionGuild(interaction);
+  if (!guild) return replyGuildUnavailable(interaction);
   const [, allianceId] = String(interaction.customId ?? '').split(':');
   if (!allianceId) {
     return interaction.reply({
@@ -712,7 +729,7 @@ async function handleAllianceAdJoinButton(interaction) {
       flags: MessageFlags.Ephemeral,
     });
   }
-  const result = alliances.joinAlliance(interaction.guild.id, interaction.user.id, allianceId);
+  const result = alliances.joinAlliance(guild.id, interaction.user.id, allianceId);
   if (!result.ok) {
     return interaction.reply({
       embeds: [embeds.error(result.reason, interaction.guild)],
@@ -729,13 +746,15 @@ async function handleAllianceAdJoinButton(interaction) {
 }
 
 async function handleAllianceSelect(interaction) {
+  const guild = await resolveInteractionGuild(interaction);
+  if (!guild) return replyGuildUnavailable(interaction);
   if (interaction.customId === 'alliance_nav_select') {
     const view = interaction.values[0] ?? 'overview';
-    return respondWithPanelUpdate(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, view));
+    return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, view));
   }
   if (interaction.customId === 'alliance_join_select') {
     const allianceId = interaction.values[0];
-    const result = alliances.joinAlliance(interaction.guild.id, interaction.user.id, allianceId);
+    const result = alliances.joinAlliance(guild.id, interaction.user.id, allianceId);
     if (!result.ok) {
       return interaction.reply({
         embeds: [embeds.error(result.reason, interaction.guild)],
@@ -745,11 +764,11 @@ async function handleAllianceSelect(interaction) {
     const notice = result.pendingApproval
       ? `Join request submitted to **${result.alliance.name}**.`
       : `You joined **${result.alliance.name}**.`;
-    return respondWithPanelUpdate(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'overview', notice));
+    return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, 'overview', notice));
   }
   if (interaction.customId === 'alliance_store_select') {
     const upgradeId = interaction.values[0];
-    const result = alliances.buyAllianceUpgrade(interaction.guild.id, interaction.user.id, upgradeId);
+    const result = alliances.buyAllianceUpgrade(guild.id, interaction.user.id, upgradeId);
     if (!result.ok) {
       return interaction.reply({
         embeds: [embeds.error(result.reason, interaction.guild)],
@@ -757,11 +776,11 @@ async function handleAllianceSelect(interaction) {
       });
     }
     await notifyUpgradePurchase(interaction, result.alliance, result.upgrade);
-    return respondWithPanelUpdate(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'store', `Purchased **${result.upgrade.name}**.`));
+    return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, 'store', `Purchased **${result.upgrade.name}**.`));
   }
   if (interaction.customId === 'alliance_store_sell_select') {
     const upgradeId = interaction.values[0];
-    const result = alliances.sellAllianceUpgrade(interaction.guild.id, interaction.user.id, upgradeId);
+    const result = alliances.sellAllianceUpgrade(guild.id, interaction.user.id, upgradeId);
     if (!result.ok) {
       return interaction.reply({
         embeds: [embeds.error(result.reason, interaction.guild)],
@@ -769,25 +788,20 @@ async function handleAllianceSelect(interaction) {
       });
     }
     return respondWithPanelUpdate(
-      interaction,
-      buildAlliancePanel(
-        interaction.guild,
-        interaction.user.id,
-        'store',
-        `Sold **${result.upgrade.name}** for **${result.refund}** alliance credits (30% loss).`,
-      ),
-    );
+        interaction,
+        buildAlliancePanel(guild, interaction.user.id, 'store', `Sold **${result.upgrade.name}** for **${result.refund}** alliance credits (30% loss).`),
+      );
   }
   if (interaction.customId === 'alliance_transfer_select') {
     const memberId = interaction.values[0];
-    const result = alliances.transferAllianceOwnership(interaction.guild.id, interaction.user.id, memberId);
+    const result = alliances.transferAllianceOwnership(guild.id, interaction.user.id, memberId);
     if (!result.ok) {
       return interaction.reply({
         embeds: [embeds.error(result.reason, interaction.guild)],
         flags: MessageFlags.Ephemeral,
       });
     }
-    return respondWithPanelUpdate(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'manage', `Ownership transferred to <@${memberId}>.`));
+    return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, 'manage', `Ownership transferred to <@${memberId}>.`));
   }
   if (interaction.customId === 'alliance_remove_select') {
     const memberId = interaction.values[0];
@@ -813,25 +827,27 @@ async function handleAllianceSelect(interaction) {
     if (!memberId || (action !== 'approve' && action !== 'deny')) {
       return interaction.reply({ embeds: [embeds.error('Invalid join-request action.', interaction.guild)], flags: MessageFlags.Ephemeral });
     }
-    const result = alliances.resolveAllianceJoinRequest(interaction.guild.id, interaction.user.id, memberId, approve);
+    const result = alliances.resolveAllianceJoinRequest(guild.id, interaction.user.id, memberId, approve);
     if (!result.ok) {
       return interaction.reply({ embeds: [embeds.error(result.reason, interaction.guild)], flags: MessageFlags.Ephemeral });
     }
     const notice = approve
       ? `Approved join request for <@${memberId}>.`
       : `Denied join request for <@${memberId}>.`;
-    return respondWithPanelUpdate(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'manage', notice));
+    return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, 'manage', notice));
   }
   return null;
 }
 
 async function handleAllianceModal(interaction) {
+  const guild = await resolveInteractionGuild(interaction);
+  if (!guild) return replyGuildUnavailable(interaction);
   const parts = interaction.customId.split(':');
   const modalType = parts[1];
 
   if (modalType === 'create') {
     const name = interaction.fields.getTextInputValue('name').trim();
-    const result = alliances.createAlliance(interaction.guild.id, interaction.user.id, name);
+    const result = alliances.createAlliance(guild.id, interaction.user.id, name);
     if (!result.ok) {
       return interaction.reply({
         embeds: [embeds.error(result.reason, interaction.guild)],
@@ -840,13 +856,13 @@ async function handleAllianceModal(interaction) {
     }
     return respondWithPanelReply(
       interaction,
-      buildAlliancePanel(interaction.guild, interaction.user.id, 'overview', `Alliance created: **${result.alliance.name}** (ID: \`${result.alliance.id}\`).`),
+      buildAlliancePanel(guild, interaction.user.id, 'overview', `Alliance created: **${result.alliance.name}** (ID: \`${result.alliance.id}\`).`),
     );
   }
 
   if (modalType === 'join') {
     const value = interaction.fields.getTextInputValue('alliance').trim();
-    const result = alliances.joinAlliance(interaction.guild.id, interaction.user.id, value);
+    const result = alliances.joinAlliance(guild.id, interaction.user.id, value);
     if (!result.ok) {
       return interaction.reply({
         embeds: [embeds.error(result.reason, interaction.guild)],
@@ -856,24 +872,24 @@ async function handleAllianceModal(interaction) {
     const notice = result.pendingApproval
       ? `Join request submitted to **${result.alliance.name}**.`
       : `You joined **${result.alliance.name}**.`;
-    return respondWithPanelReply(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'overview', notice));
+    return respondWithPanelReply(interaction, buildAlliancePanel(guild, interaction.user.id, 'overview', notice));
   }
 
   if (modalType === 'rename') {
     const name = interaction.fields.getTextInputValue('name').trim();
-    const result = alliances.renameAlliance(interaction.guild.id, interaction.user.id, name);
+    const result = alliances.renameAlliance(guild.id, interaction.user.id, name);
     if (!result.ok) {
       return interaction.reply({
         embeds: [embeds.error(result.reason, interaction.guild)],
         flags: MessageFlags.Ephemeral,
       });
     }
-    return respondWithPanelReply(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'manage', `Alliance renamed to **${result.alliance.name}**.`));
+    return respondWithPanelReply(interaction, buildAlliancePanel(guild, interaction.user.id, 'manage', `Alliance renamed to **${result.alliance.name}**.`));
   }
 
   if (modalType === 'edit_description') {
     const description = interaction.fields.getTextInputValue('description')?.trim() ?? '';
-    const result = alliances.setAllianceDescription(interaction.guild.id, interaction.user.id, description);
+    const result = alliances.setAllianceDescription(guild.id, interaction.user.id, description);
     if (!result.ok) {
       return interaction.reply({
         embeds: [embeds.error(result.reason, interaction.guild)],
@@ -883,14 +899,14 @@ async function handleAllianceModal(interaction) {
     const notice = description
       ? 'Alliance description updated.'
       : 'Alliance description cleared.';
-    return respondWithPanelReply(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'manage', notice));
+    return respondWithPanelReply(interaction, buildAlliancePanel(guild, interaction.user.id, 'manage', notice));
   }
 
   if (modalType === 'kick_reason') {
     const targetMemberId = parts[2];
     if (!targetMemberId) return null;
     const reason = interaction.fields.getTextInputValue('reason')?.trim() ?? '';
-    const result = alliances.removeAllianceMember(interaction.guild.id, interaction.user.id, targetMemberId, reason);
+    const result = alliances.removeAllianceMember(guild.id, interaction.user.id, targetMemberId, reason);
     if (!result.ok) {
       return interaction.reply({
         embeds: [embeds.error(result.reason, interaction.guild)],
@@ -900,7 +916,7 @@ async function handleAllianceModal(interaction) {
     const notice = reason
       ? `Kicked <@${targetMemberId}> from the alliance. Reason: *${reason}*`
       : `Kicked <@${targetMemberId}> from the alliance.`;
-    return respondWithPanelReply(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'manage', notice));
+    return respondWithPanelReply(interaction, buildAlliancePanel(guild, interaction.user.id, 'manage', notice));
   }
 
   return null;
@@ -913,7 +929,9 @@ module.exports = {
     .setDMPermission(false),
 
   async execute(interaction) {
-    return respondWithPanelReply(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'overview'));
+    const guild = await resolveInteractionGuild(interaction);
+    if (!guild) return replyGuildUnavailable(interaction);
+    return respondWithPanelReply(interaction, buildAlliancePanel(guild, interaction.user.id, 'overview'));
   },
 
   isAllianceButtonCustomId(customId) {
