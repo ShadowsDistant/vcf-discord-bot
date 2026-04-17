@@ -673,19 +673,16 @@ async function respondWithPanelReply(interaction, panelPayload) {
 }
 
 async function handleAllianceButton(interaction) {
-  const guild = await resolveInteractionGuild(interaction);
-  if (!guild) return replyGuildUnavailable(interaction);
   const [, action, viewRaw] = interaction.customId.split(':');
   const view = PANEL_VIEWS.includes(viewRaw) ? viewRaw : 'overview';
 
-  if (action === 'refresh') {
-    await tryDeferUpdate(interaction);
-    return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, view));
-  }
+  // These actions open a modal — must acknowledge with showModal, cannot defer first.
   if (action === 'create') return interaction.showModal(buildCreateAllianceModal());
   if (action === 'join') return interaction.showModal(buildJoinAllianceModal());
   if (action === 'rename') return interaction.showModal(buildRenameAllianceModal());
   if (action === 'edit_description') {
+    const guild = await resolveInteractionGuild(interaction);
+    if (!guild) return replyGuildUnavailable(interaction);
     const current = alliances.getMemberAlliance(guild.id, interaction.user.id);
     if (!current) {
       return respondEphemeral(interaction, { embeds: [embeds.error('You are not in an alliance.', guild)] });
@@ -694,6 +691,18 @@ async function handleAllianceButton(interaction) {
       return respondEphemeral(interaction, { embeds: [embeds.error('Only the alliance owner can edit the description.', guild)] });
     }
     return interaction.showModal(buildEditAllianceDescriptionModal(current.description ?? ''));
+  }
+
+  // All other actions update the panel — defer immediately to acknowledge within 3 seconds
+  // before running any DB or async work.
+  await tryDeferUpdate(interaction);
+  const guild = await resolveInteractionGuild(interaction);
+  if (!guild) {
+    return respondEphemeral(interaction, { embeds: [embeds.error('Guild context is unavailable. Please run `/alliance` again.', null)] });
+  }
+
+  if (action === 'refresh') {
+    return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, view));
   }
   if (action === 'toggle_approval') {
     const current = alliances.getMemberAlliance(guild.id, interaction.user.id);
@@ -704,21 +713,17 @@ async function handleAllianceButton(interaction) {
     if (!result.ok) {
       return respondEphemeral(interaction, { embeds: [embeds.error(result.reason, guild)] });
     }
-    await tryDeferUpdate(interaction);
     const statusText = result.alliance.joinApprovalEnabled ? 'enabled' : 'disabled';
     return respondWithPanelUpdate(
-        interaction,
-        buildAlliancePanel(guild, interaction.user.id, 'manage', `Join approval is now **${statusText}**.`),
-      );
+      interaction,
+      buildAlliancePanel(guild, interaction.user.id, 'manage', `Join approval is now **${statusText}**.`),
+    );
   }
   if (action === 'leave') {
     const result = alliances.leaveAlliance(guild.id, interaction.user.id);
     if (!result.ok) {
-      return respondEphemeral(interaction, {
-        embeds: [embeds.error(result.reason, guild)],
-      });
+      return respondEphemeral(interaction, { embeds: [embeds.error(result.reason, guild)] });
     }
-    await tryDeferUpdate(interaction);
     return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, 'overview', 'You left your alliance.'));
   }
   if (action === 'post_ad') {
@@ -729,19 +734,14 @@ async function handleAllianceButton(interaction) {
           embeds: [embeds.error(`Alliance ad cooldown active. Try again in **${formatHoursFromMs(adSpendResult.remainingMs)}**.`, guild)],
         });
       }
-      return respondEphemeral(interaction, {
-        embeds: [embeds.error(adSpendResult.reason, guild)],
-      });
+      return respondEphemeral(interaction, { embeds: [embeds.error(adSpendResult.reason, guild)] });
     }
 
     const refreshed = alliances.getAllianceWithChallenge(guild.id, interaction.user.id);
     if (!refreshed?.alliance) {
-      return respondEphemeral(interaction, {
-        embeds: [embeds.error('Alliance data is unavailable right now.', guild)],
-      });
+      return respondEphemeral(interaction, { embeds: [embeds.error('Alliance data is unavailable right now.', guild)] });
     }
 
-    await tryDeferUpdate(interaction);
     const adEmbed = buildAllianceAdEmbed(guild, refreshed);
     const joinButton = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
@@ -752,23 +752,19 @@ async function handleAllianceButton(interaction) {
     );
     const eventChannel = await fetchLogChannel(guild, 'cookieEvents');
     if (!eventChannel) {
-      return respondEphemeral(interaction, {
-        embeds: [embeds.error('Event channel is unavailable. No credits were refunded.', guild)],
-      });
+      return respondEphemeral(interaction, { embeds: [embeds.error('Event channel is unavailable. No credits were refunded.', guild)] });
     }
     const sentAdMessage = await eventChannel.send({ embeds: [adEmbed], components: [joinButton] }).catch(() => null);
     if (!sentAdMessage) {
-      return respondEphemeral(interaction, {
-        embeds: [embeds.error('Failed to post alliance ad in the event channel. No credits were refunded.', guild)],
-      });
+      return respondEphemeral(interaction, { embeds: [embeds.error('Failed to post alliance ad in the event channel. No credits were refunded.', guild)] });
     }
     return respondWithPanelUpdate(
       interaction,
-          buildAlliancePanel(
-            guild,
-            interaction.user.id,
-            'store',
-            `Alliance ad posted in <#${eventChannel.id}>. Spent **${adSpendResult.spentCredits}** alliance credits. Next ad available <t:${Math.floor(adSpendResult.nextAvailableAt / 1000)}:R>.`,
+      buildAlliancePanel(
+        guild,
+        interaction.user.id,
+        'store',
+        `Alliance ad posted in <#${eventChannel.id}>. Spent **${adSpendResult.spentCredits}** alliance credits. Next ad available <t:${Math.floor(adSpendResult.nextAvailableAt / 1000)}:R>.`,
       ),
     );
   }
@@ -776,88 +772,31 @@ async function handleAllianceButton(interaction) {
 }
 
 async function handleAllianceAdJoinButton(interaction) {
+  // Defer immediately — joinAlliance triggers refreshGuildAllianceBoosts which is expensive.
+  await tryDeferReply(interaction);
   const guild = await resolveInteractionGuild(interaction);
-  if (!guild) return replyGuildUnavailable(interaction);
+  if (!guild) {
+    return respondEphemeral(interaction, { embeds: [embeds.error('Guild context is unavailable. Please try again.', null)] });
+  }
   const [, allianceId] = String(interaction.customId ?? '').split(':');
   if (!allianceId) {
-    return respondEphemeral(interaction, {
-      embeds: [embeds.error('Invalid alliance ad button.', guild)],
-    });
+    return respondEphemeral(interaction, { embeds: [embeds.error('Invalid alliance ad button.', guild)] });
   }
   const result = alliances.joinAlliance(guild.id, interaction.user.id, allianceId);
   if (!result.ok) {
-    return respondEphemeral(interaction, {
-      embeds: [embeds.error(result.reason, guild)],
-    });
+    return respondEphemeral(interaction, { embeds: [embeds.error(result.reason, guild)] });
   }
   const notice = result.pendingApproval
     ? `Join request sent to **${result.alliance.name}**. Check \`/messages\` for updates.`
     : `You joined **${result.alliance.name}**.`;
-  return respondEphemeral(interaction, {
-    embeds: [embeds.success(notice, guild)],
-  });
+  return respondEphemeral(interaction, { embeds: [embeds.success(notice, guild)] });
 }
 
 async function handleAllianceSelect(interaction) {
-  const guild = await resolveInteractionGuild(interaction);
-  if (!guild) return replyGuildUnavailable(interaction);
-  if (interaction.customId === 'alliance_nav_select') {
-    const view = interaction.values[0] ?? 'overview';
-    await tryDeferUpdate(interaction);
-    return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, view));
-  }
-  if (interaction.customId === 'alliance_join_select') {
-    const allianceId = interaction.values[0];
-    const result = alliances.joinAlliance(guild.id, interaction.user.id, allianceId);
-    if (!result.ok) {
-      return respondEphemeral(interaction, {
-        embeds: [embeds.error(result.reason, guild)],
-      });
-    }
-    await tryDeferUpdate(interaction);
-    const notice = result.pendingApproval
-      ? `Join request submitted to **${result.alliance.name}**.`
-      : `You joined **${result.alliance.name}**.`;
-    return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, 'overview', notice));
-  }
-  if (interaction.customId === 'alliance_store_select') {
-    const upgradeId = interaction.values[0];
-    const result = alliances.buyAllianceUpgrade(guild.id, interaction.user.id, upgradeId);
-    if (!result.ok) {
-      return respondEphemeral(interaction, {
-        embeds: [embeds.error(result.reason, guild)],
-      });
-    }
-    await tryDeferUpdate(interaction);
-    await notifyUpgradePurchase(interaction, result.alliance, result.upgrade);
-    return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, 'store', `Purchased **${result.upgrade.name}**.`));
-  }
-  if (interaction.customId === 'alliance_store_sell_select') {
-    const upgradeId = interaction.values[0];
-    const result = alliances.sellAllianceUpgrade(guild.id, interaction.user.id, upgradeId);
-    if (!result.ok) {
-      return respondEphemeral(interaction, {
-        embeds: [embeds.error(result.reason, guild)],
-      });
-    }
-    await tryDeferUpdate(interaction);
-    return respondWithPanelUpdate(
-        interaction,
-        buildAlliancePanel(guild, interaction.user.id, 'store', `Sold **${result.upgrade.name}** for **${result.refund}** alliance credits (30% loss).`),
-      );
-  }
-  if (interaction.customId === 'alliance_transfer_select') {
-    const memberId = interaction.values[0];
-    const result = alliances.transferAllianceOwnership(guild.id, interaction.user.id, memberId);
-    if (!result.ok) {
-      return respondEphemeral(interaction, {
-        embeds: [embeds.error(result.reason, guild)],
-      });
-    }
-    await tryDeferUpdate(interaction);
-    return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, 'manage', `Ownership transferred to <@${memberId}>.`));
-  }
+  // This action opens a modal — must acknowledge with showModal, cannot defer first.
   if (interaction.customId === 'alliance_remove_select') {
+    const guild = await resolveInteractionGuild(interaction);
+    if (!guild) return replyGuildUnavailable(interaction);
     const memberId = interaction.values[0];
     const modal = new ModalBuilder()
       .setCustomId(`alliance_modal:kick_reason:${memberId}`)
@@ -875,6 +814,57 @@ async function handleAllianceSelect(interaction) {
       );
     return interaction.showModal(modal);
   }
+
+  // All other selects update the panel — defer immediately before any DB or async work.
+  await tryDeferUpdate(interaction);
+  const guild = await resolveInteractionGuild(interaction);
+  if (!guild) {
+    return respondEphemeral(interaction, { embeds: [embeds.error('Guild context is unavailable. Please run `/alliance` again.', null)] });
+  }
+
+  if (interaction.customId === 'alliance_nav_select') {
+    const view = interaction.values[0] ?? 'overview';
+    return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, view));
+  }
+  if (interaction.customId === 'alliance_join_select') {
+    const allianceId = interaction.values[0];
+    const result = alliances.joinAlliance(guild.id, interaction.user.id, allianceId);
+    if (!result.ok) {
+      return respondEphemeral(interaction, { embeds: [embeds.error(result.reason, guild)] });
+    }
+    const notice = result.pendingApproval
+      ? `Join request submitted to **${result.alliance.name}**.`
+      : `You joined **${result.alliance.name}**.`;
+    return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, 'overview', notice));
+  }
+  if (interaction.customId === 'alliance_store_select') {
+    const upgradeId = interaction.values[0];
+    const result = alliances.buyAllianceUpgrade(guild.id, interaction.user.id, upgradeId);
+    if (!result.ok) {
+      return respondEphemeral(interaction, { embeds: [embeds.error(result.reason, guild)] });
+    }
+    await notifyUpgradePurchase(interaction, result.alliance, result.upgrade);
+    return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, 'store', `Purchased **${result.upgrade.name}**.`));
+  }
+  if (interaction.customId === 'alliance_store_sell_select') {
+    const upgradeId = interaction.values[0];
+    const result = alliances.sellAllianceUpgrade(guild.id, interaction.user.id, upgradeId);
+    if (!result.ok) {
+      return respondEphemeral(interaction, { embeds: [embeds.error(result.reason, guild)] });
+    }
+    return respondWithPanelUpdate(
+      interaction,
+      buildAlliancePanel(guild, interaction.user.id, 'store', `Sold **${result.upgrade.name}** for **${result.refund}** alliance credits (30% loss).`),
+    );
+  }
+  if (interaction.customId === 'alliance_transfer_select') {
+    const memberId = interaction.values[0];
+    const result = alliances.transferAllianceOwnership(guild.id, interaction.user.id, memberId);
+    if (!result.ok) {
+      return respondEphemeral(interaction, { embeds: [embeds.error(result.reason, guild)] });
+    }
+    return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, 'manage', `Ownership transferred to <@${memberId}>.`));
+  }
   if (interaction.customId === 'alliance_request_action_select') {
     const [action, memberId] = String(interaction.values[0] ?? '').split(':');
     const approve = action === 'approve';
@@ -885,7 +875,6 @@ async function handleAllianceSelect(interaction) {
     if (!result.ok) {
       return respondEphemeral(interaction, { embeds: [embeds.error(result.reason, guild)] });
     }
-    await tryDeferUpdate(interaction);
     const notice = approve
       ? `Approved join request for <@${memberId}>.`
       : `Denied join request for <@${memberId}>.`;
@@ -895,8 +884,12 @@ async function handleAllianceSelect(interaction) {
 }
 
 async function handleAllianceModal(interaction) {
+  // Defer reply immediately — panel building involves multiple synchronous DB reads.
+  await tryDeferReply(interaction);
   const guild = await resolveInteractionGuild(interaction);
-  if (!guild) return replyGuildUnavailable(interaction);
+  if (!guild) {
+    return respondEphemeral(interaction, { embeds: [embeds.error('Guild context is unavailable. Please run `/alliance` again.', null)] });
+  }
   const parts = interaction.customId.split(':');
   const modalType = parts[1];
 
@@ -979,9 +972,11 @@ module.exports = {
     .setDMPermission(false),
 
   async execute(interaction) {
-    const guild = await resolveInteractionGuild(interaction);
-    if (!guild) return replyGuildUnavailable(interaction);
     await tryDeferReply(interaction);
+    const guild = await resolveInteractionGuild(interaction);
+    if (!guild) {
+      return respondEphemeral(interaction, { embeds: [embeds.error('Guild context is unavailable. Please try again.', null)] });
+    }
     return respondWithPanelReply(interaction, buildAlliancePanel(guild, interaction.user.id, 'overview'));
   },
 
