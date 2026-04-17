@@ -306,7 +306,7 @@ const STATIC_EMOJI_CATEGORY_PRIORITY = ['ranks', 'rewardBoxes', 'upgrades', 'coo
 
 const BUILDING_EMOJI_ALIASES = {
   cursor: ['Cursor_64px'],
-  grandma: ['Grandmas'],
+  grandma: ['Grandmas', 'Grandma', 'grandma', 'grandmas'],
   farm: ['Farm'],
   mine: ['Mine_new'],
   factory: ['Factory_new'],
@@ -323,7 +323,7 @@ const BUILDING_EMOJI_ALIASES = {
   fractalEngine: ['Fractal_engine'],
   javascriptConsole: ['Javascript_console'],
   idleverse: ['Idleverse'],
-  cortexBaker: ['Cortex_Baker'],
+  cortexBaker: ['Cortex_Baker', 'CortexBaker', 'Cortex Baker', 'cortex_baker', 'cortexbaker'],
 };
 
 const ITEM_EMOJI_ALIASES = {};
@@ -458,6 +458,7 @@ const RANKS = [
 const RANK_INDEX = new Map(RANKS.map((rank, index) => [rank.id, index]));
 const GUIDE_SECTIONS = [
   { id: 'info', label: 'Game Info', description: 'Core gameplay loops, systems, and progression overview.' },
+  { id: 'alliances', label: 'Alliance Codex', description: 'Alliance boosts, credits, approvals, and recruitment ads.' },
   { id: 'gifts', label: 'Gift Codex', description: 'Reward gift box types and potential drops.' },
   { id: 'cookies', label: 'Cookie Codex', description: 'Cookie item rarities, values, and drop rates.' },
   { id: 'achievements', label: 'Achievements Codex', description: 'Achievement unlocks and milestone goals.' },
@@ -1247,9 +1248,22 @@ function getButtonEmoji(guild, candidates = [], fallback = DEFAULT_COOKIE_EMOJI_
   return { name: fallback };
 }
 
+function getBuildingEmoji(buildingOrId, guild) {
+  const building = typeof buildingOrId === 'string' ? BUILDING_MAP.get(buildingOrId) : buildingOrId;
+  if (!building) return getCookieFallbackEmoji(guild);
+  return getCustomGuildEmoji(guild, [
+    building.id,
+    building.name,
+    `building_${building.id}`,
+    `cc_${building.id}`,
+    ...(BUILDING_EMOJI_ALIASES[building.id] ?? []),
+  ]) ?? getCookieFallbackEmoji(guild);
+}
+
 function getGuidePageCount(sectionId) {
   const pageSize = 4;
   if (sectionId === 'info') return 1;
+  if (sectionId === 'alliances') return 1;
   if (sectionId === 'gifts') return Math.max(1, Math.ceil(REWARD_BOXES.length / pageSize));
   if (sectionId === 'cookies') return Math.max(1, Math.ceil(ITEMS.length / pageSize));
   if (sectionId === 'achievements') return Math.max(1, Math.ceil(ACHIEVEMENTS.length / pageSize));
@@ -1724,7 +1738,7 @@ function buildCpsBreakdownEmbed(guild, user) {
     }
     const contribution = owned * building.baseCps * multiplier;
     buildingTotal += contribution;
-    const buildingEmoji = getCustomGuildEmoji(guild, [building.id, ...(BUILDING_EMOJI_ALIASES[building.id] ?? [])]) ?? '🏗️';
+    const buildingEmoji = getBuildingEmoji(building, guild);
     buildingLines.push(`${buildingEmoji} **${building.name}** ×${owned} → ${toCookieNumber(contribution)} CPS`);
   }
 
@@ -2086,6 +2100,35 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
         { name: 'System Focus', value: 'Production • Progression • Economy • Alliances', inline: true },
         { name: 'Use This Section For', value: 'Understanding how systems connect before min-maxing.', inline: true },
       );
+    } else if (section === 'alliances') {
+      embed.setDescription([
+        '# Alliance Codex',
+        'Alliances are cooperative groups with shared progression and reward systems.',
+        '',
+        '**Alliance Boost Layers**',
+        '• Leaderboard rank boosts grant extra CPS to members in top alliances.',
+        '• Alliance store upgrades add challenge/reward effects and can add CPS boosts.',
+        '• Booster-member scaling gives +1% alliance CPS per server booster in the alliance.',
+        '',
+        '**Weekly Challenges + Credits**',
+        '• Alliances complete rotating weekly goals together.',
+        '• Completion grants cookies to members and alliance credits to the alliance.',
+        '• Alliance credits are spent on store upgrades and recruitment ads.',
+        '',
+        '**Join Approval**',
+        '• Owners can require approval for new members.',
+        '• Requests and decisions are delivered through `/messages` inbox notifications.',
+        '',
+        '**Alliance Ads**',
+        '• Owners can post a pre-made alliance ad in the event channel.',
+        '• Cost: **3 alliance credits** per post.',
+        '• Cooldown: **24h** base, reduced to **16h** with the ad cooldown upgrade.',
+        '• Join button behavior: instant join when approval is off, request when approval is on.',
+      ].join('\n').slice(0, 4096));
+      embed.addFields(
+        { name: 'Use This Section For', value: 'Recruitment, challenge pacing, and alliance scaling strategy.' },
+        { name: 'Key Terms', value: 'Rank boost • Store boost • Booster scaling • Join approval • Alliance credits' },
+      );
     } else if (section === 'gifts') {
       const pageEntries = REWARD_BOXES.slice(page * pageSize, page * pageSize + pageSize);
       embed.setDescription(pageEntries
@@ -2149,7 +2192,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
       embed.setDescription(pageEntries
         .map((building) => {
           const owned = Number(user.buildings?.[building.id] ?? 0);
-          return `${getCustomGuildEmoji(guild, [building.id, building.name, `building_${building.id}`, `cc_${building.id}`, ...(BUILDING_EMOJI_ALIASES[building.id] ?? [])]) ?? getCookieFallbackEmoji(guild)} **${building.name}**\nBase cost: **${toCookieNumber(building.baseCost)}**\nBase CPS: **${toCookieNumber(building.baseCps)}**\nOwned: **${toCookieNumber(owned)}**\nNext cost: **${toCookieNumber(getBuildingPrice(building.id, owned, 1))}**\n${building.description}`;
+          return `${getBuildingEmoji(building, guild)} **${building.name}**\nBase cost: **${toCookieNumber(building.baseCost)}**\nBase CPS: **${toCookieNumber(building.baseCps)}**\nOwned: **${toCookieNumber(owned)}**\nNext cost: **${toCookieNumber(getBuildingPrice(building.id, owned, 1))}**\n${building.description}`;
         })
         .join('\n\n')
         .slice(0, 4096));
@@ -2199,13 +2242,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
   if (view === 'buildings') {
     const selected = BUILDING_MAP.get(options.buildingId ?? 'cursor') ?? BUILDINGS[0];
     const owned = user.buildings[selected.id] ?? 0;
-    const buildingEmoji = getCustomGuildEmoji(guild, [
-      selected.id,
-      selected.name,
-      `building_${selected.id}`,
-      `cc_${selected.id}`,
-      ...(BUILDING_EMOJI_ALIASES[selected.id] ?? []),
-    ]) ?? getCookieFallbackEmoji(guild);
+    const buildingEmoji = getBuildingEmoji(selected, guild);
     embed.setDescription(`${buildingEmoji} ${selected.description}`);
     embed.addFields(
       { name: 'Balance', value: toCookieNumber(user.cookies), inline: true },
@@ -2379,7 +2416,7 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
         label: b.name,
         description: `Base CPS ${toCookieNumber(b.baseCps)} • Base cost ${toCookieNumber(b.baseCost)}`.slice(0, 100),
         value: b.id,
-        emoji: getCustomGuildEmoji(options.guild, [b.id, b.name, `building_${b.id}`, `cc_${b.id}`, ...(BUILDING_EMOJI_ALIASES[b.id] ?? [])]) ?? getCookieFallbackEmoji(options.guild),
+        emoji: getBuildingEmoji(b, options.guild),
       })));
     rows.push(new ActionRowBuilder().addComponents(buildingMenu));
     const selectedBuilding = options.buildingId ?? 'cursor';
@@ -3880,6 +3917,7 @@ module.exports = {
   getRankEmoji,
   getRewardBoxEmoji,
   getButtonEmoji,
+  getBuildingEmoji,
   getItemSellValue,
   formatRankRequirements,
   formatRankReward,

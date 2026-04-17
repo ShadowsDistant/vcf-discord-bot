@@ -34,11 +34,11 @@ A modern, feature-rich Discord bot built with **discord.js v14** featuring advan
 | Category | Highlights |
 |---|---|
 | **Moderation** | Ban, kick, timeout, warn system, purge, lock/unlock channels, slowmode, role management — with optional mod-role permission levels |
-| **Utility** | Ping, userinfo, serverinfo, avatar, botinfo, help, updates, analytics, daily, alliance |
+| **Utility** | Ping, userinfo, serverinfo, avatar, botinfo, help, updates, analytics, daily, alliance, messages |
 | **Shifts** | Clock-in/out, staff-role gate, shift history, wave period tracking, quota requirements, DMs on start/end, wave-end mass DM |
 | **Setup** | Admin-only server configuration (mod logs, welcome, staff roles, mod permission levels, quota, shift DMs, AutoMod) |
 | **Reasons** | Per-server preset ban/kick/warn reasons with autocomplete in mod commands |
-| **Developer** | Set bot presence, list guilds, broadcast announcements |
+| **Developer** | Set bot presence, list guilds, AI tooling, and global command restriction management |
 | **Embeds** | Colour-coded, titled embeds for all responses; welcome message on member join; quota notifications |
 
 ---
@@ -55,7 +55,7 @@ The bot includes a fully-featured cookie-baking economy game inspired by increme
 | `/bakery` | View your bakery profile — name, CPS, total baked, inventory, milestones, and rank progress. |
 | `/marketplace` | Browse and trade items with other players. Supports buying, selling, and listing items for cookies. |
 | `/daily` | Claim daily bakery challenges and rewards. Rotates weekly with tiered difficulty. |
-| `/alliance` | Full alliance management panel — create/join/leave, weekly challenges with progress tracking, alliance store upgrades, leaderboard, and member management. |
+| `/alliance` | Full alliance management panel — create/join/leave, weekly challenges with progress tracking, alliance store upgrades, leaderboard, member management, and recruitment ads. |
 | `/messages` | Claim pending rewards, staff messages, and gift boxes from your inbox. |
 
 ### Gameplay Systems
@@ -90,6 +90,9 @@ The bot includes a fully-featured cookie-baking economy game inspired by increme
 - Alliance store upgrades benefit all members (CPS boost, shared flour vault, etc.)
 - Join-by-request mode with approval queue
 - Alliance leaderboard ranks by total member CPS
+- Owner-posted alliance recruitment ads in the event channel (3 alliance credits per post)
+- Alliance ad cooldown: 24h base, reducible to 16h via alliance upgrade
+- Alliance guide coverage in the in-bot **Alliance Codex**
 
 ### Staff Tools
 
@@ -105,6 +108,7 @@ The bot includes a fully-featured cookie-baking economy game inspired by increme
 |---|---|
 | `bake_economy.json` | Per-guild user bakery data — cookies, buildings, upgrades, inventory, milestones, rank, alliance membership, pending messages |
 | `bake_alliances.json` | Per-guild alliance data — members, challenges, upgrades, store credits, join requests |
+| `command_restrictions.json` | Global command restrictions keyed by user ID and command name |
 
 ---
 
@@ -366,6 +370,10 @@ Panel features include:
 - Approval-to-join mode with pending request review
 - Alliance store upgrades that affect all members
 - Alliance leaderboard view
+- Owner-only alliance ad posting (3 alliance credits)
+- Ad cooldown management (24h base, 16h with upgrade)
+- Ad join button support (instant join vs approval request)
+- Request lifecycle notifications delivered through `/messages`
 
 ---
 
@@ -612,7 +620,7 @@ Toggle whether the bot DMs staff members when they clock in or out.
 
 ### Developer
 
-Developer commands are restricted to the user whose ID is set in the `DEV_USER_ID` environment variable. Any other user will receive an ephemeral error embed.
+Developer commands are restricted to an internal allow-list. In this bot build, access is hardcoded to the authorized developer user ID.
 
 ---
 
@@ -646,6 +654,18 @@ Supports a broad set of safe read-only tools (server overview, features, channel
 The response includes an always-available **Review** button that opens diagnostics (tools used, TTFT, token usage, timing, and rounds), and the AI can add link buttons to the embed when useful.
 Replies to AI messages continue the same conversation context.
 Access is restricted to the configured developer user IDs plus hardcoded allow-list users.
+
+---
+
+#### `/restrictor`
+Manage **global** command restrictions for users (all guilds).
+
+Subcommands:
+- `view user` — view that user's restricted commands and stored reasons
+- `add user command reason` — add/update a command restriction with denial reason
+- `remove user command` — remove a command restriction
+
+When a restricted user runs a blocked command, they receive an ephemeral denial response containing the stored reason.
 
 ---
 

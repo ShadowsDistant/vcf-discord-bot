@@ -15,6 +15,7 @@ const {
 const alliances = require('../../utils/bakeAlliances');
 const economy = require('../../utils/bakeEconomy');
 const embeds = require('../../utils/embeds');
+const { fetchLogChannel } = require('../../utils/logChannels');
 
 const PANEL_VIEWS = ['overview', 'challenge', 'store', 'manage', 'leaderboard'];
 
@@ -420,6 +421,7 @@ function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = 
             `Bonus alliance credits: **+${store.effectTotals.bonusAllianceCoins}**`,
             `Target reduction: **${Math.round(store.effectTotals.targetMultiplierReduction * 100)}%**`,
             `Alliance CPS boost: **+${Math.round((store.effectTotals.allianceCpsBoost ?? 0) * 100)}%**`,
+            `Alliance ad cooldown: **${Math.round((store.effectTotals.adCooldownMs ?? alliances.ALLIANCE_AD_DEFAULT_COOLDOWN_MS) / (60 * 60 * 1000))}h**`,
           ].join('\n'),
           inline: false,
         },
@@ -429,6 +431,17 @@ function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = 
     if (storeSelect) components.push(storeSelect);
     const storeSellSelect = buildStoreSellSelect(guild, store, data.alliance.ownerId === userId);
     if (storeSellSelect) components.push(storeSellSelect);
+    if (data.alliance.ownerId === userId) {
+      components.push(
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId('alliance_btn:post_ad:store')
+            .setLabel('Post Alliance Ad')
+            .setStyle(ButtonStyle.Primary)
+            .setEmoji(economy.getButtonEmoji(guild, ['announce', 'International_exchange', 'marketplace'], '📣')),
+        ),
+      );
+    }
   } else if (view === 'manage') {
     baseEmbed
       .setColor(0xed4245)
@@ -531,6 +544,50 @@ function stripPanelMeta(panelPayload) {
   return response;
 }
 
+function formatHoursFromMs(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return '0h';
+  const hours = Math.ceil(ms / (60 * 60 * 1000));
+  return `${hours}h`;
+}
+
+function buildAllianceBoostSummary(data) {
+  const rankBoostPct = Math.round(((data.allianceRankBoost?.cpsBoostMultiplier ?? 0) * 100));
+  const storeBoostPct = Math.round(((data.store?.effectTotals?.allianceCpsBoost ?? 0) * 100));
+  const boosterBoostPct = Math.round(((data.allianceBoosterBoost?.allianceWideBoost ?? 0) * 100));
+  const lines = [
+    `Rank boost: **+${rankBoostPct}% CPS**`,
+    `Store CPS boost: **+${storeBoostPct}% CPS**`,
+    `Alliance booster-member boost: **+${boosterBoostPct}% CPS**`,
+  ];
+  return lines.join('\n');
+}
+
+function buildAllianceAdEmbed(guild, data) {
+  const alliance = data.alliance;
+  const description = String(alliance.description ?? '').trim() || '_No description set._';
+  const memberCount = (alliance.members ?? []).length;
+  const openSlots = Math.max(0, alliances.MAX_ALLIANCE_MEMBERS - memberCount);
+  const challengeName = data.challenge?.challenge?.name ?? 'Weekly Challenge';
+  const challengeProgress = data.challenge
+    ? `${economy.toCookieNumber(data.challenge.progress)} / ${economy.toCookieNumber(data.challenge.target)}`
+    : 'N/A';
+
+  return new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle(`🤝 Alliance Recruitment — ${alliance.name}`)
+    .setDescription(description.slice(0, 4096))
+    .addFields(
+      { name: 'Owner', value: `<@${alliance.ownerId}>`, inline: true },
+      { name: 'Members', value: `${memberCount}/${alliances.MAX_ALLIANCE_MEMBERS}`, inline: true },
+      { name: 'Open Slots', value: `${openSlots}`, inline: true },
+      { name: 'Current Boosts', value: buildAllianceBoostSummary(data).slice(0, 1024), inline: false },
+      { name: 'Weekly Challenge', value: `**${challengeName}**\nProgress: **${challengeProgress}**`, inline: false },
+      { name: 'Join Policy', value: alliance.joinApprovalEnabled ? 'Approval required (request will be sent)' : 'Instant join enabled', inline: false },
+    )
+    .setTimestamp()
+    .setFooter({ text: guild.name, iconURL: guild.iconURL({ dynamic: true }) ?? undefined });
+}
+
 async function respondWithPanelUpdate(interaction, panelPayload) {
   await maybeSendChallengeRewardDms(interaction, panelPayload);
   return interaction.update(stripPanelMeta(panelPayload));
@@ -589,7 +646,86 @@ async function handleAllianceButton(interaction) {
     }
     return respondWithPanelUpdate(interaction, buildAlliancePanel(interaction.guild, interaction.user.id, 'overview', 'You left your alliance.'));
   }
+  if (action === 'post_ad') {
+    const adSpendResult = alliances.spendAllianceAdCredits(interaction.guild.id, interaction.user.id, Date.now());
+    if (!adSpendResult.ok) {
+      if (Number.isFinite(adSpendResult.remainingMs) && adSpendResult.remainingMs > 0) {
+        return interaction.reply({
+          embeds: [embeds.error(`Alliance ad cooldown active. Try again in **${formatHoursFromMs(adSpendResult.remainingMs)}**.`, interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      return interaction.reply({
+        embeds: [embeds.error(adSpendResult.reason, interaction.guild)],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    const refreshed = alliances.getAllianceWithChallenge(interaction.guild.id, interaction.user.id);
+    if (!refreshed?.alliance) {
+      return interaction.reply({
+        embeds: [embeds.error('Alliance data is unavailable right now.', interaction.guild)],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
+    const adEmbed = buildAllianceAdEmbed(interaction.guild, refreshed);
+    const joinButton = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`alliance_ad_join:${refreshed.alliance.id}`)
+        .setLabel(refreshed.alliance.joinApprovalEnabled ? 'Request to Join' : 'Join Alliance')
+        .setStyle(ButtonStyle.Success)
+        .setEmoji(economy.getButtonEmoji(interaction.guild, ['International_exchange', 'marketplace'], '🤝')),
+    );
+    const eventChannel = await fetchLogChannel(interaction.guild, 'cookieEvents');
+    if (!eventChannel) {
+      return interaction.reply({
+        embeds: [embeds.error('Event channel is unavailable. No credits were refunded.', interaction.guild)],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+    const sentAdMessage = await eventChannel.send({ embeds: [adEmbed], components: [joinButton] }).catch(() => null);
+    if (!sentAdMessage) {
+      return interaction.reply({
+        embeds: [embeds.error('Failed to post alliance ad in the event channel. No credits were refunded.', interaction.guild)],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+    return respondWithPanelUpdate(
+      interaction,
+      buildAlliancePanel(
+        interaction.guild,
+        interaction.user.id,
+        'store',
+        `Alliance ad posted in <#${eventChannel.id}>. Spent **${adSpendResult.spentCredits}** alliance credits. Next ad available <t:${Math.floor(adSpendResult.nextAvailableAt / 1000)}:R>.`,
+      ),
+    );
+  }
   return null;
+}
+
+async function handleAllianceAdJoinButton(interaction) {
+  const [, allianceId] = String(interaction.customId ?? '').split(':');
+  if (!allianceId) {
+    return interaction.reply({
+      embeds: [embeds.error('Invalid alliance ad button.', interaction.guild)],
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+  const result = alliances.joinAlliance(interaction.guild.id, interaction.user.id, allianceId);
+  if (!result.ok) {
+    return interaction.reply({
+      embeds: [embeds.error(result.reason, interaction.guild)],
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+  const notice = result.pendingApproval
+    ? `Join request sent to **${result.alliance.name}**. Check \`/messages\` for updates.`
+    : `You joined **${result.alliance.name}**.`;
+  return interaction.reply({
+    embeds: [embeds.success(notice, interaction.guild)],
+    flags: MessageFlags.Ephemeral,
+  });
 }
 
 async function handleAllianceSelect(interaction) {
@@ -789,9 +925,14 @@ module.exports = {
     return value === 'alliance_nav_select'
       || value === 'alliance_join_select'
       || value === 'alliance_store_select'
+      || value === 'alliance_store_sell_select'
       || value === 'alliance_transfer_select'
       || value === 'alliance_remove_select'
       || value === 'alliance_request_action_select';
+  },
+
+  isAllianceAdJoinButtonCustomId(customId) {
+    return String(customId ?? '').startsWith('alliance_ad_join:');
   },
 
   isAllianceModalCustomId(customId) {
@@ -799,6 +940,7 @@ module.exports = {
   },
 
   handleAllianceButton,
+  handleAllianceAdJoinButton,
   handleAllianceSelect,
   handleAllianceModal,
 };

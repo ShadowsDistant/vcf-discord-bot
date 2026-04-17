@@ -23,6 +23,7 @@ const { hasModLevel, MOD_LEVEL } = require('../utils/permissions');
 const { UPDATE_LOGS, createUpdateEmbed } = require('../utils/updateLogs');
 const economy = require('../utils/bakeEconomy');
 const alliances = require('../utils/bakeAlliances');
+const commandRestrictions = require('../utils/commandRestrictions');
 const bakeCommand = require('../commands/utility/bake');
 const allianceCommand = require('../commands/utility/alliance');
 const helpCommand = require('../commands/utility/help');
@@ -358,6 +359,9 @@ function getComponentOwnerId(interaction) {
 }
 
 function getComponentExpiryMs(customId) {
+  if (customId?.startsWith('alliance_ad_join:')) {
+    return Number.POSITIVE_INFINITY;
+  }
   if (
     customId?.startsWith('bakery_')
     || customId?.startsWith('market_')
@@ -748,6 +752,10 @@ module.exports = {
             );
           return interaction.showModal(modal);
         }
+      }
+
+      if (allianceCommand.isAllianceAdJoinButtonCustomId(interaction.customId)) {
+        return allianceCommand.handleAllianceAdJoinButton(interaction);
       }
 
       const ownerId = getComponentOwnerId(interaction);
@@ -3264,6 +3272,15 @@ module.exports = {
           inline: true,
         });
       await interaction.reply({ embeds: [missingCommandEmbed], flags: MessageFlags.Ephemeral }).catch(() => null);
+      return;
+    }
+
+    const restrictedReason = commandRestrictions.getRestrictionReason(interaction.user.id, interaction.commandName);
+    if (restrictedReason) {
+      await interaction.reply({
+        embeds: [embeds.warning(`You are globally restricted from using \`/${interaction.commandName}\`.\nReason: ${restrictedReason}`, interaction.guild ?? null)],
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => null);
       return;
     }
 
