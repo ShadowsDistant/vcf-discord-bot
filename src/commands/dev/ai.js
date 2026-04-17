@@ -254,6 +254,7 @@ const DANGEROUS_TOOLS = new Set([
   'delete_channel',
 ]);
 const MODERATION_TOOL_NAMES = new Set([
+  // Disciplinary actions
   'warn_member',
   'get_member_warnings',
   'ban_member',
@@ -261,32 +262,39 @@ const MODERATION_TOOL_NAMES = new Set([
   'timeout_member',
   'list_bans',
   'get_audit_logs',
+  // Voice moderation
+  'move_member_to_voice',
+  'disconnect_member_voice',
+  'set_member_voice_state',
+  // Message moderation
+  'get_message_history',
+  'pin_message',
+  'unpin_message',
+  'add_reaction',
+  // Read-only channel lookups moderators need
+  'get_channel_info',
+  'get_current_channel_info',
+  'list_channels',
 ]);
 const MANAGEMENT_TOOL_NAMES = new Set([
+  // Sending / editing content
   'send_message',
   'send_embed',
   'edit_message',
   'delete_message',
-  'get_channel_info',
-  'get_current_channel_info',
-  'list_channels',
+  // Channel & server configuration
   'set_channel_topic',
+  'create_channel',
+  'delete_channel',
+  // Role management
   'list_roles',
   'create_role',
   'edit_role',
   'delete_role',
   'add_role',
   'remove_role',
-  'create_channel',
-  'delete_channel',
-  'pin_message',
-  'unpin_message',
-  'add_reaction',
+  // Invites
   'create_invite',
-  'get_message_history',
-  'move_member_to_voice',
-  'disconnect_member_voice',
-  'set_member_voice_state',
 ]);
 
 /**
@@ -3551,7 +3559,14 @@ async function sendHiddenCodeEmbeds(i, title, text, emptyMessage) {
  */
 function attachReviewHandler(replyMsg, interaction, session) {
   const collector = replyMsg.createMessageComponentCollector({
-    filter: (i) => i.user.id === session.allowedUserId && i.customId.startsWith('ai_'),
+    filter: (i) => {
+      // Allow any AI-permitted user to view thinking/prompt details (read-only, ephemeral)
+      if (i.customId === AI_TOGGLE_THINKING_BUTTON_ID || i.customId === AI_TOGGLE_PROMPT_BUTTON_ID) {
+        return canUseAiCommand(i.member, i.guild);
+      }
+      // All other controls are restricted to the session owner
+      return i.user.id === session.allowedUserId && i.customId.startsWith('ai_');
+    },
   });
 
   async function runFollowUpTurn(status) {
