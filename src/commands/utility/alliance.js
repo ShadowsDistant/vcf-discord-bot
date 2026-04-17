@@ -380,7 +380,6 @@ function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = 
     .setColor(0x57f287)
     .setTitle(`Alliance: ${data.alliance.name}`)
     .setDescription(`ID: \`${data.alliance.id}\` • Owner: <@${data.alliance.ownerId}>`)
-    .addFields({ name: 'Description', value: allianceDescription.slice(0, 1024), inline: false })
     .setTimestamp()
     .setFooter({ text: guild.name, iconURL: guild.iconURL({ dynamic: true }) ?? undefined });
 
@@ -450,6 +449,7 @@ function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = 
         ? 'Owner controls are available below.'
         : 'Only the alliance owner can manage alliance settings.')
       .addFields(
+        { name: 'Alliance Description', value: allianceDescription.slice(0, 1024), inline: false },
         { name: 'Members', value: memberLines(data.alliance.members), inline: false },
         { name: 'Join Approval', value: data.alliance.joinApprovalEnabled ? 'Enabled (owner approval required)' : 'Disabled (instant join)', inline: false },
         { name: 'Pending Requests', value: `${(data.alliance.joinRequests ?? []).length}`, inline: true },
@@ -462,6 +462,7 @@ function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = 
       .setDescription(topLeaderboard);
   } else {
     baseEmbed.addFields(
+      { name: 'Description', value: allianceDescription.slice(0, 1024), inline: false },
       { name: 'Members', value: memberLines(data.alliance.members), inline: false },
       { name: 'Weekly Challenge', value: `**${challenge.challenge.name}**\n${challengeStatus}`, inline: false },
       { name: 'Progress', value: `${challengeProgressText}\n${challengeBar}`, inline: false },
