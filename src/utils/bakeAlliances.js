@@ -13,6 +13,9 @@ const BOOSTER_PERSONAL_CPS_BOOST = 0.10;
 const BOOSTER_ALLIANCE_PER_MEMBER_CPS_BOOST = 0.01;
 const ALLIANCE_UPGRADE_SELLBACK_LOSS_RATE = 0.30;
 const ALLIANCE_UPGRADE_SELLBACK_MULTIPLIER = 1 - ALLIANCE_UPGRADE_SELLBACK_LOSS_RATE;
+const ALLIANCE_AD_COST_CREDITS = 3;
+const ALLIANCE_AD_DEFAULT_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const ALLIANCE_AD_REDUCED_COOLDOWN_MS = 16 * 60 * 60 * 1000;
 
 const AUTOMOD_BLOCKED_WORDS = [
   'nigger', 'nigga', 'faggot', 'retard', 'kike', 'spic', 'chink', 'tranny', 'cunt', 'whore',
@@ -77,7 +80,7 @@ const ALLIANCE_STORE_UPGRADES = [
   {
     id: 'alliance_stipend',
     name: 'Alliance Stipend',
-    description: '+2 alliance coins on challenge completion.',
+    description: '+2 alliance credits on challenge completion.',
     cost: 8,
     emojiCandidates: ['Paid_in_full', 'sell'],
     fallbackEmoji: '💰',
@@ -95,7 +98,7 @@ const ALLIANCE_STORE_UPGRADES = [
   {
     id: 'victory_drums',
     name: 'Victory Drums',
-    description: '+10% challenge reward cookies and +1 alliance coin.',
+    description: '+10% challenge reward cookies and +1 alliance credit.',
     cost: 16,
     emojiCandidates: ['Cookie_Clicker', 'achievement'],
     fallbackEmoji: '🥁',
@@ -122,7 +125,7 @@ const ALLIANCE_STORE_UPGRADES = [
   {
     id: 'golden_rolling_pin',
     name: 'Golden Rolling Pin',
-    description: '+25% challenge reward cookies plus +3 alliance coins on completion.',
+    description: '+25% challenge reward cookies plus +3 alliance credits on completion.',
     cost: 25,
     emojiCandidates: ['Fortune_cookie', 'GoldenCookie'],
     fallbackEmoji: '🥇',
@@ -154,6 +157,15 @@ const ALLIANCE_STORE_UPGRADES = [
     emojiCandidates: ['Cookie_Clicker', 'trophy'],
     fallbackEmoji: '👑',
     effects: { flatRewardBonus: 200_000, rewardMultiplier: 0.05 },
+  },
+  {
+    id: 'town_crier_network',
+    name: 'Town Crier Network',
+    description: 'Reduce alliance ad cooldown from 24h to 16h.',
+    cost: 9,
+    emojiCandidates: ['International_exchange', 'marketplace', 'announce'],
+    fallbackEmoji: '📣',
+    effects: { adCooldownMs: ALLIANCE_AD_REDUCED_COOLDOWN_MS },
   },
 ];
 
@@ -265,6 +277,7 @@ function ensureAllianceShape(alliance) {
     }))
     .filter((entry) => entry.userId);
   alliance.storeCredits = Math.max(0, Number(alliance.storeCredits ?? 0));
+  alliance.lastAdAt = Number.isFinite(alliance.lastAdAt) ? Math.max(0, Number(alliance.lastAdAt)) : null;
   alliance.description = normalizeDescription(alliance.description);
   pruneOldWeeklyState(alliance);
 }
@@ -276,6 +289,7 @@ function getAllianceEffectTotals(alliance) {
     bonusAllianceCoins: 0,
     targetMultiplierReduction: 0,
     allianceCpsBoost: 0,
+    adCooldownMs: ALLIANCE_AD_DEFAULT_COOLDOWN_MS,
   };
   for (const upgradeId of alliance.upgrades ?? []) {
     const upgrade = STORE_UPGRADE_MAP.get(upgradeId);
@@ -285,6 +299,10 @@ function getAllianceEffectTotals(alliance) {
     totals.bonusAllianceCoins += Number(upgrade.effects?.bonusAllianceCoins ?? 0);
     totals.targetMultiplierReduction += Number(upgrade.effects?.targetMultiplierReduction ?? 0);
     totals.allianceCpsBoost += Number(upgrade.effects?.allianceCpsBoost ?? 0);
+    const adCooldownMs = Number(upgrade.effects?.adCooldownMs);
+    if (Number.isFinite(adCooldownMs) && adCooldownMs > 0) {
+      totals.adCooldownMs = Math.min(totals.adCooldownMs, adCooldownMs);
+    }
   }
   totals.targetMultiplierReduction = Math.min(MAX_TARGET_REDUCTION, Math.max(0, totals.targetMultiplierReduction));
   totals.allianceCpsBoost = Math.max(0, totals.allianceCpsBoost);
@@ -405,6 +423,7 @@ function createAlliance(guildId, ownerId, name) {
       storeCredits: 0,
       joinApprovalEnabled: false,
       joinRequests: [],
+      lastAdAt: null,
     };
     guild.userAlliance[ownerId] = allianceId;
     return { ok: true, alliance: guild.alliances[allianceId] };
@@ -466,6 +485,21 @@ function joinAlliance(guildId, userId, allianceIdOrName) {
     economy.addPendingMessage(guildId, userId, {
       type: 'alliance_notification',
       content: `You joined alliance **${result.alliance.name}**.`,
+    });
+  }
+
+  if (result.ok && result.pendingApproval) {
+    economy.addPendingMessage(guildId, userId, {
+      type: 'alliance_notification',
+      notificationType: 'alliance_join_request_sent',
+      notificationKey: `alliance_join_request:${result.alliance.id}:${userId}`,
+      content: `Your join request to **${result.alliance.name}** was sent to the alliance owner.`,
+    });
+    economy.addPendingMessage(guildId, result.alliance.ownerId, {
+      type: 'alliance_notification',
+      notificationType: 'alliance_join_request_new',
+      notificationKey: `alliance_join_request_owner:${result.alliance.id}:${userId}`,
+      content: `<@${userId}> requested to join **${result.alliance.name}**.`,
     });
   }
 
@@ -645,7 +679,25 @@ function resolveAllianceJoinRequest(guildId, actorId, targetUserId, approve) {
   if (result.ok && result.approved) {
     economy.addPendingMessage(guildId, targetUserId, {
       type: 'alliance_notification',
+      notificationType: 'alliance_join_request_approved',
       content: `Your join request to **${result.alliance.name}** was approved! Welcome to the alliance.`,
+    });
+    economy.addPendingMessage(guildId, actorId, {
+      type: 'alliance_notification',
+      notificationType: 'alliance_join_request_owner_approved',
+      content: `You approved <@${targetUserId}> to join **${result.alliance.name}**.`,
+    });
+  }
+  if (result.ok && !result.approved) {
+    economy.addPendingMessage(guildId, targetUserId, {
+      type: 'alliance_notification',
+      notificationType: 'alliance_join_request_denied',
+      content: `Your join request to **${result.alliance.name}** was denied.`,
+    });
+    economy.addPendingMessage(guildId, actorId, {
+      type: 'alliance_notification',
+      notificationType: 'alliance_join_request_owner_denied',
+      content: `You denied <@${targetUserId}>'s request to join **${result.alliance.name}**.`,
     });
   }
 
@@ -733,6 +785,7 @@ function getAllianceWithChallenge(guildId, userId) {
         upgrades: [...alliance.upgrades],
         joinRequests: [...(alliance.joinRequests ?? [])],
         joinApprovalEnabled: Boolean(alliance.joinApprovalEnabled),
+        lastAdAt: alliance.lastAdAt,
       },
       challenge: challengeState,
       store,
@@ -962,9 +1015,70 @@ function adminDeleteAlliance(guildId, allianceIdOrName) {
   });
 }
 
+function getAllianceAdCooldownMs(alliance) {
+  ensureAllianceShape(alliance);
+  return getAllianceEffectTotals(alliance).adCooldownMs;
+}
+
+function getAllianceAdStatus(guildId, actorId, nowTs = Date.now()) {
+  const data = db.read(ALLIANCES_FILE, {});
+  const guild = getGuildState(data, guildId);
+  const allianceId = guild.userAlliance?.[actorId];
+  if (!allianceId) return { ok: false, reason: 'You are not in an alliance.' };
+  const alliance = guild.alliances?.[allianceId];
+  if (!alliance) return { ok: false, reason: 'Alliance no longer exists.' };
+  ensureAllianceShape(alliance);
+  if (alliance.ownerId !== actorId) return { ok: false, reason: 'Only the alliance owner can post alliance ads.' };
+  const cooldownMs = getAllianceAdCooldownMs(alliance);
+  const lastAdAt = Number(alliance.lastAdAt ?? 0);
+  const nextAvailableAt = lastAdAt > 0 ? lastAdAt + cooldownMs : 0;
+  const remainingMs = Math.max(0, nextAvailableAt - nowTs);
+  return {
+    ok: true,
+    alliance,
+    cooldownMs,
+    nextAvailableAt,
+    remainingMs,
+    canPost: remainingMs <= 0,
+    costCredits: ALLIANCE_AD_COST_CREDITS,
+  };
+}
+
+function spendAllianceAdCredits(guildId, actorId, nowTs = Date.now()) {
+  return db.update(ALLIANCES_FILE, {}, (data) => {
+    const guild = getGuildState(data, guildId);
+    const allianceId = guild.userAlliance?.[actorId];
+    if (!allianceId) return { ok: false, reason: 'You are not in an alliance.' };
+    const alliance = guild.alliances?.[allianceId];
+    if (!alliance) return { ok: false, reason: 'Alliance no longer exists.' };
+    ensureAllianceShape(alliance);
+    if (alliance.ownerId !== actorId) return { ok: false, reason: 'Only the alliance owner can post alliance ads.' };
+    const cooldownMs = getAllianceAdCooldownMs(alliance);
+    const lastAdAt = Number(alliance.lastAdAt ?? 0);
+    const nextAvailableAt = lastAdAt > 0 ? lastAdAt + cooldownMs : 0;
+    const remainingMs = Math.max(0, nextAvailableAt - nowTs);
+    if (remainingMs > 0) return { ok: false, reason: 'Alliance ad cooldown is still active.', remainingMs, nextAvailableAt };
+    if (alliance.storeCredits < ALLIANCE_AD_COST_CREDITS) {
+      return { ok: false, reason: `Not enough alliance credits. Need ${ALLIANCE_AD_COST_CREDITS}.` };
+    }
+    alliance.storeCredits -= ALLIANCE_AD_COST_CREDITS;
+    alliance.lastAdAt = nowTs;
+    return {
+      ok: true,
+      alliance,
+      spentCredits: ALLIANCE_AD_COST_CREDITS,
+      cooldownMs,
+      nextAvailableAt: nowTs + cooldownMs,
+    };
+  });
+}
+
 module.exports = {
   MAX_ALLIANCE_MEMBERS,
   ALLIANCE_CREATE_COST,
+  ALLIANCE_AD_COST_CREDITS,
+  ALLIANCE_AD_DEFAULT_COOLDOWN_MS,
+  ALLIANCE_AD_REDUCED_COOLDOWN_MS,
   MAX_ALLIANCE_DESCRIPTION_LENGTH,
   ALLIANCE_UPGRADE_SELLBACK_LOSS_RATE,
   ALLIANCE_UPGRADE_SELLBACK_MULTIPLIER,
@@ -989,6 +1103,8 @@ module.exports = {
   sellAllianceUpgrade,
   setAllianceJoinApproval,
   resolveAllianceJoinRequest,
+  getAllianceAdStatus,
+  spendAllianceAdCredits,
   adminGrantAllianceUpgrade,
   adminRevokeAllianceUpgrade,
   adminDeleteAlliance,
