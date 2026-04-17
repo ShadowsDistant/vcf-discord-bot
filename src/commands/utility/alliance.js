@@ -682,7 +682,9 @@ async function handleAllianceButton(interaction) {
   if (action === 'rename') return interaction.showModal(buildRenameAllianceModal());
   if (action === 'edit_description') {
     const guild = await resolveInteractionGuild(interaction);
-    if (!guild) return replyGuildUnavailable(interaction);
+    if (!guild) {
+      return respondEphemeral(interaction, { embeds: [embeds.error('Guild context is unavailable. Please run `/alliance` again.', null)] });
+    }
     const current = alliances.getMemberAlliance(guild.id, interaction.user.id);
     if (!current) {
       return respondEphemeral(interaction, { embeds: [embeds.error('You are not in an alliance.', guild)] });
@@ -796,7 +798,9 @@ async function handleAllianceSelect(interaction) {
   // This action opens a modal — must acknowledge with showModal, cannot defer first.
   if (interaction.customId === 'alliance_remove_select') {
     const guild = await resolveInteractionGuild(interaction);
-    if (!guild) return replyGuildUnavailable(interaction);
+    if (!guild) {
+      return respondEphemeral(interaction, { embeds: [embeds.error('Guild context is unavailable. Please run `/alliance` again.', null)] });
+    }
     const memberId = interaction.values[0];
     const modal = new ModalBuilder()
       .setCustomId(`alliance_modal:kick_reason:${memberId}`)
