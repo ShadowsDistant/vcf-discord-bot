@@ -264,6 +264,7 @@ const MODERATION_TOOL_NAMES = new Set([
 ]);
 const MANAGEMENT_TOOL_NAMES = new Set([
   'send_message',
+  'send_embed',
   'edit_message',
   'delete_message',
   'get_channel_info',
@@ -282,6 +283,10 @@ const MANAGEMENT_TOOL_NAMES = new Set([
   'unpin_message',
   'add_reaction',
   'create_invite',
+  'get_message_history',
+  'move_member_to_voice',
+  'disconnect_member_voice',
+  'set_member_voice_state',
 ]);
 
 /**
@@ -374,6 +379,39 @@ const TOOL_SCHEMAS = [
           content: { type: 'string', description: 'The message text to send.' },
         },
         required: ['channel_id', 'content'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'send_embed',
+      description: 'Send a rich embed message to a Discord channel.',
+      parameters: {
+        type: 'object',
+        properties: {
+          channel_id: { type: 'string', description: 'The ID of the target channel.' },
+          title: { type: 'string', description: 'The embed title. Optional.' },
+          description: { type: 'string', description: 'The main embed body text. Optional.' },
+          color: { type: 'string', description: 'Hex color for the embed (e.g. "#5865f2"). Optional.' },
+          fields: {
+            type: 'array',
+            description: 'Optional list of embed fields.',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', description: 'Field title.' },
+                value: { type: 'string', description: 'Field content.' },
+                inline: { type: 'boolean', description: 'Whether to display inline.' },
+              },
+              required: ['name', 'value'],
+            },
+          },
+          footer: { type: 'string', description: 'Optional footer text.' },
+          image_url: { type: 'string', description: 'Optional large image URL.' },
+          thumbnail_url: { type: 'string', description: 'Optional small thumbnail URL.' },
+        },
+        required: ['channel_id'],
       },
     },
   },
@@ -665,6 +703,20 @@ const TOOL_SCHEMAS = [
           limit: { type: 'number', description: 'Maximum results (1–10). Defaults to 5.' },
         },
         required: ['query'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_roblox_user_profile',
+      description: 'Get a detailed Roblox user profile by username, including avatar, friend count, follower count, and account info.',
+      parameters: {
+        type: 'object',
+        properties: {
+          username: { type: 'string', description: 'The Roblox username to look up.' },
+        },
+        required: ['username'],
       },
     },
   },
@@ -1753,6 +1805,34 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
       return { success: true, message_id: msg.id, channel_id: ch.id };
     }
 
+    case 'send_embed': {
+      const ch = await guild.channels.fetch(args.channel_id);
+      if (!ch?.isTextBased()) throw new Error('Channel not found or not text-based.');
+      const embed = new EmbedBuilder();
+      if (args.title) embed.setTitle(String(args.title).slice(0, 256));
+      if (args.description) embed.setDescription(String(args.description).slice(0, 4096));
+      if (args.color) {
+        try { embed.setColor(hexToInt(args.color)); } catch { /* ignore invalid color */ }
+      }
+      if (Array.isArray(args.fields)) {
+        for (const field of args.fields.slice(0, 25)) {
+          embed.addFields({
+            name: String(field.name ?? '').slice(0, 256) || '\u200b',
+            value: String(field.value ?? '').slice(0, 1024) || '\u200b',
+            inline: Boolean(field.inline),
+          });
+        }
+      }
+      if (args.footer) embed.setFooter({ text: String(args.footer).slice(0, 2048) });
+      if (args.image_url) embed.setImage(String(args.image_url));
+      if (args.thumbnail_url) embed.setThumbnail(String(args.thumbnail_url));
+      if (!embed.data.title && !embed.data.description && !embed.data.fields?.length) {
+        throw new Error('Embed must have at least a title, description, or one field.');
+      }
+      const msg = await ch.send({ embeds: [embed] });
+      return { success: true, message_id: msg.id, channel_id: ch.id };
+    }
+
     case 'edit_message': {
       const ch = await guild.channels.fetch(args.channel_id);
       if (!ch?.isTextBased()) throw new Error('Channel not found or not text-based.');
@@ -2371,6 +2451,35 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
         has_verified_badge: Boolean(user.hasVerifiedBadge),
         profile_url: `https://www.roblox.com/users/${user.id}/profile`,
       }));
+    }
+
+    case 'get_roblox_user_profile': {
+      const username = String(args.username ?? '').trim();
+      if (!username) throw new Error('Username is required.');
+      const searchData = await fetchRobloxJson(`${ROBLOX_USERS_API_BASE}/v1/users/search?keyword=${encodeURIComponent(username)}&limit=10`);
+      const results = Array.isArray(searchData?.data) ? searchData.data : [];
+      const match = results.find((u) => u.name.toLowerCase() === username.toLowerCase()) ?? results[0] ?? null;
+      if (!match) throw new Error(`No Roblox user found for username: ${username}`);
+      const [profileResult, avatarResult, friendResult, followerResult] = await Promise.allSettled([
+        fetchRobloxJson(`${ROBLOX_USERS_API_BASE}/v1/users/${match.id}`),
+        fetchRobloxJson(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${match.id}&size=420x420&format=Png&isCircular=false`),
+        fetchRobloxJson(`https://friends.roblox.com/v1/users/${match.id}/friends/count`),
+        fetchRobloxJson(`https://friends.roblox.com/v1/users/${match.id}/followers/count`),
+      ]);
+      const profile = profileResult.status === 'fulfilled' ? profileResult.value : {};
+      return {
+        id: match.id,
+        username: profile.name ?? match.name,
+        display_name: profile.displayName ?? match.displayName ?? match.name,
+        description: profile.description ?? null,
+        is_banned: Boolean(profile.isBanned),
+        has_verified_badge: Boolean(profile.hasVerifiedBadge),
+        created_at: profile.created ?? null,
+        friend_count: friendResult.status === 'fulfilled' ? (friendResult.value.count ?? 0) : 0,
+        follower_count: followerResult.status === 'fulfilled' ? (followerResult.value.count ?? 0) : 0,
+        avatar_url: avatarResult.status === 'fulfilled' ? (avatarResult.value.data?.[0]?.imageUrl ?? null) : null,
+        profile_url: `https://www.roblox.com/users/${match.id}/profile`,
+      };
     }
 
     case 'search_roblox_groups': {
