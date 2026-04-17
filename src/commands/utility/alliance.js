@@ -609,17 +609,35 @@ function replyGuildUnavailable(interaction) {
   });
 }
 
+function withEphemeralFlags(payload = {}) {
+  if (payload.flags != null) return payload;
+  return { ...payload, flags: MessageFlags.Ephemeral };
+}
+
+async function respondEphemeral(interaction, payload) {
+  const response = withEphemeralFlags(payload);
+  if (interaction.deferred || interaction.replied) {
+    return interaction.followUp(response);
+  }
+  return interaction.reply(response);
+}
+
 async function respondWithPanelUpdate(interaction, panelPayload) {
   await maybeSendChallengeRewardDms(interaction, panelPayload);
-  return interaction.update(stripPanelMeta(panelPayload));
+  const response = stripPanelMeta(panelPayload);
+  if (interaction.deferred || interaction.replied) {
+    return interaction.editReply(response);
+  }
+  return interaction.update(response);
 }
 
 async function respondWithPanelReply(interaction, panelPayload) {
   await maybeSendChallengeRewardDms(interaction, panelPayload);
-  return interaction.reply({
-    ...stripPanelMeta(panelPayload),
-    flags: MessageFlags.Ephemeral,
-  });
+  const response = stripPanelMeta(panelPayload);
+  if (interaction.deferred || interaction.replied) {
+    return interaction.editReply(response);
+  }
+  return interaction.reply(withEphemeralFlags(response));
 }
 
 async function handleAllianceButton(interaction) {
@@ -629,6 +647,7 @@ async function handleAllianceButton(interaction) {
   const view = PANEL_VIEWS.includes(viewRaw) ? viewRaw : 'overview';
 
   if (action === 'refresh') {
+    await interaction.deferUpdate().catch(() => null);
     return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, view));
   }
   if (action === 'create') return interaction.showModal(buildCreateAllianceModal());
@@ -637,22 +656,23 @@ async function handleAllianceButton(interaction) {
   if (action === 'edit_description') {
     const current = alliances.getMemberAlliance(guild.id, interaction.user.id);
     if (!current) {
-      return interaction.reply({ embeds: [embeds.error('You are not in an alliance.', guild)], flags: MessageFlags.Ephemeral });
+      return respondEphemeral(interaction, { embeds: [embeds.error('You are not in an alliance.', guild)] });
     }
     if (current.ownerId !== interaction.user.id) {
-      return interaction.reply({ embeds: [embeds.error('Only the alliance owner can edit the description.', guild)], flags: MessageFlags.Ephemeral });
+      return respondEphemeral(interaction, { embeds: [embeds.error('Only the alliance owner can edit the description.', guild)] });
     }
     return interaction.showModal(buildEditAllianceDescriptionModal(current.description ?? ''));
   }
   if (action === 'toggle_approval') {
     const current = alliances.getMemberAlliance(guild.id, interaction.user.id);
     if (!current) {
-      return interaction.reply({ embeds: [embeds.error('You are not in an alliance.', guild)], flags: MessageFlags.Ephemeral });
+      return respondEphemeral(interaction, { embeds: [embeds.error('You are not in an alliance.', guild)] });
     }
     const result = alliances.setAllianceJoinApproval(guild.id, interaction.user.id, !current.joinApprovalEnabled);
     if (!result.ok) {
-      return interaction.reply({ embeds: [embeds.error(result.reason, guild)], flags: MessageFlags.Ephemeral });
+      return respondEphemeral(interaction, { embeds: [embeds.error(result.reason, guild)] });
     }
+    await interaction.deferUpdate().catch(() => null);
     const statusText = result.alliance.joinApprovalEnabled ? 'enabled' : 'disabled';
     return respondWithPanelUpdate(
         interaction,
@@ -662,36 +682,34 @@ async function handleAllianceButton(interaction) {
   if (action === 'leave') {
     const result = alliances.leaveAlliance(guild.id, interaction.user.id);
     if (!result.ok) {
-      return interaction.reply({
+      return respondEphemeral(interaction, {
         embeds: [embeds.error(result.reason, guild)],
-        flags: MessageFlags.Ephemeral,
       });
     }
+    await interaction.deferUpdate().catch(() => null);
     return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, 'overview', 'You left your alliance.'));
   }
   if (action === 'post_ad') {
     const adSpendResult = alliances.spendAllianceAdCredits(guild.id, interaction.user.id, Date.now());
     if (!adSpendResult.ok) {
       if (Number.isFinite(adSpendResult.remainingMs) && adSpendResult.remainingMs > 0) {
-        return interaction.reply({
+        return respondEphemeral(interaction, {
           embeds: [embeds.error(`Alliance ad cooldown active. Try again in **${formatHoursFromMs(adSpendResult.remainingMs)}**.`, guild)],
-          flags: MessageFlags.Ephemeral,
         });
       }
-      return interaction.reply({
+      return respondEphemeral(interaction, {
         embeds: [embeds.error(adSpendResult.reason, guild)],
-        flags: MessageFlags.Ephemeral,
       });
     }
 
     const refreshed = alliances.getAllianceWithChallenge(guild.id, interaction.user.id);
     if (!refreshed?.alliance) {
-      return interaction.reply({
+      return respondEphemeral(interaction, {
         embeds: [embeds.error('Alliance data is unavailable right now.', guild)],
-        flags: MessageFlags.Ephemeral,
       });
     }
 
+    await interaction.deferUpdate().catch(() => null);
     const adEmbed = buildAllianceAdEmbed(guild, refreshed);
     const joinButton = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
@@ -702,16 +720,14 @@ async function handleAllianceButton(interaction) {
     );
     const eventChannel = await fetchLogChannel(guild, 'cookieEvents');
     if (!eventChannel) {
-      return interaction.reply({
+      return respondEphemeral(interaction, {
         embeds: [embeds.error('Event channel is unavailable. No credits were refunded.', guild)],
-        flags: MessageFlags.Ephemeral,
       });
     }
     const sentAdMessage = await eventChannel.send({ embeds: [adEmbed], components: [joinButton] }).catch(() => null);
     if (!sentAdMessage) {
-      return interaction.reply({
+      return respondEphemeral(interaction, {
         embeds: [embeds.error('Failed to post alliance ad in the event channel. No credits were refunded.', guild)],
-        flags: MessageFlags.Ephemeral,
       });
     }
     return respondWithPanelUpdate(
@@ -732,24 +748,21 @@ async function handleAllianceAdJoinButton(interaction) {
   if (!guild) return replyGuildUnavailable(interaction);
   const [, allianceId] = String(interaction.customId ?? '').split(':');
   if (!allianceId) {
-    return interaction.reply({
+    return respondEphemeral(interaction, {
       embeds: [embeds.error('Invalid alliance ad button.', guild)],
-      flags: MessageFlags.Ephemeral,
     });
   }
   const result = alliances.joinAlliance(guild.id, interaction.user.id, allianceId);
   if (!result.ok) {
-    return interaction.reply({
+    return respondEphemeral(interaction, {
       embeds: [embeds.error(result.reason, guild)],
-      flags: MessageFlags.Ephemeral,
     });
   }
   const notice = result.pendingApproval
     ? `Join request sent to **${result.alliance.name}**. Check \`/messages\` for updates.`
     : `You joined **${result.alliance.name}**.`;
-  return interaction.reply({
+  return respondEphemeral(interaction, {
     embeds: [embeds.success(notice, guild)],
-    flags: MessageFlags.Ephemeral,
   });
 }
 
@@ -758,17 +771,18 @@ async function handleAllianceSelect(interaction) {
   if (!guild) return replyGuildUnavailable(interaction);
   if (interaction.customId === 'alliance_nav_select') {
     const view = interaction.values[0] ?? 'overview';
+    await interaction.deferUpdate().catch(() => null);
     return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, view));
   }
   if (interaction.customId === 'alliance_join_select') {
     const allianceId = interaction.values[0];
     const result = alliances.joinAlliance(guild.id, interaction.user.id, allianceId);
     if (!result.ok) {
-      return interaction.reply({
+      return respondEphemeral(interaction, {
         embeds: [embeds.error(result.reason, guild)],
-        flags: MessageFlags.Ephemeral,
       });
     }
+    await interaction.deferUpdate().catch(() => null);
     const notice = result.pendingApproval
       ? `Join request submitted to **${result.alliance.name}**.`
       : `You joined **${result.alliance.name}**.`;
@@ -778,11 +792,11 @@ async function handleAllianceSelect(interaction) {
     const upgradeId = interaction.values[0];
     const result = alliances.buyAllianceUpgrade(guild.id, interaction.user.id, upgradeId);
     if (!result.ok) {
-      return interaction.reply({
+      return respondEphemeral(interaction, {
         embeds: [embeds.error(result.reason, guild)],
-        flags: MessageFlags.Ephemeral,
       });
     }
+    await interaction.deferUpdate().catch(() => null);
     await notifyUpgradePurchase(interaction, result.alliance, result.upgrade);
     return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, 'store', `Purchased **${result.upgrade.name}**.`));
   }
@@ -790,11 +804,11 @@ async function handleAllianceSelect(interaction) {
     const upgradeId = interaction.values[0];
     const result = alliances.sellAllianceUpgrade(guild.id, interaction.user.id, upgradeId);
     if (!result.ok) {
-      return interaction.reply({
+      return respondEphemeral(interaction, {
         embeds: [embeds.error(result.reason, guild)],
-        flags: MessageFlags.Ephemeral,
       });
     }
+    await interaction.deferUpdate().catch(() => null);
     return respondWithPanelUpdate(
         interaction,
         buildAlliancePanel(guild, interaction.user.id, 'store', `Sold **${result.upgrade.name}** for **${result.refund}** alliance credits (30% loss).`),
@@ -804,11 +818,11 @@ async function handleAllianceSelect(interaction) {
     const memberId = interaction.values[0];
     const result = alliances.transferAllianceOwnership(guild.id, interaction.user.id, memberId);
     if (!result.ok) {
-      return interaction.reply({
+      return respondEphemeral(interaction, {
         embeds: [embeds.error(result.reason, guild)],
-        flags: MessageFlags.Ephemeral,
       });
     }
+    await interaction.deferUpdate().catch(() => null);
     return respondWithPanelUpdate(interaction, buildAlliancePanel(guild, interaction.user.id, 'manage', `Ownership transferred to <@${memberId}>.`));
   }
   if (interaction.customId === 'alliance_remove_select') {
@@ -833,12 +847,13 @@ async function handleAllianceSelect(interaction) {
     const [action, memberId] = String(interaction.values[0] ?? '').split(':');
     const approve = action === 'approve';
     if (!memberId || (action !== 'approve' && action !== 'deny')) {
-      return interaction.reply({ embeds: [embeds.error('Invalid join-request action.', guild)], flags: MessageFlags.Ephemeral });
+      return respondEphemeral(interaction, { embeds: [embeds.error('Invalid join-request action.', guild)] });
     }
     const result = alliances.resolveAllianceJoinRequest(guild.id, interaction.user.id, memberId, approve);
     if (!result.ok) {
-      return interaction.reply({ embeds: [embeds.error(result.reason, guild)], flags: MessageFlags.Ephemeral });
+      return respondEphemeral(interaction, { embeds: [embeds.error(result.reason, guild)] });
     }
+    await interaction.deferUpdate().catch(() => null);
     const notice = approve
       ? `Approved join request for <@${memberId}>.`
       : `Denied join request for <@${memberId}>.`;
@@ -857,9 +872,8 @@ async function handleAllianceModal(interaction) {
     const name = interaction.fields.getTextInputValue('name').trim();
     const result = alliances.createAlliance(guild.id, interaction.user.id, name);
     if (!result.ok) {
-      return interaction.reply({
+      return respondEphemeral(interaction, {
         embeds: [embeds.error(result.reason, guild)],
-        flags: MessageFlags.Ephemeral,
       });
     }
     return respondWithPanelReply(
@@ -872,9 +886,8 @@ async function handleAllianceModal(interaction) {
     const value = interaction.fields.getTextInputValue('alliance').trim();
     const result = alliances.joinAlliance(guild.id, interaction.user.id, value);
     if (!result.ok) {
-      return interaction.reply({
+      return respondEphemeral(interaction, {
         embeds: [embeds.error(result.reason, guild)],
-        flags: MessageFlags.Ephemeral,
       });
     }
     const notice = result.pendingApproval
@@ -887,9 +900,8 @@ async function handleAllianceModal(interaction) {
     const name = interaction.fields.getTextInputValue('name').trim();
     const result = alliances.renameAlliance(guild.id, interaction.user.id, name);
     if (!result.ok) {
-      return interaction.reply({
+      return respondEphemeral(interaction, {
         embeds: [embeds.error(result.reason, guild)],
-        flags: MessageFlags.Ephemeral,
       });
     }
     return respondWithPanelReply(interaction, buildAlliancePanel(guild, interaction.user.id, 'manage', `Alliance renamed to **${result.alliance.name}**.`));
@@ -899,9 +911,8 @@ async function handleAllianceModal(interaction) {
     const description = interaction.fields.getTextInputValue('description')?.trim() ?? '';
     const result = alliances.setAllianceDescription(guild.id, interaction.user.id, description);
     if (!result.ok) {
-      return interaction.reply({
+      return respondEphemeral(interaction, {
         embeds: [embeds.error(result.reason, guild)],
-        flags: MessageFlags.Ephemeral,
       });
     }
     const notice = description
@@ -916,9 +927,8 @@ async function handleAllianceModal(interaction) {
     const reason = interaction.fields.getTextInputValue('reason')?.trim() ?? '';
     const result = alliances.removeAllianceMember(guild.id, interaction.user.id, targetMemberId, reason);
     if (!result.ok) {
-      return interaction.reply({
+      return respondEphemeral(interaction, {
         embeds: [embeds.error(result.reason, guild)],
-        flags: MessageFlags.Ephemeral,
       });
     }
     const notice = reason
@@ -939,6 +949,7 @@ module.exports = {
   async execute(interaction) {
     const guild = await resolveInteractionGuild(interaction);
     if (!guild) return replyGuildUnavailable(interaction);
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => null);
     return respondWithPanelReply(interaction, buildAlliancePanel(guild, interaction.user.id, 'overview'));
   },
 
