@@ -65,6 +65,12 @@ const SAFETY_CLASSIFIER_PROMPT_HEADER = [
   '',
   'Prompt harm: ',
   'Prompt rule: ',
+  'Prompt severity: ',
+  'Prompt reason: ',
+  'Response harm: ',
+  'Response rule: ',
+  'Response severity: ',
+  'Response reason: ',
 ].join('\n');
 const DEFAULT_COLOR = 0x99aab5; // default grey
 const MAX_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000;
@@ -1418,10 +1424,11 @@ function parseSafetyOutput(text) {
     const match = source.match(new RegExp(`^${label}:\\s*(.+)$`, 'im'));
     return match?.[1]?.trim() || fallback;
   };
+  const promptReasonFallback = read('Reason', 'No reason provided by classifier.');
   return {
     promptHarm: read('Prompt harm', 'unharmful'),
     promptRule: read('Prompt rule', 'None'),
-    promptReason: read('Reason', 'No reason provided by classifier.'),
+    promptReason: read('Prompt reason', promptReasonFallback),
     promptSeverity: read('Prompt severity', 'unknown'),
     responseHarm: read('Response harm', 'None'),
     responseRule: read('Response rule', 'None'),
@@ -3814,7 +3821,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
         promptText: latestUserMessage,
         blocked: true,
         blockReason: formatSafetyValue(promptSafety.promptReason, 'reason', 400),
-        safetyRating: 'blocked',
+        safetyRating: 'failed',
         safetyDetails: {
           prompt: promptSafetyResult,
           response: {
@@ -3903,7 +3910,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
             promptText: latestUserMessage,
             blocked: true,
             blockReason: formatSafetyValue(responseSafety.responseReason, 'reason', 400),
-            safetyRating: 'blocked',
+            safetyRating: 'failed',
             safetyDetails: {
               prompt: promptSafetyResult ?? {
                 harm: sanitizeSafetyText(responseSafety.promptHarm, 60),
@@ -4672,8 +4679,9 @@ async function sendAiInteractionLog(
   const personaLabel = getPersonaConfig(personaKey).label;
   embed.addFields({ name: 'Persona', value: personaLabel, inline: true });
 
-  if (safetyRating) {
-    embed.addFields({ name: 'Safety Rating', value: String(safetyRating).slice(0, 256), inline: true });
+  const logSafetyRating = blocked ? 'failed' : safetyRating;
+  if (logSafetyRating) {
+    embed.addFields({ name: 'Safety Rating', value: String(logSafetyRating).slice(0, 256), inline: true });
   }
 
   if (blocked) {
