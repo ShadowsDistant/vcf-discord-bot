@@ -23,7 +23,8 @@ const {
 } = require('../../utils/roles');
 const db = require('../../utils/database');
 const analytics = require('../../utils/analytics');
-const { sendModerationActionDm, sendModLog } = require('../../utils/moderationNotifications');
+const { sendModerationActionDm, sendModLog, sendCommandLog } = require('../../utils/moderationNotifications');
+const { fetchLogChannel } = require('../../utils/logChannels');
 const economy = require('../../utils/bakeEconomy');
 const alliances = require('../../utils/bakeAlliances');
 const { formatDuration } = require('../../utils/helpers');
@@ -266,6 +267,8 @@ const MODERATION_TOOL_NAMES = new Set([
   'move_member_to_voice',
   'disconnect_member_voice',
   'set_member_voice_state',
+  'get_voice_channel_members',
+  'set_voice_channel_status',
   // Message moderation
   'get_message_history',
   'pin_message',
@@ -1042,6 +1045,59 @@ const TOOL_SCHEMAS = [
           argument: { type: 'string', description: 'The user’s persuasive reason for why they should receive cookies.' },
         },
         required: ['argument'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_voice_channel_members',
+      description: 'Get the list of members currently in a specific voice channel.',
+      parameters: {
+        type: 'object',
+        properties: {
+          channel_id: { type: 'string', description: 'The ID of the voice channel.' },
+        },
+        required: ['channel_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_voice_channel_status',
+      description: 'Set the custom status text on a voice channel (visible in the Discord UI).',
+      parameters: {
+        type: 'object',
+        properties: {
+          channel_id: { type: 'string', description: 'The ID of the voice channel.' },
+          status: { type: 'string', description: 'The status text to set (empty string to clear).' },
+        },
+        required: ['channel_id', 'status'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_bot_status',
+      description: 'Set the bot\u2019s Discord activity/status. Dev-only.',
+      parameters: {
+        type: 'object',
+        properties: {
+          activity_type: {
+            type: 'string',
+            enum: ['playing', 'watching', 'listening', 'competing', 'streaming', 'custom'],
+            description: 'The type of activity.',
+          },
+          activity_name: { type: 'string', description: 'The activity name/text.' },
+          status: {
+            type: 'string',
+            enum: ['online', 'idle', 'dnd', 'invisible'],
+            description: 'The bot\u2019s online status. Defaults to online.',
+          },
+        },
+        required: ['activity_type', 'activity_name'],
       },
     },
   },
@@ -2446,6 +2502,63 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
       return claimConvinceDailyCookies(guild.id, interaction.user.id, args.amount, args.argument);
     }
 
+    case 'get_voice_channel_members': {
+      const ch = await guild.channels.fetch(args.channel_id).catch(() => null);
+      if (!ch || !ch.isVoiceBased()) throw new Error('Voice channel not found.');
+      return {
+        channel_id: ch.id,
+        channel_name: ch.name,
+        member_count: ch.members.size,
+        members: [...ch.members.values()].map((m) => ({
+          id: m.id,
+          username: m.user.username,
+          display_name: m.displayName,
+          server_mute: Boolean(m.voice?.serverMute),
+          server_deaf: Boolean(m.voice?.serverDeaf),
+          self_mute: Boolean(m.voice?.selfMute),
+          self_deaf: Boolean(m.voice?.selfDeaf),
+        })),
+      };
+    }
+
+    case 'set_voice_channel_status': {
+      const ch = await guild.channels.fetch(args.channel_id).catch(() => null);
+      if (!ch || !ch.isVoiceBased()) throw new Error('Voice channel not found.');
+      const statusText = String(args.status ?? '');
+      // Discord.js v14.17+ exposes setStatus on VoiceChannel
+      if (typeof ch.setStatus === 'function') {
+        await ch.setStatus(statusText);
+      } else {
+        // Fallback: use raw REST call
+        await interaction.client.rest.put(
+          `/channels/${ch.id}/voice-status`,
+          { body: { status: statusText } },
+        );
+      }
+      return { success: true, channel_id: ch.id, status: statusText };
+    }
+
+    case 'set_bot_status': {
+      if (!canUseDevCommand(interaction.member, interaction.guild, 'ai')) {
+        throw new Error('Only developers can change the bot status.');
+      }
+      const activityTypeMap = {
+        playing: 0,
+        streaming: 1,
+        listening: 2,
+        watching: 3,
+        custom: 4,
+        competing: 5,
+      };
+      const activityType = activityTypeMap[String(args.activity_type ?? 'playing').toLowerCase()] ?? 0;
+      const presenceStatus = ['online', 'idle', 'dnd', 'invisible'].includes(args.status) ? args.status : 'online';
+      interaction.client.user.setPresence({
+        activities: [{ name: String(args.activity_name ?? ''), type: activityType }],
+        status: presenceStatus,
+      });
+      return { success: true, activity_type: args.activity_type, activity_name: args.activity_name, status: presenceStatus };
+    }
+
     case 'search_roblox_players': {
       const query = String(args.query ?? '').trim();
       if (!query) throw new Error('Query is required.');
@@ -3300,6 +3413,9 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
         rawContent: blockedRawContent,
         thinkingText: '',
         promptText: latestUserMessage,
+        blocked: true,
+        blockReason: sanitizeSafetyText(promptSafety.promptReason, 400),
+        safetyRating: null,
       };
     }
   }
@@ -3370,6 +3486,9 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
             rawContent: blockedRawContent,
             thinkingText: '',
             promptText: latestUserMessage,
+            blocked: true,
+            blockReason: sanitizeSafetyText(responseSafety.responseReason, 400),
+            safetyRating: null,
           };
         }
       }
@@ -3406,6 +3525,9 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
         rawContent: content,
         thinkingText,
         promptText: latestUserMessage,
+        blocked: false,
+        blockReason: null,
+        safetyRating: safetyEnabled ? 'passed' : null,
       };
     }
     messages.push({
@@ -3499,6 +3621,9 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
     rawContent: fallbackRawContent,
     thinkingText: '',
     promptText: latestUserMessage,
+    blocked: false,
+    blockReason: null,
+    safetyRating: null,
   };
 }
 
@@ -3595,6 +3720,17 @@ function attachReviewHandler(replyMsg, interaction, session) {
         viewMode: 'output',
       });
       session.turnIndex = session.turns.length - 1;
+      // Log follow-up AI interaction if safety is enabled
+      if (session.safetyEnabled !== false) {
+        sendAiInteractionLog(interaction, {
+          prompt: result.promptText ?? '',
+          response: result.rawContent,
+          thinkingText: result.thinkingText,
+          blocked: Boolean(result.blocked),
+          blockReason: result.blockReason ?? null,
+          safetyRating: result.safetyRating ?? null,
+        }).catch(() => null);
+      }
       await replyMsg.edit({
         embeds: [getActiveEmbed(session)],
         components: buildFinalComponents(session),
@@ -3758,6 +3894,17 @@ function attachReviewHandler(replyMsg, interaction, session) {
           viewMode: 'output',
         });
         session.turnIndex = session.turns.length - 1;
+        // Log follow-up AI interaction if safety is enabled
+        if (session.safetyEnabled !== false) {
+          sendAiInteractionLog(interaction, {
+            prompt,
+            response: result.rawContent,
+            thinkingText: result.thinkingText,
+            blocked: Boolean(result.blocked),
+            blockReason: result.blockReason ?? null,
+            safetyRating: result.safetyRating ?? null,
+          }).catch(() => null);
+        }
         await replyMsg.edit({
           embeds: [getActiveEmbed(session)],
           components: buildFinalComponents(session),
@@ -3838,6 +3985,57 @@ function attachReviewHandler(replyMsg, interaction, session) {
   collector.on('end', async () => {
     AI_SESSIONS.delete(replyMsg.id);
   });
+}
+
+/**
+ * Send an AI interaction log embed to the configured AI log channel.
+ * Only called when safety is ENABLED (when safety is off, no logging).
+ * @param {import('discord.js').ChatInputCommandInteraction} interaction
+ * @param {object} params
+ * @param {string} params.prompt - User's prompt
+ * @param {string} params.response - AI response (raw content)
+ * @param {string} [params.thinkingText] - Thinking output
+ * @param {boolean} params.blocked - Whether the response was blocked by safety
+ * @param {string} [params.blockReason] - Block reason if blocked
+ * @param {string} [params.safetyRating] - Safety rating if not blocked
+ * @returns {Promise<void>}
+ */
+async function sendAiInteractionLog(interaction, { prompt, response, thinkingText, blocked, blockReason, safetyRating } = {}) {
+  const logChannel = await fetchLogChannel(interaction.guild, 'aiLog').catch(() => null);
+  if (!logChannel) return;
+
+  const color = blocked ? 0xed4245 : 0x57f287;
+  const responseText = typeof response === 'string' ? response : '';
+  let parsedTitle = null;
+  let parsedDesc = null;
+  try {
+    const parsed = JSON.parse(responseText);
+    parsedTitle = parsed?.title ?? null;
+    parsedDesc = parsed?.description ?? null;
+  } catch { /* not JSON */ }
+
+  const embed = new EmbedBuilder()
+    .setColor(color)
+    .setTitle(blocked ? '🛡️ AI Interaction — Blocked' : '🤖 AI Interaction')
+    .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
+    .addFields(
+      { name: 'User', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
+      { name: 'Channel', value: `<#${interaction.channel?.id ?? interaction.channelId}>`, inline: true },
+      { name: 'Prompt', value: String(prompt ?? '').slice(0, 1024) || '*(empty)*', inline: false },
+    )
+    .setTimestamp();
+
+  if (blocked) {
+    embed.addFields({ name: 'Block Reason', value: String(blockReason ?? 'Safety filter triggered.').slice(0, 1024), inline: false });
+  } else {
+    if (safetyRating) embed.addFields({ name: 'Safety Rating', value: String(safetyRating).slice(0, 256), inline: true });
+    const displayResponse = parsedDesc ?? responseText;
+    if (displayResponse) embed.addFields({ name: 'Response', value: String(displayResponse).slice(0, 1024), inline: false });
+    if (parsedTitle) embed.addFields({ name: 'Response Title', value: String(parsedTitle).slice(0, 256), inline: true });
+    if (thinkingText) embed.addFields({ name: 'Thinking', value: String(thinkingText).slice(0, 512), inline: false });
+  }
+
+  await logChannel.send({ embeds: [embed] }).catch(() => null);
 }
 
 /**
@@ -3961,6 +4159,18 @@ module.exports = {
         embeds: [buildErrorEmbed(err.message, err.status)],
         components: [],
       });
+    }
+
+    // Log AI interaction if safety is enabled
+    if (userSettings.safetyEnabled !== false) {
+      sendAiInteractionLog(interaction, {
+        prompt,
+        response: result.rawContent,
+        thinkingText: result.thinkingText,
+        blocked: Boolean(result.blocked),
+        blockReason: result.blockReason ?? null,
+        safetyRating: result.safetyRating ?? null,
+      }).catch(() => null);
     }
 
     const session = {

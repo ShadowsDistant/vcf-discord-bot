@@ -3,6 +3,7 @@
 const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
+const { sendCommandLog, sendModLog } = require('../../utils/moderationNotifications');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -41,6 +42,20 @@ module.exports = {
 
     try {
       await member.voice.setDeaf(true, `${interaction.user.tag}: Voice deafen command`);
+      await sendModLog({
+        guild: interaction.guild,
+        target,
+        moderator: interaction.user,
+        action: 'Deafen',
+        reason: 'Voice deafen',
+      });
+      await sendCommandLog({
+        guild: interaction.guild,
+        moderator: interaction.user,
+        action: 'Server Deafen',
+        target: `${target.tag} (${target.id})`,
+        details: 'Server-deafened in voice channel.',
+      });
       return interaction.reply({
         embeds: [embeds.success(`${target} has been server-deafened.`, interaction.guild)],
       });

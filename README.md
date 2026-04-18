@@ -1,6 +1,6 @@
 # vcf-discord-bot
 
-A modern, feature-rich Discord bot built with **discord.js v14** featuring advanced moderation, utility commands, a Melonly-style staff shift system, server setup commands, a full cookie-baking economy game, alliance system, and restricted developer tools. All responses use rich, consistently-styled embeds with colour-coded feedback.
+A modern, feature-rich Discord bot built with **discord.js v14** featuring advanced moderation, utility commands, a Melonly-style staff shift system, server setup commands, a full cookie-baking economy game, alliance system, counting game, and restricted developer tools. All responses use rich, consistently-styled embeds with colour-coded feedback.
 
 ---
 
@@ -8,12 +8,14 @@ A modern, feature-rich Discord bot built with **discord.js v14** featuring advan
 
 - [Features Overview](#features-overview)
 - [Baking Economy](#baking-economy)
+- [Counting System](#counting-system)
 - [Command Reference](#command-reference)
   - [Moderation](#moderation)
   - [Utility](#utility)
   - [Shifts](#shifts)
   - [Setup](#setup)
   - [Developer](#developer)
+- [Logging Channels](#logging-channels)
 - [Getting Started](#getting-started)
   - [Prerequisites](#prerequisites)
   - [Installation](#installation)
@@ -33,12 +35,13 @@ A modern, feature-rich Discord bot built with **discord.js v14** featuring advan
 
 | Category | Highlights |
 |---|---|
-| **Moderation** | Ban, kick, timeout, warn system, purge, lock/unlock channels, slowmode, role management — with optional mod-role permission levels |
+| **Moderation** | Ban, kick, timeout, warn system, purge, lock/unlock channels, slowmode, role management — with role-based permission levels (Moderator+, Senior Mod+, SID only) |
 | **Utility** | Ping, userinfo, serverinfo, avatar, botinfo, help, updates, analytics, daily, alliance, messages |
+| **Counting Game** | Server counting channel with math expression support, milestone celebrations, ✅/❌ reactions |
 | **Shifts** | Clock-in/out, staff-role gate, shift history, wave period tracking, quota requirements, DMs on start/end, wave-end mass DM |
 | **Setup** | Admin-only server configuration (mod logs, welcome, staff roles, mod permission levels, quota, shift DMs, AutoMod) |
 | **Reasons** | Per-server preset ban/kick/warn reasons with autocomplete in mod commands |
-| **Developer** | Set bot presence, list guilds, AI tooling, and global command restriction management |
+| **Developer** | AI assistant with voice tools, Roblox search, Discord moderation/management tools, and global command restriction management |
 | **Embeds** | Colour-coded, titled embeds for all responses; welcome message on member join; quota notifications |
 
 ---
@@ -100,7 +103,7 @@ The bot includes a fully-featured cookie-baking economy game inspired by increme
 |---|---|
 | `/bakeadmin` | Moderator dashboard for baking economy — view user stats, edit cookies/bakes, ban/unban users from baking, manage items. Requires `Manage Guild` permission or configured bake admin role. |
 | `/staffmessage` | Send notification messages or gift boxes to specific users or all bakery players. Staff-only. |
-| `/staffinfraction` | Issue infraction templates to users with configurable consequences. Staff-only. |
+| `/staffinfraction` | Issue formal infractions (warning, suspension, termination) to staff members. Records are stored, DMs are sent, and punishment logs are posted. **SID role only.** |
 
 ### Economy Data Persistence
 
@@ -112,11 +115,44 @@ The bot includes a fully-featured cookie-baking economy game inspired by increme
 
 ---
 
+## Counting System
+
+The counting channel (`#counting`, channel ID `1436101746928914675`) supports a collaborative counting game:
+
+- Users take turns counting up from 1 by sending numbers or **math expressions** (e.g. `2+2`, `3*5`, `10^2`)
+- The bot reacts with ✅ on correct counts and ❌ on mistakes
+- Counting twice in a row resets the count to 0
+- Sending a non-numeric or non-math message resets the count to 0
+- Every 100 counts triggers a 🎉 milestone celebration
+- Supported operators: `+`, `-`, `*`, `/`, `%`, `**` (`^`), parentheses, and decimals
+
+---
+
+## Logging Channels
+
+| Channel | Purpose | ID |
+|---|---|---|
+| AI Interactions | All AI prompts/responses (safety ON only) with block reasons and safety ratings | `1494887958543597668` |
+| Moderation & Management Commands | All mod/management command executions | `1494889843887706172` |
+| Punishment Logs | Warns, kicks, bans, timeouts, mutes, deafens, staff infractions | `1494891122432938108` |
+
+> When AI safety is **disabled**, AI interactions are **not logged**.
+
+---
+
 ## Command Reference
 
 ### Moderation
 
 All moderation commands require the corresponding Discord permission. Error responses are always sent **ephemerally** (only visible to the invoking moderator).
+
+#### Permission Levels
+
+| Level | Description |
+|---|---|
+| **Moderator+** | kick, mute, deafen, role, bakeadmin, purge, lock, unlock, slowmode, warn, warnings, timeout |
+| **Senior Moderator+** | ban, unban, clearwarnings |
+| **SID only** | staffinfraction |
 
 ---
 
@@ -213,7 +249,7 @@ Clear all warnings on record for a member.
 |---|---|---|---|
 | `user` | User | ✅ | The member whose warnings to clear |
 
-**Required permission:** `Moderate Members`
+**Required permission:** `Manage Messages` (Senior Moderator+ role)
 
 ---
 

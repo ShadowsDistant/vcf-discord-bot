@@ -3,6 +3,7 @@
 const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
+const { sendCommandLog } = require('../../utils/moderationNotifications');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -59,6 +60,14 @@ module.exports = {
     }
 
     const deleted = await interaction.channel.bulkDelete(toDelete, true);
+
+    await sendCommandLog({
+      guild: interaction.guild,
+      moderator: interaction.user,
+      action: 'Purge',
+      target: filterUser ? `${filterUser.tag} (${filterUser.id})` : 'All users',
+      details: `Deleted **${deleted.size}** message${deleted.size !== 1 ? 's' : ''} in <#${interaction.channel.id}>.`,
+    });
 
     return interaction.editReply({
       embeds: [

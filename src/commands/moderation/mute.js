@@ -3,6 +3,7 @@
 const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
+const { sendCommandLog, sendModLog } = require('../../utils/moderationNotifications');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -41,6 +42,20 @@ module.exports = {
 
     try {
       await member.voice.setMute(true, `${interaction.user.tag}: Voice mute command`);
+      await sendModLog({
+        guild: interaction.guild,
+        target,
+        moderator: interaction.user,
+        action: 'Mute',
+        reason: 'Voice mute',
+      });
+      await sendCommandLog({
+        guild: interaction.guild,
+        moderator: interaction.user,
+        action: 'Server Mute',
+        target: `${target.tag} (${target.id})`,
+        details: 'Server-muted in voice channel.',
+      });
       return interaction.reply({
         embeds: [embeds.success(`${target} has been server-muted.`, interaction.guild)],
       });

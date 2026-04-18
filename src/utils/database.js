@@ -541,6 +541,41 @@ function getAllStaffInfractions(guildId) {
   return Object.entries(guild).map(([staffUserId, infractions]) => ({ staffUserId, infractions }));
 }
 
+// ─── Counting Game ────────────────────────────────────────────────────────────
+
+const COUNTING_FILE = 'counting.json';
+
+/**
+ * Get the counting state for a guild.
+ * @param {string} guildId
+ * @returns {{ count: number, lastUserId: string|null, lastMessageId: string|null }}
+ */
+function getCountingState(guildId) {
+  const data = read(COUNTING_FILE, {});
+  return data[guildId] ?? { count: 0, lastUserId: null, lastMessageId: null };
+}
+
+/**
+ * Update the counting state for a guild.
+ * @param {string} guildId
+ * @param {{ count: number, lastUserId: string, lastMessageId: string }} state
+ */
+function setCountingState(guildId, state) {
+  update(COUNTING_FILE, {}, (data) => {
+    data[guildId] = state;
+  });
+}
+
+/**
+ * Reset the counting state for a guild (after a failed count).
+ * @param {string} guildId
+ */
+function resetCountingState(guildId) {
+  update(COUNTING_FILE, {}, (data) => {
+    data[guildId] = { count: 0, lastUserId: null, lastMessageId: null };
+  });
+}
+
 module.exports = {
   read,
   write,
@@ -574,4 +609,7 @@ module.exports = {
   getStaffInfractions,
   removeStaffInfraction,
   getAllStaffInfractions,
+  getCountingState,
+  setCountingState,
+  resetCountingState,
 };

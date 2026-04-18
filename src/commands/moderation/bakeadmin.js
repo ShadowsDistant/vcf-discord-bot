@@ -7,6 +7,7 @@ const {
 } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const economy = require('../../utils/bakeEconomy');
+const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -16,6 +17,13 @@ module.exports = {
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
 
   async execute(interaction) {
+    if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.moderator)) {
+      return interaction.reply({
+        embeds: [embeds.error('You need to be a **Moderator** or above to use `/bakeadmin`.', interaction.guild)],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
     if (!economy.isBakeAdminAuthorized(interaction.member, interaction.guild.id)) {
       return interaction.reply({
         embeds: [embeds.error('You do not have permission to use `/bakeadmin`.', interaction.guild)],
