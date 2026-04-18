@@ -15,6 +15,7 @@ const {
   memberHasAnyRole,
   ALL_STAFF_ROLE_IDS,
   canUseDevCommand,
+  hasManagementAccessRole,
 } = require('../../utils/roles');
 const { hasModLevel, hasSidRole, MOD_LEVEL } = require('../../utils/permissions');
 
@@ -95,6 +96,9 @@ function canUseCommand(interaction, commandName, folder) {
   }
   if (commandName === 'portal') {
     return memberHasAnyRole(interaction.member, ALL_STAFF_ROLE_IDS);
+  }
+  if (commandName === 'giveaway') {
+    return hasManagementAccessRole(interaction.member);
   }
   return true;
 }
