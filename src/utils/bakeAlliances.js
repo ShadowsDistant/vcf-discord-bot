@@ -244,6 +244,13 @@ function pickWeeklyChallenge(allianceId, ts = Date.now()) {
   return WEEKLY_ALLIANCE_CHALLENGES[index];
 }
 
+function pickWeeklyChallengeWithOffset(allianceId, challengeRollOffset = 0, ts = Date.now()) {
+  if (WEEKLY_ALLIANCE_CHALLENGES.length === 0) return pickWeeklyChallenge(allianceId, ts);
+  const offset = Number(challengeRollOffset ?? 0);
+  const normalizedIndex = ((weekNumber(ts) + hashAllianceId(allianceId) + offset) % WEEKLY_ALLIANCE_CHALLENGES.length + WEEKLY_ALLIANCE_CHALLENGES.length) % WEEKLY_ALLIANCE_CHALLENGES.length;
+  return WEEKLY_ALLIANCE_CHALLENGES[normalizedIndex];
+}
+
 function getMemberLifetimeTotals(guildId, memberIds) {
   const economyUsers = economy.getGuildUserStates(guildId);
   const totals = {};
@@ -277,6 +284,9 @@ function ensureAllianceShape(alliance) {
     }))
     .filter((entry) => entry.userId);
   alliance.storeCredits = Math.max(0, Number(alliance.storeCredits ?? 0));
+  alliance.challengeRollOffset = Number.isFinite(Number(alliance.challengeRollOffset))
+    ? Number(alliance.challengeRollOffset)
+    : 0;
   alliance.lastAdAt = Number.isFinite(alliance.lastAdAt) ? Math.max(0, Number(alliance.lastAdAt)) : null;
   alliance.description = normalizeDescription(alliance.description);
   pruneOldWeeklyState(alliance);
@@ -312,7 +322,7 @@ function getAllianceEffectTotals(alliance) {
 function buildChallengeState(guildId, alliance, ts = Date.now()) {
   ensureAllianceShape(alliance);
   const key = weekKey(ts);
-  const challenge = pickWeeklyChallenge(alliance.id, ts);
+  const challenge = pickWeeklyChallengeWithOffset(alliance.id, alliance.challengeRollOffset, ts);
   const effectTotals = getAllianceEffectTotals(alliance);
   const target = Math.max(1, Math.floor(challenge.target * (1 - effectTotals.targetMultiplierReduction)));
   const memberTotals = getMemberLifetimeTotals(guildId, alliance.members ?? []);
@@ -419,6 +429,7 @@ function createAlliance(guildId, ownerId, name) {
       members: [ownerId],
       createdAt: Date.now(),
       challengeWeekly: {},
+      challengeRollOffset: 0,
       upgrades: [],
       storeCredits: 0,
       joinApprovalEnabled: false,
@@ -1040,6 +1051,50 @@ function adminDeleteAlliance(guildId, allianceIdOrName) {
   });
 }
 
+function adminAdjustAlliancePoints(guildId, allianceIdOrName, delta) {
+  const parsedDelta = Number.parseInt(delta, 10);
+  if (!Number.isInteger(parsedDelta) || parsedDelta === 0) {
+    return { ok: false, reason: 'Delta must be a non-zero integer.' };
+  }
+  return db.update(ALLIANCES_FILE, {}, (data) => {
+    const guild = getGuildState(data, guildId);
+    const alliance = findAllianceByIdOrName(guild.alliances, allianceIdOrName);
+    if (!alliance) return { ok: false, reason: 'Alliance not found.' };
+    ensureAllianceShape(alliance);
+    alliance.storeCredits = Math.max(0, Number(alliance.storeCredits ?? 0) + parsedDelta);
+    return {
+      ok: true,
+      allianceId: alliance.id,
+      allianceName: alliance.name,
+      points: alliance.storeCredits,
+      delta: parsedDelta,
+    };
+  });
+}
+
+function adminForceRotateAllianceChallenges(guildId, ts = Date.now()) {
+  return db.update(ALLIANCES_FILE, {}, (data) => {
+    const guild = getGuildState(data, guildId);
+    const alliancesById = guild.alliances ?? {};
+    const currentWeekKey = weekKey(ts);
+    const rotated = [];
+    for (const alliance of Object.values(alliancesById)) {
+      ensureAllianceShape(alliance);
+      alliance.challengeRollOffset = Number(alliance.challengeRollOffset ?? 0) + 1;
+      if (alliance.challengeWeekly?.[currentWeekKey]) {
+        delete alliance.challengeWeekly[currentWeekKey];
+      }
+      const state = buildChallengeState(guildId, alliance, ts);
+      rotated.push({
+        allianceId: alliance.id,
+        allianceName: alliance.name,
+        challengeName: state.challenge.name,
+      });
+    }
+    return { ok: true, rotated };
+  });
+}
+
 function getAllianceAdCooldownMs(alliance) {
   ensureAllianceShape(alliance);
   return getAllianceEffectTotals(alliance).adCooldownMs;
@@ -1133,4 +1188,6 @@ module.exports = {
   adminGrantAllianceUpgrade,
   adminRevokeAllianceUpgrade,
   adminDeleteAlliance,
+  adminAdjustAlliancePoints,
+  adminForceRotateAllianceChallenges,
 };

@@ -3533,6 +3533,7 @@ function buildBakeAdminDashboardComponents(actorId) {
       .addOptions(
         { label: 'Refresh Dashboard', value: 'refresh_dashboard', description: 'Refresh global economy statistics.' },
         { label: 'Start Event', value: 'start_event', description: 'Start a timed special cookie event for the server.' },
+        { label: 'Force Rotate Challenges', value: 'force_rotate_challenges', description: 'Force new bakery/alliance challenges immediately.' },
         { label: 'Gift All Users', value: 'gift_all_users', description: 'Grant a reward gift box to every user with a message.' },
         { label: 'Set Admin Log Channel', value: 'set_log_channel', description: 'Set channel for bakeadmin action logs.' },
         { label: 'Reset Entire Economy', value: 'reset_economy', description: 'Reset ALL bakery economy data for this guild.' },
@@ -3545,6 +3546,8 @@ function buildBakeAdminDashboardComponents(actorId) {
       .addOptions(
         { label: 'Alliance: Grant Upgrade', value: 'alliance_add_upgrade', description: 'Grant one or more alliance store upgrades.' },
         { label: 'Alliance: Remove Upgrade', value: 'alliance_remove_upgrade', description: 'Remove one or more alliance store upgrades.' },
+        { label: 'Alliance: Add Points', value: 'alliance_add_points', description: 'Add alliance credits/points to an alliance.' },
+        { label: 'Alliance: Take Points', value: 'alliance_take_points', description: 'Remove alliance credits/points from an alliance.' },
         { label: 'Alliance: Delete Alliance', value: 'alliance_delete', description: 'Delete an alliance via confirmation modal.' },
       ),
   );

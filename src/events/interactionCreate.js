@@ -2032,6 +2032,41 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+        if (action === 'force_rotate_challenges') {
+          const bakeryRotation = challenges.adminForceRotateGuildChallenges(interaction.guild.id, Date.now());
+          const allianceRotation = alliances.adminForceRotateAllianceChallenges(interaction.guild.id, Date.now());
+          await tryDeferReplyEphemeral(interaction);
+          await sendBakeAdminLog(
+            interaction,
+            actorId,
+            'Global: Force Rotate Challenges',
+            `Bakery daily=${bakeryRotation.daily.name} weekly=${bakeryRotation.weekly.name} | Alliance rotated=${allianceRotation?.rotated?.length ?? 0}`,
+          );
+          const eventsChannel = await interaction.guild.channels.fetch(SPECIAL_COOKIE_EVENT_CHANNEL_ID).catch(() => null);
+          if (eventsChannel?.isTextBased()) {
+            const allianceCount = allianceRotation?.rotated?.length ?? 0;
+            await eventsChannel.send({
+              embeds: [
+                new EmbedBuilder()
+                  .setColor(0x5865f2)
+                  .setTitle('🎯 Challenges Rotated by Bake Admin')
+                  .setDescription([
+                    `Triggered by <@${interaction.user.id}>`,
+                    `Daily: **${bakeryRotation.daily.name}**`,
+                    `Weekly: **${bakeryRotation.weekly.name}**`,
+                    `Alliance quests rotated: **${allianceCount}**`,
+                  ].join('\n'))
+                  .setTimestamp(),
+              ],
+            }).catch(() => null);
+          }
+          return interaction.editReply({
+            embeds: [embeds.success(
+              `Challenges rotated.\nDaily: **${bakeryRotation.daily.name}**\nWeekly: **${bakeryRotation.weekly.name}**\nAlliance quests rotated: **${allianceRotation?.rotated?.length ?? 0}**`,
+              interaction.guild,
+            )],
+          });
+        }
         if (action === 'gift_all_users') {
           return interaction.reply({
             embeds: [embeds.info('Gift All Users', 'Select the reward gift box to send to every tracked user.', interaction.guild)],
@@ -2076,7 +2111,7 @@ module.exports = {
           });
         }
         const action = interaction.values[0];
-        if (!['alliance_add_upgrade', 'alliance_remove_upgrade', 'alliance_delete'].includes(action)) {
+        if (!['alliance_add_upgrade', 'alliance_remove_upgrade', 'alliance_delete', 'alliance_add_points', 'alliance_take_points'].includes(action)) {
           return interaction.reply({
             embeds: [embeds.error('Unknown alliance management action.', interaction.guild)],
             flags: MessageFlags.Ephemeral,
@@ -2103,6 +2138,23 @@ module.exports = {
           });
           return interaction.reply({
             embeds: [embeds.warning('Select an alliance, then confirm deletion in the next step.', interaction.guild)],
+            components,
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'alliance_add_points' || action === 'alliance_take_points') {
+          const mode = action === 'alliance_take_points' ? 'take' : 'add';
+          const components = buildPagedStringSelectRows({
+            customIdPrefix: `bakeadmin_alliance_points_alliance_select:${actorId}:${mode}`,
+            placeholderBase: 'Select alliance',
+            options: allianceOptions,
+          });
+          return interaction.reply({
+            embeds: [embeds.info(
+              action === 'alliance_take_points' ? 'Alliance: Take Points' : 'Alliance: Add Points',
+              'Select the alliance to update points.',
+              interaction.guild,
+            )],
             components,
             flags: MessageFlags.Ephemeral,
           });
@@ -2364,6 +2416,37 @@ module.exports = {
         return interaction.editReply({
           embeds: [embeds.success(summary.slice(0, 4096), interaction.guild)],
         });
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_alliance_points_alliance_select:')) {
+        const [, actorId, mode] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const allianceId = interaction.values[0];
+        const alliance = alliances.listAlliances(interaction.guild.id).find((entry) => entry.id === allianceId);
+        if (!alliance) {
+          return interaction.reply({
+            embeds: [embeds.error('Unknown alliance selection.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const modal = new ModalBuilder()
+          .setCustomId(`bakeadmin_alliance_points_modal:${actorId}:${mode}:${alliance.id}`)
+          .setTitle(mode === 'take' ? 'Alliance: Take Points' : 'Alliance: Add Points')
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('amount')
+                .setLabel(`Points to ${mode === 'take' ? 'remove' : 'add'}`)
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true),
+            ),
+          );
+        return interaction.showModal(modal);
       }
 
       if (interaction.customId.startsWith('bakeadmin_alliance_upgrade_remove_select:')) {
@@ -2953,6 +3036,45 @@ module.exports = {
         await sendBakeAdminLog(interaction, targetId, 'Alliance: Delete', `${result.allianceName} (${result.allianceId}), members removed: ${result.memberCount}`);
         return interaction.editReply({
           embeds: [embeds.success(`Deleted alliance **${result.allianceName}** (\`${result.allianceId}\`).`, interaction.guild)],
+        });
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_alliance_points_modal:')) {
+        const [, actorId, mode, allianceId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin modal is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const amountRaw = interaction.fields.getTextInputValue('amount').trim();
+        const amount = Number.parseInt(amountRaw, 10);
+        if (!Number.isInteger(amount) || amount <= 0) {
+          return interaction.reply({
+            embeds: [embeds.error('Amount must be a positive whole number.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const delta = mode === 'take' ? -amount : amount;
+        const result = alliances.adminAdjustAlliancePoints(interaction.guild.id, allianceId, delta);
+        if (!result.ok) {
+          return interaction.reply({
+            embeds: [embeds.error(result.reason, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        await tryDeferReplyEphemeral(interaction);
+        await sendBakeAdminLog(
+          interaction,
+          actorId,
+          mode === 'take' ? 'Alliance: Take Points' : 'Alliance: Add Points',
+          `${result.allianceName} (${result.allianceId}) delta=${result.delta} total=${result.points}`,
+        );
+        return interaction.editReply({
+          embeds: [embeds.success(
+            `${mode === 'take' ? 'Removed' : 'Added'} **${Math.abs(result.delta)}** alliance points ${mode === 'take' ? 'from' : 'to'} **${result.allianceName}**.\nNew total: **${result.points}**`,
+            interaction.guild,
+          )],
         });
       }
 
