@@ -25,21 +25,22 @@ const SHIFT_COMMANDS = new Set(['shift']);
 const MODERATION_RANK_BY_COMMAND = {
   ban: 'Senior Moderator+',
   unban: 'Senior Moderator+',
-  staffinfraction: 'Senior Moderator+ / SID',
-  warn: 'Junior Moderator+',
-  warnings: 'Junior Moderator+',
-  clearwarnings: 'Junior Moderator+',
-  kick: 'Junior Moderator+',
-  timeout: 'Junior Moderator+',
-  untimeout: 'Junior Moderator+',
-  mute: 'Junior Moderator+',
-  deafen: 'Junior Moderator+',
-  move: 'Junior Moderator+',
-  lock: 'Junior Moderator+',
-  unlock: 'Junior Moderator+',
-  slowmode: 'Junior Moderator+',
-  purge: 'Junior Moderator+',
-  role: 'Junior Moderator+',
+  staffinfraction: 'SID only',
+  warn: 'Moderator+',
+  warnings: 'Moderator+',
+  clearwarnings: 'Senior Moderator+',
+  kick: 'Moderator+',
+  timeout: 'Moderator+',
+  untimeout: 'Moderator+',
+  mute: 'Moderator+',
+  deafen: 'Moderator+',
+  move: 'Moderator+',
+  lock: 'Moderator+',
+  unlock: 'Moderator+',
+  slowmode: 'Moderator+',
+  purge: 'Moderator+',
+  role: 'Moderator+',
+  bakeadmin: 'Moderator+',
 };
 const EMBED_FIELD_VALUE_LIMIT = 1024;
 
@@ -81,10 +82,7 @@ function canUseCommand(interaction, commandName, folder) {
   }
   if (folder === 'moderation') {
     if (commandName === 'staffinfraction') {
-      return (
-        hasSidRole(interaction.member, interaction.guild.id)
-        || hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.management)
-      );
+      return hasSidRole(interaction.member, interaction.guild.id);
     }
     const required = SENIOR_MOD_COMMANDS.has(commandName) ? MOD_LEVEL.seniorMod : MOD_LEVEL.moderator;
     return hasModLevel(interaction.member, interaction.guild.id, required);

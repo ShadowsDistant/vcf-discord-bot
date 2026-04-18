@@ -4,6 +4,7 @@ const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('disc
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
+const { sendCommandLog } = require('../../utils/moderationNotifications');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -16,9 +17,9 @@ module.exports = {
     ),
 
   async execute(interaction) {
-    if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.moderator)) {
+    if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.seniorMod)) {
       return interaction.reply({
-        embeds: [embeds.error('You do not have the required moderation role to use this command.', interaction.guild)],
+        embeds: [embeds.error('You need to be a **Senior Moderator** or above to clear warnings.', interaction.guild)],
         flags: MessageFlags.Ephemeral,
       });
     }
@@ -34,6 +35,14 @@ module.exports = {
     }
 
     db.clearWarnings(interaction.guild.id, target.id);
+
+    await sendCommandLog({
+      guild: interaction.guild,
+      moderator: interaction.user,
+      action: 'Clear Warnings',
+      target: `${target.tag} (${target.id})`,
+      details: `Cleared **${existing.length}** warning${existing.length !== 1 ? 's' : ''}.`,
+    });
 
     return interaction.reply({
       embeds: [

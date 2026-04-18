@@ -38,7 +38,7 @@ async function sendModerationActionDm({
 }
 
 /**
- * Sends a moderation action log to the central mod-log channel.
+ * Sends a punishment log to the dedicated punishment log channel.
  * @param {Object} opts
  * @param {import('discord.js').Guild} opts.guild
  * @param {import('discord.js').User} opts.target
@@ -50,12 +50,21 @@ async function sendModerationActionDm({
  */
 async function sendModLog({ guild, target, moderator, action, reason, extra } = {}) {
   if (!guild) return;
-  const channel = await fetchLogChannel(guild, 'modLog');
+  const channel = await fetchLogChannel(guild, 'punishmentLog');
   if (!channel) return;
 
-  const colorByAction = { Warn: 0xfee75c, Kick: 0xff6b35, Ban: 0xed4245, Timeout: 0x5865f2 };
-  const emojiByAction = { Warn: '⚠️', Kick: '👟', Ban: '🔨', Timeout: '⏳' };
-  const titleByAction = { Warn: 'Member Warned', Kick: 'Member Kicked', Ban: 'Member Banned', Timeout: 'Member Timed Out' };
+  const colorByAction = { Warn: 0xfee75c, Kick: 0xff6b35, Ban: 0xed4245, Timeout: 0x5865f2, Mute: 0xf57c00, Deafen: 0x9b59b6, Unmute: 0x57f287, Undeafen: 0x57f287 };
+  const emojiByAction = { Warn: '⚠️', Kick: '👟', Ban: '🔨', Timeout: '⏳', Mute: '🔇', Deafen: '🔕', Unmute: '🔊', Undeafen: '🔔' };
+  const titleByAction = {
+    Warn: 'Member Warned',
+    Kick: 'Member Kicked',
+    Ban: 'Member Banned',
+    Timeout: 'Member Timed Out',
+    Mute: 'Member Server-Muted',
+    Deafen: 'Member Server-Deafened',
+    Unmute: 'Member Server-Unmuted',
+    Undeafen: 'Member Server-Undeafened',
+  };
 
   const embed = new EmbedBuilder()
     .setColor(colorByAction[action] ?? 0xed4245)
@@ -72,6 +81,36 @@ async function sendModLog({ guild, target, moderator, action, reason, extra } = 
   if (extra) {
     embed.addFields({ name: 'Additional Info', value: extra, inline: true });
   }
+
+  await channel.send({ embeds: [embed] }).catch(() => null);
+}
+
+/**
+ * Sends a general moderation/management command execution log.
+ * @param {Object} opts
+ * @param {import('discord.js').Guild} opts.guild
+ * @param {import('discord.js').User} opts.moderator
+ * @param {string} opts.action  e.g. 'Purge', 'Lock', 'Slowmode'
+ * @param {string} [opts.target]  Optional target description string
+ * @param {string} [opts.details]  Optional details about the action
+ * @returns {Promise<void>}
+ */
+async function sendCommandLog({ guild, moderator, action, target, details } = {}) {
+  if (!guild) return;
+  const channel = await fetchLogChannel(guild, 'commandLog');
+  if (!channel) return;
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle(`🔧 ${action}`)
+    .addFields(
+      { name: 'Moderator', value: `${moderator} (\`${moderator?.tag}\`)`, inline: true },
+    )
+    .setTimestamp()
+    .setFooter({ text: guild.name, iconURL: guild.iconURL() ?? undefined });
+
+  if (target) embed.addFields({ name: 'Target', value: String(target).slice(0, 1024), inline: true });
+  if (details) embed.addFields({ name: 'Details', value: String(details).slice(0, 1024), inline: false });
 
   await channel.send({ embeds: [embed] }).catch(() => null);
 }
@@ -101,5 +140,6 @@ async function sendReporterStatusDm({ user, guild, status, reportReason }) {
 module.exports = {
   sendModerationActionDm,
   sendModLog,
+  sendCommandLog,
   sendReporterStatusDm,
 };

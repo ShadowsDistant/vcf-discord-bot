@@ -4,7 +4,7 @@ const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('disc
 const embeds = require('../../utils/embeds');
 const { parseDuration, formatDuration } = require('../../utils/helpers');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
-const { sendModerationActionDm } = require('../../utils/moderationNotifications');
+const { sendModerationActionDm, sendModLog, sendCommandLog } = require('../../utils/moderationNotifications');
 
 // Discord's maximum timeout duration is 28 days in ms
 const MAX_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000;
@@ -81,6 +81,21 @@ module.exports = {
         duration: formatDuration(ms),
       });
       await member.timeout(ms, `${interaction.user.tag}: ${reason}`);
+      await sendModLog({
+        guild: interaction.guild,
+        target,
+        moderator: interaction.user,
+        action: 'Timeout',
+        reason,
+        extra: `Duration: **${formatDuration(ms)}**`,
+      });
+      await sendCommandLog({
+        guild: interaction.guild,
+        moderator: interaction.user,
+        action: 'Timeout',
+        target: `${target.tag} (${target.id})`,
+        details: `Duration: ${formatDuration(ms)} — Reason: ${reason}`,
+      });
       return interaction.reply({
         embeds: [
           embeds.modAction({

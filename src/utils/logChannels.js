@@ -9,6 +9,12 @@ const LOG_CHANNEL_IDS = {
   cookieLogs: '1492706903938043904',
   cookieEvents: '1492690923333746790',
   modLog: '1381353087943442452',
+  /** Punishment action logs (warn, kick, ban, timeout, mute, deafen, staff infractions) */
+  punishmentLog: '1494891122432938108',
+  /** General moderation & management command execution logs */
+  commandLog: '1494889843887706172',
+  /** AI interaction logs */
+  aiLog: '1494887958543597668',
 };
 
 async function fetchLogChannel(guild, key) {

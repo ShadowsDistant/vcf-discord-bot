@@ -3,6 +3,7 @@
 const { SlashCommandBuilder, MessageFlags, PermissionFlagsBits } = require('discord.js');
 const embeds = require('../../utils/embeds');
 const { hasModLevel, MOD_LEVEL } = require('../../utils/permissions');
+const { sendCommandLog } = require('../../utils/moderationNotifications');
 
 /** Format a slowmode delay in seconds to a human-readable string. */
 function formatSlowmode(seconds) {
@@ -52,6 +53,13 @@ module.exports = {
 
     try {
       await channel.setRateLimitPerUser(seconds);
+      await sendCommandLog({
+        guild: interaction.guild,
+        moderator: interaction.user,
+        action: 'Slowmode',
+        target: `${channel.name} (${channel.id})`,
+        details: seconds === 0 ? 'Slowmode disabled.' : `Set to ${formatSlowmode(seconds)}.`,
+      });
 
       if (seconds === 0) {
         return interaction.reply({
