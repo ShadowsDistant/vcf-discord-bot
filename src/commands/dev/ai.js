@@ -2539,7 +2539,7 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
     }
 
     case 'set_bot_status': {
-      if (!canUseDevCommand(interaction.user.id)) {
+      if (!canUseDevCommand(interaction.member, interaction.guild, 'ai')) {
         throw new Error('Only developers can change the bot status.');
       }
       const activityTypeMap = {
