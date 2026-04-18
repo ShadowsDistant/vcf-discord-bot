@@ -96,12 +96,14 @@ The bot includes a fully-featured cookie-baking economy game inspired by increme
 - Owner-posted alliance recruitment ads in the event channel (3 alliance credits per post)
 - Alliance ad cooldown: 24h base, reducible to 16h via alliance upgrade
 - Alliance guide coverage in the in-bot **Alliance Codex**
+- Automatic challenge/quest rotation checks with event-channel announcements
+- Bake admin can force-rotate all bakery + alliance challenges and can adjust alliance points
 
 ### Staff Tools
 
 | Command | Description |
 |---|---|
-| `/bakeadmin` | Moderator dashboard for baking economy — view user stats, edit cookies/bakes, ban/unban users from baking, manage items. Requires `Manage Guild` permission or configured bake admin role. |
+| `/bakeadmin` | Moderator dashboard for baking economy — view user stats, edit cookies/bakes, ban/unban users from baking, manage items, force challenge rotation, and adjust alliance points. Requires `Manage Guild` permission or configured bake admin role. |
 | `/staffmessage` | Send notification messages or gift boxes to specific users or all bakery players. Staff-only. |
 | `/staffinfraction` | Issue formal infractions (warning, suspension, termination) to staff members. Records are stored, DMs are sent, and punishment logs are posted. **SID role only.** |
 
@@ -111,6 +113,8 @@ The bot includes a fully-featured cookie-baking economy game inspired by increme
 |---|---|
 | `bake_economy.json` | Per-guild user bakery data — cookies, buildings, upgrades, inventory, milestones, rank, alliance membership, pending messages |
 | `bake_alliances.json` | Per-guild alliance data — members, challenges, upgrades, store credits, join requests |
+| `bake_challenge_meta.json` | Per-guild challenge rotation overrides (forced daily/weekly rotations) |
+| `giveaways.json` | Per-guild giveaway records for active/ended giveaways, winners, and rerolls |
 | `command_restrictions.json` | Global command restrictions keyed by user ID and command name |
 
 ---
@@ -133,7 +137,7 @@ The counting channel (`#counting`, channel ID `1436101746928914675`) supports a 
 
 | Channel | Purpose | ID |
 |---|---|---|
-| AI Interactions | All AI prompts/responses (safety ON only) with codeblock prompt/response/thinking, detailed prompt/response safety results, and tool usage | `1494887958543597668` |
+| AI Interactions | All AI prompts/responses (safety ON only) with codeblock prompt/response/thinking, detailed prompt/response safety results, tool usage, and message jump links | `1494887958543597668` |
 | Moderation & Management Commands | All mod/management command executions | `1494889843887706172` |
 | Punishment Logs | Warns, kicks, bans, timeouts, mutes, deafens, staff infractions | `1494891122432938108` |
 
@@ -455,13 +459,20 @@ Send a plain-text bot message (no embed) to the current channel or a selected ch
 ---
 
 #### `/giveaway`
-Start a giveaway embed in a selected channel.
+Create and manage timed giveaways.
+
+Subcommands:
+- `start` — starts a giveaway with a required duration and auto-end timer
+- `end` — ends the oldest active giveaway in the current channel
+- `reroll` — rerolls the oldest ended giveaway in the current channel
+
+`start` options:
 
 | Option | Type | Required | Description |
 |---|---|---|---|
 | `channel` | Text/Announcement Channel | ✅ | Channel to post the giveaway in |
 | `prize` | String | ✅ | Prize description |
-| `duration` | String | ❌ | Optional duration text shown in the embed |
+| `duration` | String | ✅ | Duration string (e.g. `30m`, `2h`, `1h30m`) |
 | `winners` | Integer | ❌ | Number of winners (default `1`) |
 
 > Restricted to role IDs `1379199481886802061` or `1470915962860736553`.
@@ -702,11 +713,27 @@ Query AI via NVIDIA Build API (`openai/gpt-oss-120b`) and return the result in a
 |---|---|---|---|
 | `prompt` | String | ✅ | Prompt sent to the AI model |
 
-Supports a broad set of safe read-only tools (server overview, features, channels, roles, members, emojis, web search, and Valley Correctional MCP docs lookup) for context-aware responses.
+Supports a broad set of tools, including:
+- Server read/write Discord tools (based on role-based access)
+- `view_server_events` to read recent event-channel announcements (including upcoming event posts)
+- `query_valley_mcp_docs` for MCP docs lookup at `https://docs.valleycorrectional.xyz/mcp`
+
 `/ai` returns a final structured embed (no streaming updates) with stable formatting.
 The response includes an always-available **Review** button that opens diagnostics (tools used, TTFT, token usage, timing, rounds, and tool-permission capability flags for moderation/management/dev tools), and the AI can add link buttons to the embed when useful.
+Review mode includes persistent user controls for:
+- **Model** selection
+- **Persona** selection (applies consistently across turns and future `/ai` sessions for that user)
+- **Custom Instructions** (saved per-user, max 750 chars, safety + jailbreak checked before save, editable/clearable later)
+
 Replies to AI messages continue the same conversation context.
 Access is restricted to the configured developer user IDs plus hardcoded allow-list users.
+
+Tool restrictions:
+- Tool permissions are derived from the invoking member’s role access each time `/ai` runs.
+- Moderation tools require moderation-role access.
+- Management tools require management-role access.
+- Developer-only tools require developer command access.
+- Normal users can only run moderation tools through `/ai` if they are granted the required moderation-role access in Discord.
 
 ---
 
