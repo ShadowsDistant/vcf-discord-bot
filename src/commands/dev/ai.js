@@ -4166,6 +4166,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
           blockReason: result.blockReason ?? null,
           safetyRating: result.safetyRating ?? null,
           aiMessageId: replyMsg.id,
+          personaKey: session.personaKey,
           safetyDetails: result.safetyDetails ?? null,
           toolsUsed: result.toolsUsed ?? session.toolsUsed,
         }).catch(() => null);
@@ -4472,6 +4473,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
             blockReason: result.blockReason ?? null,
             safetyRating: result.safetyRating ?? null,
             aiMessageId: replyMsg.id,
+            personaKey: session.personaKey,
             safetyDetails: result.safetyDetails ?? null,
             toolsUsed: result.toolsUsed ?? session.toolsUsed,
           }).catch(() => null);
@@ -4570,6 +4572,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
  * @param {string} [params.blockReason] - Block reason if blocked
  * @param {string} [params.safetyRating] - Safety rating if not blocked
  * @param {string} [params.aiMessageId] - AI response message id for jump link
+ * @param {string} [params.personaKey] - Active persona key used for this turn
  * @param {{prompt?:{harm:string,rule:string,severity:string,reason:string},response?:{harm:string,rule:string,severity:string,reason:string}}} [params.safetyDetails]
  * @param {Array<{name:string,args?:object,denied?:boolean,error?:string}>} [params.toolsUsed]
  * @returns {Promise<void>}
@@ -4584,6 +4587,7 @@ async function sendAiInteractionLog(
     blockReason,
     safetyRating,
     aiMessageId,
+    personaKey,
     safetyDetails,
     toolsUsed,
   } = {},
@@ -4620,6 +4624,9 @@ async function sendAiInteractionLog(
     .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
     .addFields(baseFields)
     .setTimestamp();
+
+  const personaLabel = getPersonaConfig(personaKey).label;
+  embed.addFields({ name: 'Persona', value: personaLabel, inline: true });
 
   if (safetyRating) {
     embed.addFields({ name: 'Safety Rating', value: String(safetyRating).slice(0, 256), inline: true });
@@ -4802,6 +4809,7 @@ module.exports = {
         blockReason: result.blockReason ?? null,
         safetyRating: result.safetyRating ?? null,
         aiMessageId: replyMsg.id,
+        personaKey: userSettings.personaKey,
         safetyDetails: result.safetyDetails ?? null,
         toolsUsed: result.toolsUsed ?? toolsUsed,
       }).catch(() => null);
