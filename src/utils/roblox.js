@@ -3,30 +3,68 @@
 const https = require('https');
 const embeds = require('./embeds');
 
-function fetchJSON(url) {
+function fetchJSON(url, options = {}) {
   return new Promise((resolve, reject) => {
-    https
-      .get(url, { headers: { 'User-Agent': 'vcf-discord-bot/1.0' } }, (res) => {
+    const request = https.request(url, {
+      method: options.method ?? 'GET',
+      headers: {
+        'User-Agent': 'vcf-discord-bot/1.0',
+        Accept: 'application/json',
+        ...(options.headers ?? {}),
+      },
+    }, (res) => {
         let raw = '';
         res.on('data', (chunk) => (raw += chunk));
         res.on('end', () => {
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            const error = new Error(`Roblox API request failed (${res.statusCode}).`);
+            error.status = res.statusCode;
+            reject(error);
+            return;
+          }
           try {
             resolve(JSON.parse(raw));
           } catch (e) {
             reject(new Error(`Failed to parse JSON from ${url}: ${e.message}`));
           }
         });
-      })
-      .on('error', reject);
+      });
+    request.on('error', reject);
+    if (options.body) request.write(options.body);
+    request.end();
   });
 }
 
 async function searchRobloxUser(username) {
-  const url = `https://users.roblox.com/v1/users/search?keyword=${encodeURIComponent(username)}&limit=10`;
-  const data = await fetchJSON(url);
-  if (!data.data?.length) return null;
-  const exact = data.data.find((u) => u.name.toLowerCase() === username.toLowerCase());
-  return exact ?? data.data[0];
+  const query = String(username ?? '').trim();
+  if (!query) return null;
+  try {
+    const url = `https://users.roblox.com/v1/users/search?keyword=${encodeURIComponent(query)}&limit=10`;
+    const data = await fetchJSON(url);
+    if (data.data?.length) {
+      const exact = data.data.find((u) => u.name.toLowerCase() === query.toLowerCase());
+      return exact ?? data.data[0];
+    }
+  } catch (error) {
+    if (error?.status !== 400) throw error;
+  }
+
+  const fallback = await fetchJSON('https://users.roblox.com/v1/usernames/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      usernames: [query],
+      excludeBannedUsers: false,
+    }),
+  });
+  const first = fallback?.data?.[0];
+  if (!first) return null;
+  return {
+    id: first.id,
+    name: first.name ?? first.requestedUsername ?? query,
+    displayName: first.displayName ?? first.name ?? first.requestedUsername ?? query,
+    hasVerifiedBadge: Boolean(first.hasVerifiedBadge),
+  };
 }
 
 async function getRobloxUser(userId) {

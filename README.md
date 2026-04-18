@@ -36,7 +36,7 @@ A modern, feature-rich Discord bot built with **discord.js v14** featuring advan
 | Category | Highlights |
 |---|---|
 | **Moderation** | Ban, kick, timeout, warn system, purge, lock/unlock channels, slowmode, role management — with role-based permission levels (Moderator+, Senior Mod+, SID only) |
-| **Utility** | Ping, userinfo, serverinfo, avatar, botinfo, help, updates, analytics, daily, alliance, messages |
+| **Utility** | Ping, userinfo, serverinfo, avatar, botinfo, help, updates, analytics, daily, alliance, messages, giveaway |
 | **Counting Game** | Server counting channel with math expression support, milestone celebrations, ✅/❌ reactions |
 | **Shifts** | Clock-in/out, staff-role gate, shift history, wave period tracking, quota requirements, DMs on start/end, wave-end mass DM |
 | **Setup** | Admin-only server configuration (mod logs, welcome, staff roles, mod permission levels, quota, shift DMs, AutoMod) |
@@ -122,6 +122,7 @@ The counting channel (`#counting`, channel ID `1436101746928914675`) supports a 
 - Users take turns counting up from 1 by sending numbers or **math expressions** (e.g. `2+2`, `3*5`, `10^2`)
 - The bot reacts with ✅ on correct counts and ❌ on mistakes
 - Counting twice in a row resets the count to 0
+- Counting must progress by whole numbers (no decimals)
 - Sending a non-numeric or non-math message resets the count to 0
 - Every 100 counts triggers a 🎉 milestone celebration
 - Supported operators: `+`, `-`, `*`, `/`, `%`, `**` (`^`), parentheses, and decimals
@@ -132,7 +133,7 @@ The counting channel (`#counting`, channel ID `1436101746928914675`) supports a 
 
 | Channel | Purpose | ID |
 |---|---|---|
-| AI Interactions | All AI prompts/responses (safety ON only) with block reasons and safety ratings | `1494887958543597668` |
+| AI Interactions | All AI prompts/responses (safety ON only) with codeblock prompt/response/thinking, detailed prompt/response safety results, and tool usage | `1494887958543597668` |
 | Moderation & Management Commands | All mod/management command executions | `1494889843887706172` |
 | Punishment Logs | Warns, kicks, bans, timeouts, mutes, deafens, staff infractions | `1494891122432938108` |
 
@@ -370,6 +371,8 @@ List all available commands grouped by category, or get detailed info on a speci
 |---|---|---|---|
 | `command` | String | ❌ | Command name to get detailed help for |
 
+Shows only commands you can currently use and includes category switching from a select menu.
+
 ---
 
 #### `/updates`
@@ -448,6 +451,20 @@ Send a plain-text bot message (no embed) to the current channel or a selected ch
 | `channel` | Text/Announcement Channel | ❌ | Optional target channel (defaults to current channel) |
 
 > Restricted to **Management**.
+
+---
+
+#### `/giveaway`
+Start a giveaway embed in a selected channel.
+
+| Option | Type | Required | Description |
+|---|---|---|---|
+| `channel` | Text/Announcement Channel | ✅ | Channel to post the giveaway in |
+| `prize` | String | ✅ | Prize description |
+| `duration` | String | ❌ | Optional duration text shown in the embed |
+| `winners` | Integer | ❌ | Number of winners (default `1`) |
+
+> Restricted to role IDs `1379199481886802061` or `1470915962860736553`.
 
 ---
 
@@ -687,7 +704,7 @@ Query AI via NVIDIA Build API (`openai/gpt-oss-120b`) and return the result in a
 
 Supports a broad set of safe read-only tools (server overview, features, channels, roles, members, emojis, web search, and Valley Correctional MCP docs lookup) for context-aware responses.
 `/ai` returns a final structured embed (no streaming updates) with stable formatting.
-The response includes an always-available **Review** button that opens diagnostics (tools used, TTFT, token usage, timing, and rounds), and the AI can add link buttons to the embed when useful.
+The response includes an always-available **Review** button that opens diagnostics (tools used, TTFT, token usage, timing, rounds, and tool-permission capability flags for moderation/management/dev tools), and the AI can add link buttons to the embed when useful.
 Replies to AI messages continue the same conversation context.
 Access is restricted to the configured developer user IDs plus hardcoded allow-list users.
 
@@ -872,6 +889,7 @@ vcf-discord-bot/
 │   │   │   ├── botinfo.js        # /botinfo
 │   │   │   ├── announce.js       # /announce (management only)
 │   │   │   ├── say.js            # /say (management only, plain text)
+│   │   │   ├── giveaway.js       # /giveaway (role-gated giveaway starter)
 │   │   │   └── help.js           # /help
 │   │   ├── shifts/
 │   │   │   ├── startshift.js     # /startshift (staff-role gate, DM on start)

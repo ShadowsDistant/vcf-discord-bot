@@ -326,30 +326,32 @@ function hasAnyRole(member, roleIds) {
 /**
  * Build AI tool permissions from invoking member roles.
  * @param {import('discord.js').GuildMember|import('discord.js').APIInteractionGuildMember|null|undefined} member
- * @returns {{canUseModerationTools:boolean,canUseManagementTools:boolean}}
+ * @returns {{canUseModerationTools:boolean,canUseManagementTools:boolean,canUseDevTools:boolean}}
  */
-function getAiToolPermissions(member) {
+function getAiToolPermissions(member, guild) {
   return {
     canUseModerationTools: hasAnyRole(member, MODERATION_ROLE_IDS),
     canUseManagementTools: hasAnyRole(member, MANAGEMENT_ROLE_IDS),
+    canUseDevTools: canUseDevCommand(member, guild, 'ai'),
   };
 }
 
 /**
  * Determine if a tool is allowed for the current role permissions.
  * @param {string} toolName
- * @param {{canUseModerationTools:boolean,canUseManagementTools:boolean}} permissions
+ * @param {{canUseModerationTools:boolean,canUseManagementTools:boolean,canUseDevTools:boolean}} permissions
  * @returns {boolean}
  */
 function isToolAllowedForPermissions(toolName, permissions) {
   if (MODERATION_TOOL_NAMES.has(toolName) && !permissions?.canUseModerationTools) return false;
   if (MANAGEMENT_TOOL_NAMES.has(toolName) && !permissions?.canUseManagementTools) return false;
+  if (toolName === 'set_bot_status' && !permissions?.canUseDevTools) return false;
   return true;
 }
 
 /**
  * Filter tool schema list by role permissions.
- * @param {{canUseModerationTools:boolean,canUseManagementTools:boolean}} permissions
+ * @param {{canUseModerationTools:boolean,canUseManagementTools:boolean,canUseDevTools:boolean}} permissions
  * @returns {typeof TOOL_SCHEMAS}
  */
 function getToolSchemasForPermissions(permissions) {
@@ -358,7 +360,7 @@ function getToolSchemasForPermissions(permissions) {
 
 /**
  * Build prompt suffix communicating tool access restrictions.
- * @param {{canUseModerationTools:boolean,canUseManagementTools:boolean}} permissions
+ * @param {{canUseModerationTools:boolean,canUseManagementTools:boolean,canUseDevTools:boolean}} permissions
  * @returns {string}
  */
 function buildToolAccessPromptSuffix(permissions) {
@@ -372,6 +374,11 @@ function buildToolAccessPromptSuffix(permissions) {
     lines.push('- Management tools are enabled for this user.');
   } else {
     lines.push('- Management tools are disabled for this user. Do not offer or attempt management actions.');
+  }
+  if (permissions?.canUseDevTools) {
+    lines.push('- Developer tools are enabled for this user.');
+  } else {
+    lines.push('- Developer tools are disabled for this user. Do not offer or attempt developer actions.');
   }
   return lines.join('\n');
 }
@@ -1482,7 +1489,7 @@ function getUserAiSettings(userId) {
 /**
  * Persist AI settings for a user.
  * @param {string} userId
- * @param {{modelKey:string,showThinking:boolean,safetyEnabled:boolean,toolSchemas?:Array<object>,toolPermissions?:{canUseModerationTools:boolean,canUseManagementTools:boolean}}} settings
+ * @param {{modelKey:string,showThinking:boolean,safetyEnabled:boolean,toolSchemas?:Array<object>,toolPermissions?:{canUseModerationTools:boolean,canUseManagementTools:boolean,canUseDevTools:boolean}}} settings
  */
 function setUserAiSettings(userId, settings) {
   ensureUserAiSettingsLoaded();
@@ -1716,17 +1723,60 @@ function claimConvinceDailyCookies(guildId, userId, requestedAmount, argument) {
 /**
  * Fetch JSON from a Roblox API endpoint.
  * @param {string} url
+ * @param {RequestInit} [options]
  * @returns {Promise<any>}
  */
-async function fetchRobloxJson(url) {
+async function fetchRobloxJson(url, options = {}) {
+  const method = String(options?.method ?? 'GET').toUpperCase();
+  const headers = {
+    'User-Agent': 'vcf-discord-bot/1.0',
+    Accept: 'application/json',
+    ...(options?.headers ?? {}),
+  };
+  const requestOptions = {
+    ...options,
+    method,
+    headers,
+  };
   const res = await fetch(url, {
-    headers: {
-      'User-Agent': 'vcf-discord-bot/1.0',
-      Accept: 'application/json',
-    },
+    ...requestOptions,
   });
-  if (!res.ok) throw new Error(`Roblox API request failed (${res.status}).`);
+  if (!res.ok) throw Object.assign(new Error(`Roblox API request failed (${res.status}).`), { status: res.status });
   return res.json();
+}
+
+/**
+ * Search Roblox users with fallback from search endpoint to username lookup API.
+ * @param {string} query
+ * @param {number} limit
+ * @returns {Promise<Array<{id:number,name:string,displayName:string,hasVerifiedBadge:boolean}>>}
+ */
+async function searchRobloxUsersWithFallback(query, limit) {
+  const trimmedQuery = String(query ?? '').trim();
+  if (!trimmedQuery) return [];
+  const safeLimit = getRobloxSearchLimit(limit);
+  try {
+    const data = await fetchRobloxJson(`${ROBLOX_USERS_API_BASE}/v1/users/search?keyword=${encodeURIComponent(trimmedQuery)}&limit=${safeLimit}`);
+    const results = Array.isArray(data?.data) ? data.data : [];
+    if (results.length > 0) return results;
+  } catch (error) {
+    if (error?.status !== 400) throw error;
+  }
+  const fallbackData = await fetchRobloxJson(`${ROBLOX_USERS_API_BASE}/v1/usernames/users`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      usernames: [trimmedQuery],
+      excludeBannedUsers: false,
+    }),
+  });
+  const fallbackResults = Array.isArray(fallbackData?.data) ? fallbackData.data : [];
+  return fallbackResults.map((user) => ({
+    id: user.id,
+    name: user.name ?? user.requestedUsername ?? trimmedQuery,
+    displayName: user.displayName ?? user.name ?? user.requestedUsername ?? trimmedQuery,
+    hasVerifiedBadge: Boolean(user.hasVerifiedBadge),
+  }));
 }
 
 /**
@@ -1835,7 +1885,7 @@ async function resolveMemberFromToolArgs(guild, args, options = {}) {
 /**
  * Enforce role-based tool restrictions.
  * @param {string} toolName
- * @param {{canUseModerationTools:boolean,canUseManagementTools:boolean}} permissions
+ * @param {{canUseModerationTools:boolean,canUseManagementTools:boolean,canUseDevTools:boolean}} permissions
  */
 function assertToolAllowedForPermissions(toolName, permissions) {
   if (isToolAllowedForPermissions(toolName, permissions)) return;
@@ -1854,7 +1904,7 @@ function assertToolAllowedForPermissions(toolName, permissions) {
  * @param {string} toolName
  * @param {object} args
  * @param {import('discord.js').ChatInputCommandInteraction} interaction
- * @param {{canUseModerationTools:boolean,canUseManagementTools:boolean}} [toolPermissions]
+ * @param {{canUseModerationTools:boolean,canUseManagementTools:boolean,canUseDevTools:boolean}} [toolPermissions]
  * @returns {Promise<unknown>}
  */
 async function executeTool(toolName, args, interaction, toolPermissions) {
@@ -2563,8 +2613,7 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
       const query = String(args.query ?? '').trim();
       if (!query) throw new Error('Query is required.');
       const limit = getRobloxSearchLimit(args.limit);
-      const data = await fetchRobloxJson(`${ROBLOX_USERS_API_BASE}/v1/users/search?keyword=${encodeURIComponent(query)}&limit=${limit}`);
-      const results = Array.isArray(data?.data) ? data.data : [];
+      const results = await searchRobloxUsersWithFallback(query, limit);
       return results.slice(0, limit).map((user) => ({
         id: user.id,
         username: user.name,
@@ -2577,8 +2626,7 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
     case 'get_roblox_user_profile': {
       const username = String(args.username ?? '').trim();
       if (!username) throw new Error('Username is required.');
-      const searchData = await fetchRobloxJson(`${ROBLOX_USERS_API_BASE}/v1/users/search?keyword=${encodeURIComponent(username)}&limit=10`);
-      const results = Array.isArray(searchData?.data) ? searchData.data : [];
+      const results = await searchRobloxUsersWithFallback(username, 10);
       const match = results.find((u) => u.name.toLowerCase() === username.toLowerCase()) ?? results[0] ?? null;
       if (!match) throw new Error(`No Roblox user found for username: ${username}`);
       const [profileResult, avatarResult, friendResult, followerResult] = await Promise.allSettled([
@@ -3123,15 +3171,12 @@ function buildFinalOutput(rawContent, options = {}) {
 }
 
 /**
- * Build review/details embed.
- * @param {{ttftMs:number|null,totalMs:number,iterations:number,promptTokens:number|null,completionTokens:number|null}} stats
- * @param {Array} toolsUsed
- * @param {{modelKey:string,showThinking:boolean,safetyEnabled:boolean}} settings
- * @returns {EmbedBuilder}
+ * Build text lines summarizing tool usage in a turn.
+ * @param {Array<{name:string,args?:object,denied?:boolean,error?:string}>} toolsUsed
+ * @returns {string}
  */
-function buildReviewEmbed(stats, toolsUsed, settings) {
-  const modelConfig = getModelConfig(settings?.modelKey);
-  const toolLines = toolsUsed.length
+function formatToolsUsedLines(toolsUsed) {
+  return Array.isArray(toolsUsed) && toolsUsed.length
     ? toolsUsed.map((t) => {
       const argStr = formatToolArgs(t.args);
       const label = argStr ? `${t.name}(${argStr})` : t.name;
@@ -3140,6 +3185,44 @@ function buildReviewEmbed(stats, toolsUsed, settings) {
       return `✅ ${label}`;
     }).join('\n')
     : 'None';
+}
+
+/**
+ * Format raw text for an embed field as a code block.
+ * @param {string} text
+ * @param {string} [fallback]
+ * @returns {string}
+ */
+function toEmbedCodeBlock(text, fallback = '*(empty)*') {
+  const normalized = String(text ?? '').trim();
+  if (!normalized) return formatAsCodeBlock(fallback);
+  const maxRawLen = Math.max(1, FIELD_VALUE_MAX - 8);
+  return formatAsCodeBlock(truncate(normalized, maxRawLen));
+}
+
+/**
+ * Build a concise safety result summary block.
+ * @param {{harm?:string,rule?:string,severity?:string,reason?:string}|null|undefined} safety
+ * @returns {string}
+ */
+function formatSafetySummary(safety) {
+  const harm = sanitizeSafetyText(safety?.harm ?? 'None', 60);
+  const rule = sanitizeSafetyText(safety?.rule ?? 'None', 120);
+  const severity = sanitizeSafetyText(safety?.severity ?? 'None', 30);
+  const reason = sanitizeSafetyText(safety?.reason ?? 'None', FIELD_VALUE_MAX - 64);
+  return truncate(`Status: ${harm}\nRule: ${rule}\nSeverity: ${severity}\nReason: ${reason}`, FIELD_VALUE_MAX);
+}
+
+/**
+ * Build review/details embed.
+ * @param {{ttftMs:number|null,totalMs:number,iterations:number,promptTokens:number|null,completionTokens:number|null}} stats
+ * @param {Array} toolsUsed
+ * @param {{modelKey:string,showThinking:boolean,safetyEnabled:boolean,toolPermissions?:{canUseModerationTools:boolean,canUseManagementTools:boolean,canUseDevTools:boolean}}} settings
+ * @returns {EmbedBuilder}
+ */
+function buildReviewEmbed(stats, toolsUsed, settings) {
+  const modelConfig = getModelConfig(settings?.modelKey);
+  const toolLines = formatToolsUsedLines(toolsUsed);
 
   return new EmbedBuilder()
     .setColor(0x5865f2)
@@ -3150,6 +3233,9 @@ function buildReviewEmbed(stats, toolsUsed, settings) {
       { name: 'Model Preset', value: modelConfig.label, inline: true },
       { name: 'Thinking Delivery', value: 'Hidden (ephemeral)', inline: true },
       { name: 'Safety Guardrails', value: settings?.safetyEnabled === false ? 'Disabled' : 'Enabled', inline: true },
+      { name: 'Can Use Moderation Tools', value: settings?.toolPermissions?.canUseModerationTools ? 'Yes' : 'No', inline: true },
+      { name: 'Can Use Management Tools', value: settings?.toolPermissions?.canUseManagementTools ? 'Yes' : 'No', inline: true },
+      { name: 'Can Use Dev Tools', value: settings?.toolPermissions?.canUseDevTools ? 'Yes' : 'No', inline: true },
       { name: 'TTFT', value: stats.ttftMs != null ? `${stats.ttftMs} ms` : 'N/A', inline: true },
       { name: 'Total Time', value: `${stats.totalMs} ms`, inline: true },
       { name: 'Iterations', value: String(stats.iterations), inline: true },
@@ -3374,7 +3460,7 @@ function buildFinalComponents(session) {
  * @param {Array<object>} messages
  * @param {Array<object>} toolsUsed
  * @param {{modelKey:string,showThinking:boolean,safetyEnabled:boolean}} settings
- * @returns {Promise<{outputEmbeds:EmbedBuilder[],reviewEmbed:EmbedBuilder,linkButtons:Array,uiRows:Array<ActionRowBuilder>,uiState:object,rawContent:string,thinkingText:string,promptText:string}>}
+ * @returns {Promise<{outputEmbeds:EmbedBuilder[],reviewEmbed:EmbedBuilder,linkButtons:Array,uiRows:Array<ActionRowBuilder>,uiState:object,rawContent:string,thinkingText:string,promptText:string,blocked:boolean,blockReason:string|null,safetyRating:string|null,safetyDetails?:{prompt?:{harm:string,rule:string,severity:string,reason:string},response?:{harm:string,rule:string,severity:string,reason:string}},toolsUsed?:Array<object>}>}
  */
 async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
   const requestStartMs = Date.now();
@@ -3383,8 +3469,15 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
   let completionTokens = null;
   const latestUserMessage = getLatestUserMessage(messages);
   const safetyEnabled = settings?.safetyEnabled !== false;
+  let promptSafetyResult = null;
   if (safetyEnabled && latestUserMessage) {
     const promptSafety = await runSafetyFilter({ prompt: latestUserMessage, response: null });
+    promptSafetyResult = {
+      harm: sanitizeSafetyText(promptSafety.promptHarm, 60),
+      rule: sanitizeSafetyText(promptSafety.promptRule, 120),
+      severity: sanitizeSafetyText(promptSafety.promptSeverity, 30),
+      reason: sanitizeSafetyText(promptSafety.promptReason, FIELD_VALUE_MAX),
+    };
     if (isHarmfulLabel(promptSafety.promptHarm)) {
       const blockedRawContent = buildSafetyBlockedRawContent(promptSafety, 'prompt');
       const { outputEmbeds, linkButtons, uiRows, uiState } = buildFinalOutput(blockedRawContent, {
@@ -3416,6 +3509,16 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
         blocked: true,
         blockReason: sanitizeSafetyText(promptSafety.promptReason, 400),
         safetyRating: null,
+        safetyDetails: {
+          prompt: promptSafetyResult,
+          response: {
+            harm: sanitizeSafetyText(promptSafety.responseHarm, 60),
+            rule: sanitizeSafetyText(promptSafety.responseRule, 120),
+            severity: sanitizeSafetyText(promptSafety.responseSeverity, 30),
+            reason: sanitizeSafetyText(promptSafety.responseReason, FIELD_VALUE_MAX),
+          },
+        },
+        toolsUsed: [...toolsUsed],
       };
     }
   }
@@ -3454,6 +3557,12 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
       const content = assistantMessage.content ?? '';
       if (safetyEnabled) {
         const responseSafety = await runSafetyFilter({ prompt: latestUserMessage, response: content });
+        const responseSafetyResult = {
+          harm: sanitizeSafetyText(responseSafety.responseHarm, 60),
+          rule: sanitizeSafetyText(responseSafety.responseRule, 120),
+          severity: sanitizeSafetyText(responseSafety.responseSeverity, 30),
+          reason: sanitizeSafetyText(responseSafety.responseReason, FIELD_VALUE_MAX),
+        };
         if (isHarmfulLabel(responseSafety.responseHarm)) {
           const blockedRawContent = buildSafetyBlockedRawContent(responseSafety, 'response');
           messages.push({
@@ -3489,8 +3598,67 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
             blocked: true,
             blockReason: sanitizeSafetyText(responseSafety.responseReason, 400),
             safetyRating: null,
+            safetyDetails: {
+              prompt: promptSafetyResult ?? {
+                harm: sanitizeSafetyText(responseSafety.promptHarm, 60),
+                rule: sanitizeSafetyText(responseSafety.promptRule, 120),
+                severity: sanitizeSafetyText(responseSafety.promptSeverity, 30),
+                reason: sanitizeSafetyText(responseSafety.promptReason, FIELD_VALUE_MAX),
+              },
+              response: responseSafetyResult,
+            },
+            toolsUsed: [...toolsUsed],
           };
         }
+        const promptDetails = promptSafetyResult ?? {
+          harm: sanitizeSafetyText(responseSafety.promptHarm, 60),
+          rule: sanitizeSafetyText(responseSafety.promptRule, 120),
+          severity: sanitizeSafetyText(responseSafety.promptSeverity, 30),
+          reason: sanitizeSafetyText(responseSafety.promptReason, FIELD_VALUE_MAX),
+        };
+        const responseDetails = responseSafetyResult;
+        messages.push({
+          role: 'assistant',
+          content,
+        });
+        const thinkingText = collectThinkingText(assistantMessage);
+        const { outputEmbeds, linkButtons, uiRows, uiState } = buildFinalOutput(content, {
+          showThinking: settings?.showThinking,
+          thinkingText,
+          showPrompt: settings?.showPrompt,
+          promptText: latestUserMessage,
+          modelKey: settings?.modelKey,
+          safetyEnabled,
+        });
+        const reviewEmbed = buildReviewEmbed(
+          {
+            ttftMs,
+            totalMs: Date.now() - requestStartMs,
+            iterations: iterationCount,
+            promptTokens,
+            completionTokens,
+          },
+          toolsUsed,
+          settings,
+        );
+        return {
+          outputEmbeds,
+          reviewEmbed,
+          linkButtons,
+          uiRows,
+          uiState,
+          rawContent: content,
+          thinkingText,
+          promptText: latestUserMessage,
+          blocked: false,
+          blockReason: null,
+          safetyRating: safetyEnabled ? 'passed' : null,
+          safetyDetails: {
+            prompt: promptDetails,
+            response: responseDetails,
+          },
+          toolsUsed: [...toolsUsed],
+        };
       }
       messages.push({
         role: 'assistant',
@@ -3528,6 +3696,8 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
         blocked: false,
         blockReason: null,
         safetyRating: safetyEnabled ? 'passed' : null,
+        safetyDetails: null,
+        toolsUsed: [...toolsUsed],
       };
     }
     messages.push({
@@ -3624,6 +3794,8 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
     blocked: false,
     blockReason: null,
     safetyRating: null,
+    safetyDetails: null,
+    toolsUsed: [...toolsUsed],
   };
 }
 
@@ -3729,6 +3901,8 @@ function attachReviewHandler(replyMsg, interaction, session) {
           blocked: Boolean(result.blocked),
           blockReason: result.blockReason ?? null,
           safetyRating: result.safetyRating ?? null,
+          safetyDetails: result.safetyDetails ?? null,
+          toolsUsed: result.toolsUsed ?? session.toolsUsed,
         }).catch(() => null);
       }
       await replyMsg.edit({
@@ -3903,6 +4077,8 @@ function attachReviewHandler(replyMsg, interaction, session) {
             blocked: Boolean(result.blocked),
             blockReason: result.blockReason ?? null,
             safetyRating: result.safetyRating ?? null,
+            safetyDetails: result.safetyDetails ?? null,
+            toolsUsed: result.toolsUsed ?? session.toolsUsed,
           }).catch(() => null);
         }
         await replyMsg.edit({
@@ -3998,9 +4174,23 @@ function attachReviewHandler(replyMsg, interaction, session) {
  * @param {boolean} params.blocked - Whether the response was blocked by safety
  * @param {string} [params.blockReason] - Block reason if blocked
  * @param {string} [params.safetyRating] - Safety rating if not blocked
+ * @param {{prompt?:{harm:string,rule:string,severity:string,reason:string},response?:{harm:string,rule:string,severity:string,reason:string}}} [params.safetyDetails]
+ * @param {Array<{name:string,args?:object,denied?:boolean,error?:string}>} [params.toolsUsed]
  * @returns {Promise<void>}
  */
-async function sendAiInteractionLog(interaction, { prompt, response, thinkingText, blocked, blockReason, safetyRating } = {}) {
+async function sendAiInteractionLog(
+  interaction,
+  {
+    prompt,
+    response,
+    thinkingText,
+    blocked,
+    blockReason,
+    safetyRating,
+    safetyDetails,
+    toolsUsed,
+  } = {},
+) {
   const logChannel = await fetchLogChannel(interaction.guild, 'aiLog').catch(() => null);
   if (!logChannel) return;
 
@@ -4016,23 +4206,38 @@ async function sendAiInteractionLog(interaction, { prompt, response, thinkingTex
 
   const embed = new EmbedBuilder()
     .setColor(color)
-    .setTitle(blocked ? '🛡️ AI Interaction — Blocked' : '🤖 AI Interaction')
+    .setTitle(blocked ? '🛡️ AI Interaction — Blocked' : 'AI Interaction')
     .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
     .addFields(
       { name: 'User', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
       { name: 'Channel', value: `<#${interaction.channel?.id ?? interaction.channelId}>`, inline: true },
-      { name: 'Prompt', value: String(prompt ?? '').slice(0, 1024) || '*(empty)*', inline: false },
+      { name: 'Prompt', value: toEmbedCodeBlock(prompt), inline: false },
     )
     .setTimestamp();
 
   if (blocked) {
     embed.addFields({ name: 'Block Reason', value: String(blockReason ?? 'Safety filter triggered.').slice(0, 1024), inline: false });
+    const blockedResponse = parsedDesc ?? responseText;
+    if (blockedResponse) {
+      embed.addFields({ name: 'Response', value: toEmbedCodeBlock(blockedResponse), inline: false });
+    }
+    if (thinkingText) embed.addFields({ name: 'Thinking', value: toEmbedCodeBlock(thinkingText), inline: false });
   } else {
     if (safetyRating) embed.addFields({ name: 'Safety Rating', value: String(safetyRating).slice(0, 256), inline: true });
     const displayResponse = parsedDesc ?? responseText;
-    if (displayResponse) embed.addFields({ name: 'Response', value: String(displayResponse).slice(0, 1024), inline: false });
+    if (displayResponse) embed.addFields({ name: 'Response', value: toEmbedCodeBlock(displayResponse), inline: false });
     if (parsedTitle) embed.addFields({ name: 'Response Title', value: String(parsedTitle).slice(0, 256), inline: true });
-    if (thinkingText) embed.addFields({ name: 'Thinking', value: String(thinkingText).slice(0, 512), inline: false });
+    if (thinkingText) embed.addFields({ name: 'Thinking', value: toEmbedCodeBlock(thinkingText), inline: false });
+  }
+
+  if (safetyDetails?.prompt) {
+    embed.addFields({ name: 'Prompt Safety', value: formatSafetySummary(safetyDetails.prompt), inline: false });
+  }
+  if (safetyDetails?.response) {
+    embed.addFields({ name: 'Response Safety', value: formatSafetySummary(safetyDetails.response), inline: false });
+  }
+  if (Array.isArray(toolsUsed) && toolsUsed.length > 0) {
+    embed.addFields({ name: 'Tool Usage', value: truncate(formatToolsUsedLines(toolsUsed), FIELD_VALUE_MAX), inline: false });
   }
 
   await logChannel.send({ embeds: [embed] }).catch(() => null);
@@ -4139,7 +4344,7 @@ module.exports = {
 
     // ── Message history ───────────────────────────────────────────────────────
     const userSettings = getUserAiSettings(interaction.user.id);
-    const toolPermissions = getAiToolPermissions(interaction.member);
+    const toolPermissions = getAiToolPermissions(interaction.member, interaction.guild);
     const toolSchemas = getToolSchemasForPermissions(toolPermissions);
     const toolAccessPromptSuffix = buildToolAccessPromptSuffix(toolPermissions);
     const messages = [
@@ -4170,6 +4375,8 @@ module.exports = {
         blocked: Boolean(result.blocked),
         blockReason: result.blockReason ?? null,
         safetyRating: result.safetyRating ?? null,
+        safetyDetails: result.safetyDetails ?? null,
+        toolsUsed: result.toolsUsed ?? toolsUsed,
       }).catch(() => null);
     }
 
