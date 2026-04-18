@@ -101,8 +101,13 @@ const AI_TOGGLE_THINKING_BUTTON_ID = 'ai_toggle_thinking';
 const AI_TOGGLE_PROMPT_BUTTON_ID = 'ai_toggle_prompt';
 const AI_MODEL_SELECT_ID = 'ai_model_select';
 const AI_SAFETY_SELECT_ID = 'ai_safety_select';
+const AI_PERSONA_SELECT_ID = 'ai_persona_select';
 const AI_CONTINUE_MODAL_ID = 'ai_continue_modal';
 const AI_CONTINUE_PROMPT_INPUT_ID = 'ai_continue_prompt';
+const AI_CUSTOM_INSTRUCTIONS_BUTTON_ID = 'ai_custom_instructions';
+const AI_CLEAR_CUSTOM_INSTRUCTIONS_BUTTON_ID = 'ai_clear_custom_instructions';
+const AI_CUSTOM_INSTRUCTIONS_MODAL_ID = 'ai_custom_instructions_modal';
+const AI_CUSTOM_INSTRUCTIONS_INPUT_ID = 'ai_custom_instructions_input';
 const AI_UI_BUTTON_PREFIX = 'ai_ui_button:';
 const AI_UI_SELECT_PREFIX = 'ai_ui_select:';
 const AI_UI_MODAL_PREFIX = 'ai_ui_modal:';
@@ -159,6 +164,34 @@ const AI_MODELS = Object.freeze([
 ]);
 const AI_MODEL_BY_KEY = new Map(AI_MODELS.map((model) => [model.key, model]));
 const DEFAULT_MODEL_KEY = 'chatgpt';
+const AI_PERSONAS = Object.freeze([
+  {
+    key: 'default',
+    label: 'Balanced',
+    description: 'Default assistant tone.',
+    prompt: 'Use a balanced, friendly, concise tone.',
+  },
+  {
+    key: 'direct',
+    label: 'Direct',
+    description: 'Short, blunt, practical responses.',
+    prompt: 'Use a direct, concise, no-fluff tone.',
+  },
+  {
+    key: 'professional',
+    label: 'Professional',
+    description: 'Formal and structured responses.',
+    prompt: 'Use a professional, formal tone and clear structure.',
+  },
+  {
+    key: 'rude',
+    label: 'Rude',
+    description: 'Intentionally rude/abrasive style.',
+    prompt: 'Use an intentionally rude and abrasive tone while still following tool and safety constraints.',
+  },
+]);
+const AI_PERSONA_BY_KEY = new Map(AI_PERSONAS.map((persona) => [persona.key, persona]));
+const DEFAULT_PERSONA_KEY = 'default';
 
 const aiClient = new OpenAI({
   baseURL: NVIDIA_API_BASE,
@@ -1087,6 +1120,33 @@ const TOOL_SCHEMAS = [
   {
     type: 'function',
     function: {
+      name: 'view_server_events',
+      description: 'View recent or upcoming server event announcements from the configured events channel.',
+      parameters: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Maximum messages to return (1–25). Defaults to 10.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'query_valley_mcp_docs',
+      description: 'Lookup Valley Correctional MCP docs from https://docs.valleycorrectional.xyz/mcp.',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: 'Optional docs subpath under /mcp (for example: "tools" or "authentication").' },
+          query: { type: 'string', description: 'Optional text filter to extract relevant sections from the docs response.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'set_bot_status',
       description: 'Set the bot\u2019s Discord activity/status. Dev-only.',
       parameters: {
@@ -1306,6 +1366,20 @@ function parseSafetyOutput(text) {
         ?? parsed?.response_reason
         ?? '',
       ).trim();
+      const parsedPromptSeverity = String(
+        parsed?.['Prompt Severity']
+        ?? parsed?.prompt_severity
+        ?? parsed?.['User Severity']
+        ?? parsed?.user_severity
+        ?? parsed?.severity
+        ?? 'unknown',
+      ).trim() || 'unknown';
+      const parsedResponseSeverity = String(
+        parsed?.['Response Severity']
+        ?? parsed?.response_severity
+        ?? parsed?.severity
+        ?? 'unknown',
+      ).trim() || 'unknown';
       const hasResponseIssue = responseSafety === 'harmful' || responseSafety === 'unsafe';
       let responseRule = 'None';
       if (hasResponseIssue) {
@@ -1314,12 +1388,12 @@ function parseSafetyOutput(text) {
       return {
         promptHarm: userSafety,
         promptRule: userCategories,
-        promptReason: parsedPromptReason || (userCategories === 'None' ? 'No reason provided.' : `Categories: ${userCategories}`),
-        promptSeverity: 'none',
+        promptReason: parsedPromptReason || (userCategories === 'None' ? 'No reason provided by classifier.' : `Categories: ${userCategories}`),
+        promptSeverity: parsedPromptSeverity,
         responseHarm: responseSafety,
         responseRule,
-        responseReason: parsedResponseReason || (responseRule === 'None' ? 'None' : `Categories: ${responseRule}`),
-        responseSeverity: 'none',
+        responseReason: parsedResponseReason || (responseRule === 'None' ? 'No reason provided by classifier.' : `Categories: ${responseRule}`),
+        responseSeverity: parsedResponseSeverity,
       };
     } catch {
       // Fall through to legacy line-based parser.
@@ -1332,12 +1406,12 @@ function parseSafetyOutput(text) {
   return {
     promptHarm: read('Prompt harm', 'unharmful'),
     promptRule: read('Prompt rule', 'None'),
-    promptReason: read('Reason', 'No reason provided.'),
-    promptSeverity: read('Prompt severity', 'none'),
+    promptReason: read('Reason', 'No reason provided by classifier.'),
+    promptSeverity: read('Prompt severity', 'unknown'),
     responseHarm: read('Response harm', 'None'),
     responseRule: read('Response rule', 'None'),
-    responseReason: read('Response reason', 'None'),
-    responseSeverity: read('Response severity', 'None'),
+    responseReason: read('Response reason', 'No reason provided by classifier.'),
+    responseSeverity: read('Response severity', 'unknown'),
   };
 }
 
@@ -1365,6 +1439,22 @@ function sanitizeSafetyText(value, maxLen = 120) {
 }
 
 /**
+ * Normalize safety details so unknown/none values are clearer in logs.
+ * @param {string} value
+ * @param {'severity'|'reason'|'rule'|'harm'} kind
+ * @param {number} maxLen
+ * @returns {string}
+ */
+function formatSafetyValue(value, kind, maxLen) {
+  const normalized = sanitizeSafetyText(value, maxLen);
+  const lower = normalized.toLowerCase();
+  if ((kind === 'severity' || kind === 'reason') && (lower === 'none' || lower === 'n/a' || lower === 'na' || lower === 'null' || lower === 'unknown')) {
+    return kind === 'severity' ? 'Unspecified' : 'No reason provided by classifier.';
+  }
+  return normalized;
+}
+
+/**
  * Build JSON content for a safety-blocked assistant output.
  * @param {ReturnType<typeof parseSafetyOutput>} safety
  * @param {'prompt'|'response'} phase
@@ -1373,8 +1463,8 @@ function sanitizeSafetyText(value, maxLen = 120) {
 function buildSafetyBlockedRawContent(safety, phase) {
   const isPromptBlock = phase === 'prompt';
   const blockReason = isPromptBlock
-    ? sanitizeSafetyText(safety.promptReason, FIELD_VALUE_MAX)
-    : sanitizeSafetyText(safety.responseReason, FIELD_VALUE_MAX);
+    ? formatSafetyValue(safety.promptReason, 'reason', FIELD_VALUE_MAX)
+    : formatSafetyValue(safety.responseReason, 'reason', FIELD_VALUE_MAX);
   return JSON.stringify({
     title: 'Safety Filter Blocked',
     color: '#ed4245',
@@ -1384,12 +1474,12 @@ function buildSafetyBlockedRawContent(safety, phase) {
     fields: [
       {
         name: 'Prompt Harm',
-        value: `Status: ${sanitizeSafetyText(safety.promptHarm, 60)}\nRule: ${sanitizeSafetyText(safety.promptRule, 120)}\nSeverity: ${sanitizeSafetyText(safety.promptSeverity, 20)}\nReason: ${truncate(sanitizeSafetyText(safety.promptReason, FIELD_VALUE_MAX), FIELD_VALUE_MAX - SAFETY_FIELD_PREFIX_BUFFER)}`,
+        value: `Status: ${sanitizeSafetyText(safety.promptHarm, 60)}\nRule: ${sanitizeSafetyText(safety.promptRule, 120)}\nSeverity: ${formatSafetyValue(safety.promptSeverity, 'severity', 20)}\nReason: ${truncate(formatSafetyValue(safety.promptReason, 'reason', FIELD_VALUE_MAX), FIELD_VALUE_MAX - SAFETY_FIELD_PREFIX_BUFFER)}`,
         inline: false,
       },
       {
         name: 'Response Harm',
-        value: `Status: ${sanitizeSafetyText(safety.responseHarm, 60)}\nRule: ${sanitizeSafetyText(safety.responseRule, 120)}\nSeverity: ${sanitizeSafetyText(safety.responseSeverity, 20)}\nReason: ${truncate(sanitizeSafetyText(safety.responseReason, FIELD_VALUE_MAX), FIELD_VALUE_MAX - SAFETY_FIELD_PREFIX_BUFFER)}`,
+        value: `Status: ${sanitizeSafetyText(safety.responseHarm, 60)}\nRule: ${sanitizeSafetyText(safety.responseRule, 120)}\nSeverity: ${formatSafetyValue(safety.responseSeverity, 'severity', 20)}\nReason: ${truncate(formatSafetyValue(safety.responseReason, 'reason', FIELD_VALUE_MAX), FIELD_VALUE_MAX - SAFETY_FIELD_PREFIX_BUFFER)}`,
         inline: false,
       },
     ],
@@ -1449,13 +1539,64 @@ function getModelConfig(modelKey) {
 }
 
 /**
+ * Get selected AI persona config, falling back to default.
+ * @param {string} personaKey
+ * @returns {typeof AI_PERSONAS[number]}
+ */
+function getPersonaConfig(personaKey) {
+  return AI_PERSONA_BY_KEY.get(String(personaKey ?? '')) ?? AI_PERSONA_BY_KEY.get(DEFAULT_PERSONA_KEY);
+}
+
+/**
+ * Normalize custom instructions before storage/usage.
+ * Strips embed-format override attempts and hard-limits to 750 chars.
+ * @param {string} value
+ * @returns {string}
+ */
+function normalizeCustomInstructions(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const cleanedLines = raw
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => {
+      const lower = line.toLowerCase();
+      if (lower.includes('embed') && (lower.includes('format') || lower.includes('schema') || lower.includes('title') || lower.includes('field'))) {
+        return false;
+      }
+      return true;
+    });
+  return truncate(cleanedLines.join('\n').trim(), 750, '');
+}
+
+/**
+ * Detect obvious jailbreak intent in custom instructions.
+ * @param {string} text
+ * @returns {boolean}
+ */
+function hasJailbreakMarkers(text) {
+  const value = String(text ?? '').toLowerCase();
+  const patterns = [
+    /ignore\s+(all|previous|prior)\s+instructions/,
+    /bypass\s+(safety|guardrails|filters?)/,
+    /jailbreak/,
+    /developer\s+mode/,
+    /system\s+prompt/,
+    /act\s+as\s+if\s+you\s+are\s+not\s+an\s+ai/,
+  ];
+  return patterns.some((pattern) => pattern.test(value));
+}
+
+/**
  * Normalize persisted AI settings payload.
  * @param {object} input
- * @returns {{modelKey:string,showThinking:boolean,safetyEnabled:boolean}}
+ * @returns {{modelKey:string,personaKey:string,customInstructions:string,showThinking:boolean,safetyEnabled:boolean}}
  */
 function normalizeAiSettings(input) {
   return {
     modelKey: getModelConfig(input?.modelKey).key,
+    personaKey: getPersonaConfig(input?.personaKey).key,
+    customInstructions: normalizeCustomInstructions(input?.customInstructions),
     showThinking: Boolean(input?.showThinking),
     safetyEnabled: input?.safetyEnabled !== false,
   };
@@ -1476,29 +1617,41 @@ function ensureUserAiSettingsLoaded() {
 /**
  * Get persisted AI settings for a user.
  * @param {string} userId
- * @returns {{modelKey:string,showThinking:boolean,safetyEnabled:boolean}}
+ * @returns {{modelKey:string,personaKey:string,customInstructions:string,showThinking:boolean,safetyEnabled:boolean}}
  */
 function getUserAiSettings(userId) {
   ensureUserAiSettingsLoaded();
   const id = String(userId);
   const current = AI_USER_SETTINGS.get(id);
   if (current) return normalizeAiSettings(current);
-  return normalizeAiSettings({ modelKey: DEFAULT_MODEL_KEY, showThinking: false, safetyEnabled: true });
+  return normalizeAiSettings({
+    modelKey: DEFAULT_MODEL_KEY,
+    personaKey: DEFAULT_PERSONA_KEY,
+    customInstructions: '',
+    showThinking: false,
+    safetyEnabled: true,
+  });
 }
 
 /**
  * Persist AI settings for a user.
  * @param {string} userId
- * @param {{modelKey:string,showThinking:boolean,safetyEnabled:boolean,toolSchemas?:Array<object>,toolPermissions?:{canUseModerationTools:boolean,canUseManagementTools:boolean,canUseDevTools:boolean}}} settings
+ * @param {{modelKey:string,personaKey?:string,customInstructions?:string,showThinking:boolean,safetyEnabled:boolean,toolSchemas?:Array<object>,toolPermissions?:{canUseModerationTools:boolean,canUseManagementTools:boolean,canUseDevTools:boolean}}} settings
  */
 function setUserAiSettings(userId, settings) {
   ensureUserAiSettingsLoaded();
   const id = String(userId);
-  const normalized = normalizeAiSettings(settings);
+  const previous = getUserAiSettings(id);
+  const normalized = normalizeAiSettings({
+    ...previous,
+    ...settings,
+  });
   AI_USER_SETTINGS.set(id, normalized);
   db.update(AI_USER_SETTINGS_FILE, {}, (data) => {
     data[id] = {
       modelKey: normalized.modelKey,
+      personaKey: normalized.personaKey,
+      customInstructions: normalized.customInstructions,
       showThinking: normalized.showThinking,
       safetyEnabled: normalized.safetyEnabled,
       updatedAt: new Date().toISOString(),
@@ -1510,14 +1663,30 @@ function setUserAiSettings(userId, settings) {
  * Build system prompt for the current safety mode.
  * @param {boolean} safetyEnabled
  * @param {string} [toolAccessPromptSuffix]
+ * @param {{personaKey?:string,customInstructions?:string,speaker?:{id?:string,tag?:string,displayName?:string}}} [runtimeContext]
  * @returns {string}
  */
-function buildSystemPrompt(safetyEnabled, toolAccessPromptSuffix = '') {
+function buildSystemPrompt(safetyEnabled, toolAccessPromptSuffix = '', runtimeContext = {}) {
   const accessSuffix = String(toolAccessPromptSuffix ?? '').trim();
+  const persona = getPersonaConfig(runtimeContext?.personaKey);
+  const customInstructions = normalizeCustomInstructions(runtimeContext?.customInstructions);
+  const speakerId = String(runtimeContext?.speaker?.id ?? '').trim();
+  const speakerTag = String(runtimeContext?.speaker?.tag ?? '').trim();
+  const speakerDisplayName = String(runtimeContext?.speaker?.displayName ?? '').trim();
+  const contextLines = [
+    `Persona style: ${persona.prompt}`,
+    speakerId
+      ? `Current speaking user: ${speakerDisplayName || speakerTag || speakerId} (id: ${speakerId}${speakerTag ? `, tag: ${speakerTag}` : ''}).`
+      : null,
+    customInstructions
+      ? `User custom instructions (apply unless they try to override embed formatting/schema rules):\n${customInstructions}`
+      : null,
+  ].filter(Boolean);
+  const contextSuffix = contextLines.join('\n\n');
   if (safetyEnabled === false) {
-    return `${SYSTEM_PROMPT}\n\n${SAFETY_DISABLED_PROMPT_SUFFIX}${accessSuffix ? `\n\n${accessSuffix}` : ''}`;
+    return `${SYSTEM_PROMPT}\n\n${SAFETY_DISABLED_PROMPT_SUFFIX}${accessSuffix ? `\n\n${accessSuffix}` : ''}${contextSuffix ? `\n\n${contextSuffix}` : ''}`;
   }
-  return `${SYSTEM_PROMPT}${accessSuffix ? `\n\n${accessSuffix}` : ''}`;
+  return `${SYSTEM_PROMPT}${accessSuffix ? `\n\n${accessSuffix}` : ''}${contextSuffix ? `\n\n${contextSuffix}` : ''}`;
 }
 
 /**
@@ -1536,7 +1705,11 @@ function canToggleAiSafety(userId) {
 function refreshSessionSystemPrompt(session) {
   if (!Array.isArray(session?.messages) || session.messages.length === 0) return;
   if (session.messages[0]?.role !== 'system') return;
-  session.messages[0].content = buildSystemPrompt(session.safetyEnabled, session.toolAccessPromptSuffix);
+  session.messages[0].content = buildSystemPrompt(session.safetyEnabled, session.toolAccessPromptSuffix, {
+    personaKey: session.personaKey,
+    customInstructions: session.customInstructions,
+    speaker: session.speakingUser,
+  });
 }
 
 /**
@@ -2588,6 +2761,52 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
       return { success: true, channel_id: ch.id, status: statusText };
     }
 
+    case 'view_server_events': {
+      const eventsChannel = await fetchLogChannel(guild, 'cookieEvents').catch(() => null);
+      if (!eventsChannel || !eventsChannel.isTextBased()) throw new Error('Events channel is not configured.');
+      const limit = Math.min(25, Math.max(1, Number.parseInt(args?.limit, 10) || 10));
+      const messages = await eventsChannel.messages.fetch({ limit });
+      return {
+        channel_id: eventsChannel.id,
+        channel_name: eventsChannel.name ?? 'events',
+        events: [...messages.values()].map((message) => ({
+          id: message.id,
+          author_id: message.author?.id ?? null,
+          author_name: message.author?.username ?? null,
+          content: message.content ?? '',
+          created_at: message.createdAt?.toISOString() ?? null,
+          message_url: message.url,
+          embed_titles: message.embeds.map((embed) => embed.title).filter(Boolean),
+          embed_descriptions: message.embeds.map((embed) => embed.description).filter(Boolean),
+        })),
+      };
+    }
+
+    case 'query_valley_mcp_docs': {
+      const rawPath = String(args?.path ?? '').trim().replace(/^\/+/, '');
+      const endpoint = rawPath ? `https://docs.valleycorrectional.xyz/mcp/${encodeURI(rawPath)}` : 'https://docs.valleycorrectional.xyz/mcp';
+      const response = await fetch(endpoint, {
+        method: 'GET',
+        headers: { Accept: 'text/markdown,text/plain,text/html,*/*' },
+      }).catch((error) => {
+        throw new Error(`Failed to fetch MCP docs: ${error.message}`);
+      });
+      if (!response?.ok) throw new Error(`MCP docs request failed (${response?.status ?? 'unknown'}).`);
+      const body = String(await response.text()).slice(0, 20_000);
+      const query = String(args?.query ?? '').trim().toLowerCase();
+      let content = body;
+      if (query) {
+        const lines = body.split('\n');
+        const matched = lines.filter((line) => line.toLowerCase().includes(query)).slice(0, 40);
+        if (matched.length > 0) content = matched.join('\n');
+      }
+      return {
+        source: endpoint,
+        query: query || null,
+        content: truncate(content, 6_000),
+      };
+    }
+
     case 'set_bot_status': {
       if (!canUseDevCommand(interaction.member, interaction.guild, 'ai')) {
         throw new Error('Only developers can change the bot status.');
@@ -3207,9 +3426,9 @@ function toEmbedCodeBlock(text, fallback = '*(empty)*') {
  */
 function formatSafetySummary(safety) {
   const harm = sanitizeSafetyText(safety?.harm ?? 'None', 60);
-  const rule = sanitizeSafetyText(safety?.rule ?? 'None', 120);
-  const severity = sanitizeSafetyText(safety?.severity ?? 'None', 30);
-  const reason = sanitizeSafetyText(safety?.reason ?? 'None', FIELD_VALUE_MAX - 64);
+  const rule = formatSafetyValue(safety?.rule ?? 'None', 'rule', 120);
+  const severity = formatSafetyValue(safety?.severity ?? 'None', 'severity', 30);
+  const reason = formatSafetyValue(safety?.reason ?? 'None', 'reason', FIELD_VALUE_MAX - 64);
   return truncate(`Status: ${harm}\nRule: ${rule}\nSeverity: ${severity}\nReason: ${reason}`, FIELD_VALUE_MAX);
 }
 
@@ -3217,11 +3436,12 @@ function formatSafetySummary(safety) {
  * Build review/details embed.
  * @param {{ttftMs:number|null,totalMs:number,iterations:number,promptTokens:number|null,completionTokens:number|null}} stats
  * @param {Array} toolsUsed
- * @param {{modelKey:string,showThinking:boolean,safetyEnabled:boolean,toolPermissions?:{canUseModerationTools:boolean,canUseManagementTools:boolean,canUseDevTools:boolean}}} settings
+ * @param {{modelKey:string,personaKey?:string,customInstructions?:string,showThinking:boolean,safetyEnabled:boolean,toolPermissions?:{canUseModerationTools:boolean,canUseManagementTools:boolean,canUseDevTools:boolean}}} settings
  * @returns {EmbedBuilder}
  */
 function buildReviewEmbed(stats, toolsUsed, settings) {
   const modelConfig = getModelConfig(settings?.modelKey);
+  const personaConfig = getPersonaConfig(settings?.personaKey);
   const toolLines = formatToolsUsedLines(toolsUsed);
 
   return new EmbedBuilder()
@@ -3231,7 +3451,9 @@ function buildReviewEmbed(stats, toolsUsed, settings) {
     .addFields(
       { name: 'Runtime Model', value: modelConfig.model, inline: false },
       { name: 'Model Preset', value: modelConfig.label, inline: true },
+      { name: 'Persona', value: personaConfig.label, inline: true },
       { name: 'Thinking Delivery', value: 'Hidden (ephemeral)', inline: true },
+      { name: 'Custom Instructions', value: settings?.customInstructions ? 'Configured' : 'Not set', inline: true },
       { name: 'Safety Guardrails', value: settings?.safetyEnabled === false ? 'Disabled' : 'Enabled', inline: true },
       { name: 'Can Use Moderation Tools', value: settings?.toolPermissions?.canUseModerationTools ? 'Yes' : 'No', inline: true },
       { name: 'Can Use Management Tools', value: settings?.toolPermissions?.canUseManagementTools ? 'Yes' : 'No', inline: true },
@@ -3330,6 +3552,29 @@ function buildSafetySelectRow(safetyEnabled) {
 }
 
 /**
+ * Build the persistent persona selector row.
+ * @param {string} selectedPersonaKey
+ * @returns {ActionRowBuilder}
+ */
+function buildPersonaSelectRow(selectedPersonaKey) {
+  const selected = getPersonaConfig(selectedPersonaKey);
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(AI_PERSONA_SELECT_ID)
+    .setPlaceholder(`Persona: ${selected.label}`)
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(
+      AI_PERSONAS.map((persona) => ({
+        label: persona.label,
+        value: persona.key,
+        description: truncate(persona.description, 100),
+        default: persona.key === selected.key,
+      })),
+    );
+  return new ActionRowBuilder().addComponents(menu);
+}
+
+/**
  * Re-render stored turns based on current view/settings state.
  * @param {object} session
  */
@@ -3384,6 +3629,10 @@ function buildFinalComponents(session) {
       .setCustomId(AI_TOGGLE_THINKING_BUTTON_ID)
       .setStyle(ButtonStyle.Secondary)
       .setLabel('View Thinking'),
+    new ButtonBuilder()
+      .setCustomId(AI_CUSTOM_INSTRUCTIONS_BUTTON_ID)
+      .setStyle(ButtonStyle.Secondary)
+      .setLabel(session.customInstructions ? 'Edit Instructions' : 'Add Instructions'),
   );
   rows.push(controls);
 
@@ -3424,8 +3673,21 @@ function buildFinalComponents(session) {
   if (mode === 'review' && rows.length < 5) {
     rows.push(buildModelSelectRow(session.modelKey));
   }
+  if (mode === 'review' && rows.length < 5) {
+    rows.push(buildPersonaSelectRow(session.personaKey));
+  }
   if (mode === 'review' && rows.length < 5 && canToggleAiSafety(session.allowedUserId)) {
     rows.push(buildSafetySelectRow(session.safetyEnabled));
+  }
+  if (mode === 'review' && rows.length < 5 && session.customInstructions) {
+    rows.push(
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(AI_CLEAR_CUSTOM_INSTRUCTIONS_BUTTON_ID)
+          .setStyle(ButtonStyle.Danger)
+          .setLabel('Clear Instructions'),
+      ),
+    );
   }
 
   if (mode === 'output' && Array.isArray(turn.uiRows)) {
@@ -3459,7 +3721,7 @@ function buildFinalComponents(session) {
  * @param {import('discord.js').Message} replyMsg
  * @param {Array<object>} messages
  * @param {Array<object>} toolsUsed
- * @param {{modelKey:string,showThinking:boolean,safetyEnabled:boolean}} settings
+ * @param {{modelKey:string,personaKey?:string,customInstructions?:string,showThinking:boolean,safetyEnabled:boolean}} settings
  * @returns {Promise<{outputEmbeds:EmbedBuilder[],reviewEmbed:EmbedBuilder,linkButtons:Array,uiRows:Array<ActionRowBuilder>,uiState:object,rawContent:string,thinkingText:string,promptText:string,blocked:boolean,blockReason:string|null,safetyRating:string|null,safetyDetails?:{prompt?:{harm:string,rule:string,severity:string,reason:string},response?:{harm:string,rule:string,severity:string,reason:string}},toolsUsed?:Array<object>}>}
  */
 async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
@@ -3475,8 +3737,8 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
     promptSafetyResult = {
       harm: sanitizeSafetyText(promptSafety.promptHarm, 60),
       rule: sanitizeSafetyText(promptSafety.promptRule, 120),
-      severity: sanitizeSafetyText(promptSafety.promptSeverity, 30),
-      reason: sanitizeSafetyText(promptSafety.promptReason, FIELD_VALUE_MAX),
+      severity: formatSafetyValue(promptSafety.promptSeverity, 'severity', 30),
+      reason: formatSafetyValue(promptSafety.promptReason, 'reason', FIELD_VALUE_MAX),
     };
     if (isHarmfulLabel(promptSafety.promptHarm)) {
       const blockedRawContent = buildSafetyBlockedRawContent(promptSafety, 'prompt');
@@ -3507,15 +3769,15 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
         thinkingText: '',
         promptText: latestUserMessage,
         blocked: true,
-        blockReason: sanitizeSafetyText(promptSafety.promptReason, 400),
-        safetyRating: null,
+        blockReason: formatSafetyValue(promptSafety.promptReason, 'reason', 400),
+        safetyRating: 'blocked',
         safetyDetails: {
           prompt: promptSafetyResult,
           response: {
             harm: sanitizeSafetyText(promptSafety.responseHarm, 60),
             rule: sanitizeSafetyText(promptSafety.responseRule, 120),
-            severity: sanitizeSafetyText(promptSafety.responseSeverity, 30),
-            reason: sanitizeSafetyText(promptSafety.responseReason, FIELD_VALUE_MAX),
+            severity: formatSafetyValue(promptSafety.responseSeverity, 'severity', 30),
+            reason: formatSafetyValue(promptSafety.responseReason, 'reason', FIELD_VALUE_MAX),
           },
         },
         toolsUsed: [...toolsUsed],
@@ -3560,14 +3822,14 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
         const responseSafetyResult = {
           harm: sanitizeSafetyText(responseSafety.responseHarm, 60),
           rule: sanitizeSafetyText(responseSafety.responseRule, 120),
-          severity: sanitizeSafetyText(responseSafety.responseSeverity, 30),
-          reason: sanitizeSafetyText(responseSafety.responseReason, FIELD_VALUE_MAX),
+          severity: formatSafetyValue(responseSafety.responseSeverity, 'severity', 30),
+          reason: formatSafetyValue(responseSafety.responseReason, 'reason', FIELD_VALUE_MAX),
         };
         if (isHarmfulLabel(responseSafety.responseHarm)) {
           const blockedRawContent = buildSafetyBlockedRawContent(responseSafety, 'response');
           messages.push({
             role: 'assistant',
-            content: `Safety filter blocked a prior assistant response (rule: ${sanitizeSafetyText(responseSafety.responseRule, 80)}, severity: ${sanitizeSafetyText(responseSafety.responseSeverity, 20)}, reason: ${sanitizeSafetyText(responseSafety.responseReason, 120)}).`,
+            content: `Safety filter blocked a prior assistant response (rule: ${sanitizeSafetyText(responseSafety.responseRule, 80)}, severity: ${formatSafetyValue(responseSafety.responseSeverity, 'severity', 20)}, reason: ${formatSafetyValue(responseSafety.responseReason, 'reason', 120)}).`,
           });
           const { outputEmbeds, linkButtons, uiRows, uiState } = buildFinalOutput(blockedRawContent, {
             showPrompt: settings?.showPrompt,
@@ -3596,14 +3858,14 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
             thinkingText: '',
             promptText: latestUserMessage,
             blocked: true,
-            blockReason: sanitizeSafetyText(responseSafety.responseReason, 400),
-            safetyRating: null,
+            blockReason: formatSafetyValue(responseSafety.responseReason, 'reason', 400),
+            safetyRating: 'blocked',
             safetyDetails: {
               prompt: promptSafetyResult ?? {
                 harm: sanitizeSafetyText(responseSafety.promptHarm, 60),
                 rule: sanitizeSafetyText(responseSafety.promptRule, 120),
-                severity: sanitizeSafetyText(responseSafety.promptSeverity, 30),
-                reason: sanitizeSafetyText(responseSafety.promptReason, FIELD_VALUE_MAX),
+                severity: formatSafetyValue(responseSafety.promptSeverity, 'severity', 30),
+                reason: formatSafetyValue(responseSafety.promptReason, 'reason', FIELD_VALUE_MAX),
               },
               response: responseSafetyResult,
             },
@@ -3613,8 +3875,8 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
         const promptDetails = promptSafetyResult ?? {
           harm: sanitizeSafetyText(responseSafety.promptHarm, 60),
           rule: sanitizeSafetyText(responseSafety.promptRule, 120),
-          severity: sanitizeSafetyText(responseSafety.promptSeverity, 30),
-          reason: sanitizeSafetyText(responseSafety.promptReason, FIELD_VALUE_MAX),
+          severity: formatSafetyValue(responseSafety.promptSeverity, 'severity', 30),
+          reason: formatSafetyValue(responseSafety.promptReason, 'reason', FIELD_VALUE_MAX),
         };
         const responseDetails = responseSafetyResult;
         messages.push({
@@ -3873,6 +4135,8 @@ function attachReviewHandler(replyMsg, interaction, session) {
     try {
       const result = await runAiTurn(interaction, replyMsg, session.messages, session.toolsUsed, {
         modelKey: session.modelKey,
+        personaKey: session.personaKey,
+        customInstructions: session.customInstructions,
         showThinking: session.showThinking,
         showPrompt: session.showPrompt,
         safetyEnabled: session.safetyEnabled,
@@ -3901,6 +4165,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
           blocked: Boolean(result.blocked),
           blockReason: result.blockReason ?? null,
           safetyRating: result.safetyRating ?? null,
+          aiMessageId: replyMsg.id,
           safetyDetails: result.safetyDetails ?? null,
           toolsUsed: result.toolsUsed ?? session.toolsUsed,
         }).catch(() => null);
@@ -3976,6 +4241,8 @@ function attachReviewHandler(replyMsg, interaction, session) {
       session.modelKey = selectedModel;
       setUserAiSettings(session.allowedUserId, {
         modelKey: session.modelKey,
+        personaKey: session.personaKey,
+        customInstructions: session.customInstructions,
         showThinking: session.showThinking,
         safetyEnabled: session.safetyEnabled,
       });
@@ -3983,6 +4250,24 @@ function attachReviewHandler(replyMsg, interaction, session) {
       await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
       await i.followUp({
         content: `Model updated to **${getModelConfig(session.modelKey).label}**. This selection is saved for your next /ai uses.`,
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => null);
+      return;
+    }
+    if (i.customId === AI_PERSONA_SELECT_ID) {
+      const selectedPersona = getPersonaConfig(i.values?.[0]).key;
+      session.personaKey = selectedPersona;
+      refreshSessionSystemPrompt(session);
+      setUserAiSettings(session.allowedUserId, {
+        modelKey: session.modelKey,
+        personaKey: session.personaKey,
+        customInstructions: session.customInstructions,
+        showThinking: session.showThinking,
+        safetyEnabled: session.safetyEnabled,
+      });
+      await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
+      await i.followUp({
+        content: `Persona updated to **${getPersonaConfig(session.personaKey).label}**. This selection is saved for your next /ai uses.`,
         flags: MessageFlags.Ephemeral,
       }).catch(() => null);
       return;
@@ -3996,6 +4281,8 @@ function attachReviewHandler(replyMsg, interaction, session) {
       refreshSessionSystemPrompt(session);
       setUserAiSettings(session.allowedUserId, {
         modelKey: session.modelKey,
+        personaKey: session.personaKey,
+        customInstructions: session.customInstructions,
         showThinking: session.showThinking,
         safetyEnabled: session.safetyEnabled,
       });
@@ -4003,6 +4290,111 @@ function attachReviewHandler(replyMsg, interaction, session) {
       await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
       await i.followUp({
         content: `Safety guardrails are now **${session.safetyEnabled ? 'enabled' : 'disabled'}** for your /ai sessions.`,
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => null);
+      return;
+    }
+    if (i.customId === AI_CUSTOM_INSTRUCTIONS_BUTTON_ID) {
+      const modal = new ModalBuilder()
+        .setCustomId(AI_CUSTOM_INSTRUCTIONS_MODAL_ID)
+        .setTitle('Custom AI Instructions')
+        .addComponents(
+          new ActionRowBuilder().addComponents(
+            new TextInputBuilder()
+              .setCustomId(AI_CUSTOM_INSTRUCTIONS_INPUT_ID)
+              .setLabel('Custom instructions (max 750 chars)')
+              .setStyle(TextInputStyle.Paragraph)
+              .setRequired(false)
+              .setMaxLength(750)
+              .setPlaceholder('Tell the AI how you prefer responses or context about you.')
+              .setValue(session.customInstructions || ''),
+          ),
+        );
+      await i.showModal(modal).catch(() => null);
+      let modalSubmit;
+      try {
+        modalSubmit = await i.awaitModalSubmit({
+          filter: (m) => m.customId === AI_CUSTOM_INSTRUCTIONS_MODAL_ID && m.user.id === session.allowedUserId,
+          time: MODAL_SUBMIT_TIMEOUT_MS,
+        });
+      } catch {
+        return;
+      }
+      const input = modalSubmit.fields.getTextInputValue(AI_CUSTOM_INSTRUCTIONS_INPUT_ID) ?? '';
+      const normalizedInstructions = normalizeCustomInstructions(input);
+      if (normalizedInstructions.length > 750) {
+        await modalSubmit.reply({
+          content: 'Custom instructions must be 750 characters or fewer.',
+          flags: MessageFlags.Ephemeral,
+        }).catch(() => null);
+        return;
+      }
+      if (normalizedInstructions) {
+        if (hasJailbreakMarkers(normalizedInstructions)) {
+          await modalSubmit.reply({
+            content: 'Custom instructions were blocked: possible jailbreak content detected.',
+            flags: MessageFlags.Ephemeral,
+          }).catch(() => null);
+          return;
+        }
+        if (session.safetyEnabled !== false) {
+          try {
+            const safety = await runSafetyFilter({ prompt: normalizedInstructions, response: null });
+            if (isHarmfulLabel(safety.promptHarm)) {
+              await modalSubmit.reply({
+                content: `Custom instructions were blocked by safety checks. Reason: ${formatSafetyValue(safety.promptReason, 'reason', 200)}`,
+                flags: MessageFlags.Ephemeral,
+              }).catch(() => null);
+              return;
+            }
+          } catch (error) {
+            await modalSubmit.reply({
+              content: `Safety check failed while validating instructions: ${error.message}`,
+              flags: MessageFlags.Ephemeral,
+            }).catch(() => null);
+            return;
+          }
+        }
+      }
+      session.customInstructions = normalizedInstructions;
+      refreshSessionSystemPrompt(session);
+      setUserAiSettings(session.allowedUserId, {
+        modelKey: session.modelKey,
+        personaKey: session.personaKey,
+        customInstructions: session.customInstructions,
+        showThinking: session.showThinking,
+        safetyEnabled: session.safetyEnabled,
+      });
+      rerenderTurnsForDisplay(session);
+      await modalSubmit.reply({
+        content: normalizedInstructions
+          ? 'Custom instructions saved and will be included in future AI turns.'
+          : 'Custom instructions cleared.',
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => null);
+      await replyMsg.edit({
+        embeds: [getActiveEmbed(session)],
+        components: buildFinalComponents(session),
+      }).catch(() => null);
+      return;
+    }
+    if (i.customId === AI_CLEAR_CUSTOM_INSTRUCTIONS_BUTTON_ID) {
+      session.customInstructions = '';
+      refreshSessionSystemPrompt(session);
+      setUserAiSettings(session.allowedUserId, {
+        modelKey: session.modelKey,
+        personaKey: session.personaKey,
+        customInstructions: session.customInstructions,
+        showThinking: session.showThinking,
+        safetyEnabled: session.safetyEnabled,
+      });
+      rerenderTurnsForDisplay(session);
+      await i.update({
+        embeds: [getActiveEmbed(session)],
+        components: buildFinalComponents(session),
+      }).catch(() => null);
+      await i.followUp({
+        content: 'Custom instructions cleared.',
         flags: MessageFlags.Ephemeral,
       }).catch(() => null);
       return;
@@ -4049,6 +4441,8 @@ function attachReviewHandler(replyMsg, interaction, session) {
       try {
         const result = await runAiTurn(interaction, replyMsg, session.messages, session.toolsUsed, {
           modelKey: session.modelKey,
+          personaKey: session.personaKey,
+          customInstructions: session.customInstructions,
           showThinking: session.showThinking,
           showPrompt: session.showPrompt,
           safetyEnabled: session.safetyEnabled,
@@ -4077,6 +4471,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
             blocked: Boolean(result.blocked),
             blockReason: result.blockReason ?? null,
             safetyRating: result.safetyRating ?? null,
+            aiMessageId: replyMsg.id,
             safetyDetails: result.safetyDetails ?? null,
             toolsUsed: result.toolsUsed ?? session.toolsUsed,
           }).catch(() => null);
@@ -4174,6 +4569,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
  * @param {boolean} params.blocked - Whether the response was blocked by safety
  * @param {string} [params.blockReason] - Block reason if blocked
  * @param {string} [params.safetyRating] - Safety rating if not blocked
+ * @param {string} [params.aiMessageId] - AI response message id for jump link
  * @param {{prompt?:{harm:string,rule:string,severity:string,reason:string},response?:{harm:string,rule:string,severity:string,reason:string}}} [params.safetyDetails]
  * @param {Array<{name:string,args?:object,denied?:boolean,error?:string}>} [params.toolsUsed]
  * @returns {Promise<void>}
@@ -4187,6 +4583,7 @@ async function sendAiInteractionLog(
     blocked,
     blockReason,
     safetyRating,
+    aiMessageId,
     safetyDetails,
     toolsUsed,
   } = {},
@@ -4204,16 +4601,29 @@ async function sendAiInteractionLog(
     parsedDesc = parsed?.description ?? null;
   } catch { /* not JSON */ }
 
+  const baseFields = [
+    { name: 'User', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
+    { name: 'Channel', value: `<#${interaction.channel?.id ?? interaction.channelId}>`, inline: true },
+    aiMessageId
+      ? {
+        name: 'Message Link',
+        value: `https://discord.com/channels/${interaction.guildId}/${interaction.channelId}/${aiMessageId}`,
+        inline: false,
+      }
+      : null,
+    { name: 'Prompt', value: toEmbedCodeBlock(prompt), inline: false },
+  ].filter(Boolean);
+
   const embed = new EmbedBuilder()
     .setColor(color)
     .setTitle(blocked ? '🛡️ AI Interaction — Blocked' : 'AI Interaction')
     .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
-    .addFields(
-      { name: 'User', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
-      { name: 'Channel', value: `<#${interaction.channel?.id ?? interaction.channelId}>`, inline: true },
-      { name: 'Prompt', value: toEmbedCodeBlock(prompt), inline: false },
-    )
+    .addFields(baseFields)
     .setTimestamp();
+
+  if (safetyRating) {
+    embed.addFields({ name: 'Safety Rating', value: String(safetyRating).slice(0, 256), inline: true });
+  }
 
   if (blocked) {
     embed.addFields({ name: 'Block Reason', value: String(blockReason ?? 'Safety filter triggered.').slice(0, 1024), inline: false });
@@ -4223,7 +4633,6 @@ async function sendAiInteractionLog(
     }
     if (thinkingText) embed.addFields({ name: 'Thinking', value: toEmbedCodeBlock(thinkingText), inline: false });
   } else {
-    if (safetyRating) embed.addFields({ name: 'Safety Rating', value: String(safetyRating).slice(0, 256), inline: true });
     const displayResponse = parsedDesc ?? responseText;
     if (displayResponse) embed.addFields({ name: 'Response', value: toEmbedCodeBlock(displayResponse), inline: false });
     if (parsedTitle) embed.addFields({ name: 'Response Title', value: String(parsedTitle).slice(0, 256), inline: true });
@@ -4270,9 +4679,14 @@ function buildErrorComponents(session) {
         .setCustomId(AI_CONTINUE_BUTTON_ID)
         .setStyle(ButtonStyle.Primary)
         .setLabel('Continue'),
+      new ButtonBuilder()
+        .setCustomId(AI_CUSTOM_INSTRUCTIONS_BUTTON_ID)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel(session.customInstructions ? 'Edit Instructions' : 'Add Instructions'),
     ),
   );
   rows.push(buildModelSelectRow(session.modelKey));
+  rows.push(buildPersonaSelectRow(session.personaKey));
   if (canToggleAiSafety(session.allowedUserId)) {
     rows.push(buildSafetySelectRow(session.safetyEnabled));
   }
@@ -4347,8 +4761,20 @@ module.exports = {
     const toolPermissions = getAiToolPermissions(interaction.member, interaction.guild);
     const toolSchemas = getToolSchemasForPermissions(toolPermissions);
     const toolAccessPromptSuffix = buildToolAccessPromptSuffix(toolPermissions);
+    const speakingUser = {
+      id: interaction.user.id,
+      tag: interaction.user.tag,
+      displayName: interaction.member?.displayName ?? interaction.user.globalName ?? interaction.user.username,
+    };
     const messages = [
-      { role: 'system', content: buildSystemPrompt(userSettings.safetyEnabled, toolAccessPromptSuffix) },
+      {
+        role: 'system',
+        content: buildSystemPrompt(userSettings.safetyEnabled, toolAccessPromptSuffix, {
+          personaKey: userSettings.personaKey,
+          customInstructions: userSettings.customInstructions,
+          speaker: speakingUser,
+        }),
+      },
       { role: 'user', content: prompt },
     ];
     const toolsUsed = [];
@@ -4375,6 +4801,7 @@ module.exports = {
         blocked: Boolean(result.blocked),
         blockReason: result.blockReason ?? null,
         safetyRating: result.safetyRating ?? null,
+        aiMessageId: replyMsg.id,
         safetyDetails: result.safetyDetails ?? null,
         toolsUsed: result.toolsUsed ?? toolsUsed,
       }).catch(() => null);
@@ -4385,12 +4812,15 @@ module.exports = {
       messages,
       toolsUsed,
       modelKey: userSettings.modelKey,
+      personaKey: userSettings.personaKey,
+      customInstructions: userSettings.customInstructions,
       showThinking: userSettings.showThinking,
       safetyEnabled: userSettings.safetyEnabled,
       showPrompt: false,
       toolSchemas,
       toolPermissions,
       toolAccessPromptSuffix,
+      speakingUser,
       turns: [{
         outputEmbeds: result.outputEmbeds,
         reviewEmbed: result.reviewEmbed,

@@ -4,6 +4,7 @@ const db = require('./database');
 const economy = require('./bakeEconomy');
 
 const CHALLENGE_FILE = 'bake_challenges.json';
+const CHALLENGE_META_FILE = 'bake_challenge_meta.json';
 const ORDERED_RANKS = ['cookie_novice', 'dough_scout', 'oven_knight', 'crumb_commander', 'sugar_overlord', 'cosmic_baker', 'stellar_confectioner', 'galactic_patissier', 'void_oven_archon'];
 
 const DAILY_CHALLENGES = [
@@ -75,12 +76,16 @@ function getWeekSeed(ts = Date.now()) {
 }
 
 function getDailyChallenge(guildId, ts = Date.now()) {
-  const idx = (getDaySeed(ts) + hashNumber(guildId)) % DAILY_CHALLENGES.length;
+  const offsets = db.read(CHALLENGE_META_FILE, {});
+  const dailyOffset = Number(offsets?.[guildId]?.dailyOffset ?? 0);
+  const idx = (getDaySeed(ts) + hashNumber(guildId) + dailyOffset) % DAILY_CHALLENGES.length;
   return DAILY_CHALLENGES[idx];
 }
 
 function getWeeklyChallenge(guildId, ts = Date.now()) {
-  const idx = (getWeekSeed(ts) + hashNumber(guildId)) % WEEKLY_CHALLENGES.length;
+  const offsets = db.read(CHALLENGE_META_FILE, {});
+  const weeklyOffset = Number(offsets?.[guildId]?.weeklyOffset ?? 0);
+  const idx = (getWeekSeed(ts) + hashNumber(guildId) + weeklyOffset) % WEEKLY_CHALLENGES.length;
   return WEEKLY_CHALLENGES[idx];
 }
 
@@ -174,7 +179,34 @@ function claimAvailableRewards(guildId, userId, ts = Date.now()) {
   return rewardsToGrant;
 }
 
+function getGuildChallengeRotation(guildId, ts = Date.now()) {
+  const daily = getDailyChallenge(guildId, ts);
+  const weekly = getWeeklyChallenge(guildId, ts);
+  return {
+    daily: {
+      ...daily,
+      key: getDailyKey(ts),
+    },
+    weekly: {
+      ...weekly,
+      key: getWeeklyKey(ts),
+    },
+  };
+}
+
+function adminForceRotateGuildChallenges(guildId, ts = Date.now()) {
+  db.update(CHALLENGE_META_FILE, {}, (data) => {
+    if (!data[guildId]) data[guildId] = {};
+    data[guildId].dailyOffset = Number(data[guildId].dailyOffset ?? 0) + 1;
+    data[guildId].weeklyOffset = Number(data[guildId].weeklyOffset ?? 0) + 1;
+    data[guildId].updatedAt = new Date().toISOString();
+  });
+  return getGuildChallengeRotation(guildId, ts);
+}
+
 module.exports = {
   getChallengeStatus,
   claimAvailableRewards,
+  getGuildChallengeRotation,
+  adminForceRotateGuildChallenges,
 };

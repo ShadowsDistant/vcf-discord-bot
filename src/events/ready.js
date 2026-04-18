@@ -5,11 +5,16 @@ const db = require('../utils/database');
 const economy = require('../utils/bakeEconomy');
 const alliances = require('../utils/bakeAlliances');
 const { fetchLogChannel } = require('../utils/logChannels');
+const challenges = require('../utils/bakeryChallenges');
+const giveaways = require('../utils/giveaways');
 
 const COOKIE_EVENT_INTERVAL_MIN_MS = 30 * 60 * 1000;
 const COOKIE_EVENT_INTERVAL_MAX_MS = 60 * 60 * 1000;
 const COOKIE_EVENT_DURATION_MINUTES = 30;
 const ALLIANCE_REWARD_TICK_MS = 60 * 1000;
+const GIVEAWAY_TICK_MS = 30 * 1000;
+const CHALLENGE_ROTATION_TICK_MS = 60 * 1000;
+const CHALLENGE_ROTATION_FILE = 'challenge_rotation_state.json';
 const BAKE_COMMANDS_CHANNEL_ID = '1492310367869862089';
 
 function randomInt(min, max) {
@@ -137,6 +142,64 @@ async function processAllianceRewardDms(client) {
   }
 }
 
+async function processDueGiveaways(client) {
+  const due = giveaways.listDueActiveGiveaways(Date.now());
+  if (!due.length) return;
+  for (const item of due) {
+    const guild = client.guilds.cache.get(item.guildId) ?? await client.guilds.fetch(item.guildId).catch(() => null);
+    if (!guild) continue;
+    await giveaways.concludeGiveawayRecord(guild, item.record, 'Automatic Timer').catch(() => null);
+  }
+}
+
+async function processChallengeRotations(client) {
+  const nowTs = Date.now();
+  const guilds = [...client.guilds.cache.values()];
+  for (const guild of guilds) {
+    const rotation = challenges.getGuildChallengeRotation(guild.id, nowTs);
+    const allianceSnapshot = alliances.listAlliances(guild.id);
+    const eventChannel = await fetchLogChannel(guild, 'cookieEvents').catch(() => null);
+    if (!eventChannel) continue;
+    db.update(CHALLENGE_ROTATION_FILE, {}, (data) => {
+      const current = data[guild.id] ?? {};
+      const hasDailyChanged = current.dailyKey !== rotation.daily.key;
+      const hasWeeklyChanged = current.weeklyKey !== rotation.weekly.key;
+      const allianceWeekKey = rotation.weekly.key;
+      const hasAllianceChanged = current.allianceWeekKey !== allianceWeekKey;
+      if (hasDailyChanged || hasWeeklyChanged || hasAllianceChanged) {
+        const lines = [];
+        if (hasDailyChanged) {
+          lines.push(`🗓️ New **Daily Challenge**: **${rotation.daily.name}**`);
+        }
+        if (hasWeeklyChanged) {
+          lines.push(`📆 New **Weekly Challenge**: **${rotation.weekly.name}**`);
+        }
+        if (hasAllianceChanged) {
+          lines.push(`🏰 Alliance weekly quests rotated for **${allianceSnapshot.length}** alliance(s).`);
+        }
+        eventChannel.send({
+          embeds: [
+            {
+              color: 0x5865f2,
+              title: '🎯 Challenge Rotation Update',
+              description: lines.join('\n'),
+              timestamp: new Date(nowTs).toISOString(),
+            },
+          ],
+        }).catch(() => null);
+      }
+      data[guild.id] = {
+        dailyKey: rotation.daily.key,
+        dailyId: rotation.daily.id,
+        weeklyKey: rotation.weekly.key,
+        weeklyId: rotation.weekly.id,
+        allianceWeekKey,
+        updatedAt: new Date(nowTs).toISOString(),
+      };
+    });
+  }
+}
+
 module.exports = {
   name: Events.ClientReady,
   once: true,
@@ -173,5 +236,22 @@ module.exports = {
       });
     }, ALLIANCE_REWARD_TICK_MS);
     if (typeof allianceRewardTimer.unref === 'function') allianceRewardTimer.unref();
+
+    const giveawayTimer = setInterval(() => {
+      processDueGiveaways(client).catch((error) => {
+        console.error('Giveaway processing failed:', error);
+      });
+    }, GIVEAWAY_TICK_MS);
+    if (typeof giveawayTimer.unref === 'function') giveawayTimer.unref();
+
+    const challengeRotationTimer = setInterval(() => {
+      processChallengeRotations(client).catch((error) => {
+        console.error('Challenge rotation processing failed:', error);
+      });
+    }, CHALLENGE_ROTATION_TICK_MS);
+    if (typeof challengeRotationTimer.unref === 'function') challengeRotationTimer.unref();
+
+    processDueGiveaways(client).catch(() => null);
+    processChallengeRotations(client).catch(() => null);
   },
 };
