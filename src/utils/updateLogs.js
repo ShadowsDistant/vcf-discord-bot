@@ -5,6 +5,18 @@ const { PALETTE } = require('./embeds');
 
 const UPDATE_LOGS = [
   {
+    version: 'v1.4.0',
+    date: '2026-04-18',
+    changes: [
+      'Expanded `/ai` review controls with persistent persona selection and per-user custom instructions (add/edit/clear), including safety + jailbreak checks before instruction saves.',
+      'Made persona behavior consistent across turns/sessions (matching model persistence) and included active persona context in AI system/runtime handling.',
+      'Improved AI safety/log observability: blocked interactions now log with explicit blocked safety rating, clearer severity/reason normalization, message jump links, and persona field in AI logs.',
+      'Added new `/ai` tools for `view_server_events` (event-channel history) and `query_valley_mcp_docs` (Valley MCP docs lookup).',
+      'Reworked `/giveaway` into `start`/`end`/`reroll` lifecycle with persistent giveaway records and automatic timer-based endings processed in background.',
+      'Added automatic challenge-rotation checks + event announcements, plus bake-admin controls to force-rotate bakery/alliance challenges and add/take alliance points.',
+    ],
+  },
+  {
     version: 'v1.3.1',
     date: '2026-04-14',
     changes: [
