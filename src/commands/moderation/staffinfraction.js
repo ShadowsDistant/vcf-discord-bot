@@ -239,7 +239,7 @@ async function handleIssue(interaction, actionType) {
     issuedById: interaction.user.id,
     reason,
     severity: actionType === 'warn' ? 'minor' : actionType === 'suspended' ? 'moderate' : 'severe',
-    action: `${actionLabel}${details ? ` — ${details}` : ''}`,
+    action: details,
   });
 
   const color = ACTION_COLORS[actionType] ?? 0xfee75c;
