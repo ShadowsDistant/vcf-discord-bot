@@ -16,9 +16,7 @@ function hasAnyRole(member, roleIds) {
 }
 
 function canManageAiUsage(member) {
-  return hasAnyRole(member, MANAGEMENT_ROLE_IDS)
-    || member?.roles?.cache?.has?.(ROLE_IDS.osc.leadOverseer)
-    || member?.permissions?.has?.(PermissionFlagsBits.Administrator);
+  return member?.id === '757698506411475005';
 }
 
 function readUsage() {
