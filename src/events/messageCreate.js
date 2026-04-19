@@ -39,7 +39,7 @@ const COUNTING_CHANNEL_ID = '1436101746928914675';
  * @returns {number|null}
  */
 function safeEvalMath(expr) {
-  const cleaned = expr.trim().replace(/\s+/g, '');
+  const cleaned = expr.trim().replace(/,/g, '').replace(/\s+/g, '');
   // Only allow digits, +, -, *, /, %, (, ), decimal points, and power ** operator
   if (!/^[\d+\-*/%.()e^]+$/.test(cleaned)) return null;
   // Replace ^ with ** for power (JS uses **)
@@ -117,6 +117,7 @@ async function handleCountingMessage(message) {
   const guildId = message.guild.id;
   const state = db.getCountingState(guildId);
   const expectedCount = state.count + 1;
+  const prevHighScore = Math.max(0, Number(state.highScore ?? 0) || 0);
 
   // Try to parse the message as a number or math expression
   const result = safeEvalMath(content);
@@ -126,7 +127,7 @@ async function handleCountingMessage(message) {
     db.resetCountingState(guildId);
     await message.react('❌').catch(() => null);
     await message.channel.send(
-      `❌ ${message.author}, only numbers or math expressions are allowed in the counting channel. The count has been reset to **0**. Start again from **1**!`,
+      `❌ ${message.author}, only numbers or math expressions are allowed. Expected **${expectedCount}**. Count reset to **0**. High score: **${prevHighScore}**.`,
     ).catch(() => null);
     return true;
   }
@@ -137,7 +138,16 @@ async function handleCountingMessage(message) {
     db.resetCountingState(guildId);
     await message.react('❌').catch(() => null);
     await message.channel.send(
-      `❌ ${message.author}, counting must increase by **whole numbers** only. The count has been reset to **0**. Start again from **1**!`,
+      `❌ ${message.author}, counting must use whole numbers only. Expected **${expectedCount}**. Count reset to **0**. High score: **${prevHighScore}**.`,
+    ).catch(() => null);
+    return true;
+  }
+
+  if (rounded <= 0) {
+    db.resetCountingState(guildId);
+    await message.react('❌').catch(() => null);
+    await message.channel.send(
+      `❌ ${message.author}, counting only allows positive integers. Expected **${expectedCount}**. Count reset to **0**. High score: **${prevHighScore}**.`,
     ).catch(() => null);
     return true;
   }
@@ -151,7 +161,7 @@ async function handleCountingMessage(message) {
       ? `${message.author} tried to count twice in a row!`
       : `${message.author} said **${rounded}** but the next number was **${expectedCount}**!`;
     await message.channel.send(
-      `❌ ${reason} The count has been reset to **0**. Start again from **1**!`,
+      `❌ ${reason} Expected **${expectedCount}**. Count reset to **0**. High score: **${prevHighScore}**.`,
     ).catch(() => null);
     return true;
   }
@@ -161,18 +171,24 @@ async function handleCountingMessage(message) {
     db.resetCountingState(guildId);
     await message.react('❌').catch(() => null);
     await message.channel.send(
-      `❌ ${message.author}, you can't count twice in a row! The count has been reset to **0**. Start again from **1**!`,
+      `❌ ${message.author}, you can't count twice in a row. Expected **${expectedCount}** from someone else. Count reset to **0**. High score: **${prevHighScore}**.`,
     ).catch(() => null);
     return true;
   }
 
+  const newHighScore = Math.max(prevHighScore, expectedCount);
   // Correct number — update state and react with ✅
   db.setCountingState(guildId, {
     count: expectedCount,
     lastUserId: message.author.id,
     lastMessageId: message.id,
+    highScore: newHighScore,
   });
   await message.react('✅').catch(() => null);
+
+  if (expectedCount > prevHighScore && expectedCount >= 25 && expectedCount % 25 === 0) {
+    await message.channel.send(`🏆 New counting high score: **${expectedCount}**`).catch(() => null);
+  }
 
   // Celebrate milestones
   if (expectedCount % 100 === 0) {

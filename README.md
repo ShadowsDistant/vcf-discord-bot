@@ -716,10 +716,9 @@ Query AI via NVIDIA Build API (`openai/gpt-oss-120b`) and return the result in a
 Supports a broad set of tools, including:
 - Server read/write Discord tools (based on role-based access)
 - `view_server_events` to read recent event-channel announcements (including upcoming event posts)
-- `query_valley_mcp_docs` for MCP docs lookup at `https://docs.valleycorrectional.xyz/mcp`
-
+- 
 `/ai` returns a final structured embed (no streaming updates) with stable formatting.
-The response includes an always-available **Review** button that opens diagnostics (tools used, TTFT, token usage, timing, rounds, and tool-permission capability flags for moderation/management/dev tools), and the AI can add link buttons to the embed when useful.
+The response includes an always-available **Review** button that opens diagnostics (tools used, TTFT, token usage, timing, rounds, usage bar, and tool-permission capability flags for moderation/management/dev tools), and the AI can add link buttons to the embed when useful.
 Review mode includes persistent user controls for:
 - **Model** selection
 - **Persona** selection (applies consistently across turns and future `/ai` sessions for that user)
@@ -985,3 +984,16 @@ Please keep commands consistent with the existing embed design system and follow
 ## License
 
 ISC
+
+
+## AI Usage Limits
+
+`/ai` now enforces rolling 6-hour usage limits:
+- Default users: **15** requests / 6h
+- Role `1428427384495018115`: **30** requests / 6h
+- Roles `1470915374441693376` or `1379199481886802061`: **unlimited**
+
+Staff can manage overrides with `/aiusage`:
+- `set-user`, `set-role` (permanent)
+- `clear-user`, `clear-role`
+- `grant-user`, `grant-role` (one-time current window adjustment)
