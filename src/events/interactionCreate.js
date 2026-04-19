@@ -16,7 +16,7 @@ const {
 } = require('discord.js');
 const embeds = require('../utils/embeds');
 const db = require('../utils/database');
-const { formatDuration } = require('../utils/helpers');
+const { formatDuration, parseDuration } = require('../utils/helpers');
 const { fetchRobloxProfileByUsername, createRobloxEmbed } = require('../utils/roblox');
 const { ROLE_IDS } = require('../utils/roles');
 const { hasModLevel, MOD_LEVEL } = require('../utils/permissions');
@@ -33,7 +33,7 @@ const staffInfractionCommand = require('../commands/moderation/staffinfraction')
 const staffMessageCommand = require('../commands/moderation/staffmessage');
 const broadcastMessageCommand = require('../commands/moderation/broadcastmessage');
 const challenges = require('../utils/bakeryChallenges');
-const { sendModerationActionDm, sendReporterStatusDm, sendModLog, sendCommandLog } = require('../utils/moderationNotifications');
+const { sendModerationActionDm, sendModLog, sendCommandLog } = require('../utils/moderationNotifications');
 const analytics = require('../utils/analytics');
 const { version: botVersion } = require('../../package.json');
 
@@ -49,6 +49,7 @@ const BAKE_COMMANDS_CHANNEL_ID = '1492310367869862089';
 const BAKE_COMMANDS_CHANNEL_URL = `https://discord.com/channels/1345804368263385170/${BAKE_COMMANDS_CHANNEL_ID}`;
 const REPORTS_CHANNEL_ID = '1492689950540435637';
 const REPORTS_PING_ROLE_ID = '1425569078596337745';
+const RULES_CHANNEL_URL = 'https://discord.com/channels/1345804368263385170/1359474500973674667';
 const REPORT_COOLDOWN_MS = 15 * 60 * 1000;
 const REPORT_REASON_LABELS = new Map([
   ['spam', 'Spam'],
@@ -70,6 +71,7 @@ const COMPONENT_EXPIRY_DEFAULT_MS = 10 * 60 * 1000;
 const COMPONENT_EXPIRY_LONG_MS = 30 * 60 * 1000;
 const REPORT_WARN_MODAL_PREFIX = 'report_warn_reason:';
 const REPORT_TIMEOUT_MODAL_PREFIX = 'report_timeout_config:';
+const AUTOMOD_REVIEW_TIMEOUT_MODAL_PREFIX = 'amr_timeout_modal:';
 const MAX_PENDING_RENAME_SELECTIONS = 2_000;
 const MAX_GUIDE_VIEW_SELECTIONS = 5_000;
 const STAFF_MESSAGE_SELECTION_TTL_MS = 10 * 60 * 1000;
@@ -446,6 +448,20 @@ function touchReportCooldown(guildId, userId, now = Date.now()) {
   reportCooldowns.set(getReportCooldownKey(guildId, userId), now);
 }
 
+function queueReportInboxUpdate(guildId, userId, status, details = '') {
+  if (!guildId || !userId) return;
+  const baseByStatus = {
+    submitted: 'Your message report was submitted to moderators.',
+    dismissed: 'Your message report was reviewed and dismissed.',
+    action_taken: 'Your message report was reviewed and action was taken.',
+  };
+  economy.addPendingMessage(guildId, userId, {
+    type: 'staff_message',
+    from: 'Moderation Team',
+    message: `${baseByStatus[status] ?? 'Your message report was updated.'}${details ? `\n\n${details}` : ''}`.slice(0, 500),
+  });
+}
+
 function buildReportActionCustomId(action, sourceMessageId, reporterId) {
   const actionCode = REPORT_ACTION_CODE_BY_ACTION[action];
   if (!actionCode || !sourceMessageId) return null;
@@ -749,17 +765,17 @@ module.exports = {
         }
         const targetMessage = await targetChannel.messages.fetch(messageId).catch(() => null);
         if (action === 'delete_message' && targetMessage) {
+          const deletedContent = (targetMessage.content ?? '(message unavailable)').slice(0, 900);
           await targetMessage.delete().catch(() => null);
           await sendCommandLog({
             guild: interaction.guild,
             moderator: interaction.user,
             action: 'Delete Message (Report)',
             target: `<@${authorId}> in <#${sourceChannelId}>`,
-            details: `Message deleted from report queue.`,
+            details: `Message deleted from report queue.\n\nContent:\n\`\`\`\n${deletedContent}\n\`\`\``,
           });
           if (reporterId) {
-            const reporter = await interaction.client.users.fetch(reporterId).catch(() => null);
-            await sendReporterStatusDm({ user: reporter, guild: interaction.guild, status: 'action_taken' });
+            queueReportInboxUpdate(interaction.guild.id, reporterId, 'action_taken');
           }
           return interaction.editReply({ embeds: [embeds.success('Reported message deleted.', interaction.guild)] });
         }
@@ -1473,6 +1489,7 @@ module.exports = {
         }
         const sourceMessage = await sourceChannel.messages.fetch(messageId).catch(() => null);
         const messageContent = sourceMessage?.content?.slice(0, 1000) || '(message unavailable)';
+        const messageBlock = `\`\`\`\n${messageContent.slice(0, 950)}\n\`\`\``;
         const attachmentSummary = sourceMessage?.attachments?.size
           ? sourceMessage.attachments
             .map((attachment) => `• ${(attachment.name ?? 'attachment').slice(0, 120)}`)
@@ -1483,13 +1500,15 @@ module.exports = {
 
         const reportEmbed = new EmbedBuilder()
           .setColor(0xed4245)
-          .setTitle('Message Report Submitted')
-          .setDescription(`**Reported Content**\n${messageContent}`)
+          .setTitle('Message Report Queue Entry')
+          .setDescription('Review this report and pick an action below. Use server rules for context before actioning.')
           .addFields(
             { name: 'Reason', value: reasonLabel, inline: true },
             { name: 'Reporter', value: `<@${interaction.user.id}>`, inline: true },
             { name: 'Author', value: `<@${authorId}>`, inline: true },
             { name: 'Channel', value: `${sourceChannel}`, inline: true },
+            { name: 'Rules', value: `[View Server Rules](${RULES_CHANNEL_URL})`, inline: true },
+            { name: 'Reported Content', value: messageBlock, inline: false },
             { name: 'Attachments', value: attachmentSummary.slice(0, 1024), inline: false },
             { name: 'Jump Link', value: jumpLink, inline: false },
           )
@@ -1507,7 +1526,7 @@ module.exports = {
           components: [actions],
         }).catch(() => null);
         touchReportCooldown(interaction.guild.id, interaction.user.id, Date.now());
-        await sendReporterStatusDm({ user: interaction.user, guild: interaction.guild, status: 'submitted' });
+        queueReportInboxUpdate(interaction.guild.id, interaction.user.id, 'submitted');
 
         return interaction.editReply({
           embeds: [embeds.success('Report submitted to moderators.', interaction.guild)],
@@ -1834,6 +1853,31 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+        if (action === 'alliance_remove_upgrade') {
+          const allianceOptions = alliances.listAlliances(interaction.guild.id)
+            .map((alliance) => ({
+              label: alliance.name.slice(0, 100),
+              value: alliance.id,
+              description: `ID ${alliance.id} • Members ${alliance.members.length}`.slice(0, 100),
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label));
+          if (!allianceOptions.length) {
+            return interaction.reply({
+              embeds: [embeds.warning('No alliances found to manage.', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          const components = buildPagedStringSelectRows({
+            customIdPrefix: `bakeadmin_alliance_upgrade_alliance_select:${actorId}:${targetId}`,
+            placeholderBase: 'Select alliance',
+            options: allianceOptions,
+          });
+          return interaction.reply({
+            embeds: [embeds.info('Alliance: Remove Upgrade', 'Select the alliance to update.', interaction.guild)],
+            components,
+            flags: MessageFlags.Ephemeral,
+          });
+        }
         if (action === 'alliance_delete') {
           const allianceOptions = alliances.listAlliances(interaction.guild.id)
             .map((alliance) => ({
@@ -1991,7 +2035,7 @@ module.exports = {
         const [, actorId] = interaction.customId.split(':');
         if (actorId !== interaction.user.id) {
           return interaction.reply({
-            embeds: [embeds.error('This admin dashboard is not assigned to you.', interaction.guild)],
+            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
@@ -2620,6 +2664,46 @@ module.exports = {
         return interaction.showModal(modal);
       }
 
+      if (interaction.customId.startsWith('amr_timeout:') || interaction.customId.startsWith('amr_dismiss:')) {
+        if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.moderator)) {
+          return interaction.reply({
+            embeds: [embeds.error('Only moderation staff can use AutoMod review actions.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        if (interaction.customId.startsWith('amr_dismiss:')) {
+          await tryDeferReplyEphemeral(interaction);
+          await interaction.editReply({ embeds: [embeds.success('AutoMod review dismissed.', interaction.guild)] });
+          await interaction.message.edit({ components: [] }).catch(() => null);
+          return;
+        }
+
+        const [, authorId, sourceChannelId, messageId] = interaction.customId.split(':');
+        const modal = new ModalBuilder()
+          .setCustomId(`${AUTOMOD_REVIEW_TIMEOUT_MODAL_PREFIX}${authorId}:${sourceChannelId}:${messageId}`)
+          .setTitle('AutoMod Review Timeout')
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('reason')
+                .setLabel('Reason for timeout')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true)
+                .setMaxLength(500),
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('duration')
+                .setLabel('Duration (e.g. 15m, 1h, 1d)')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+                .setMaxLength(20),
+            ),
+          );
+        return interaction.showModal(modal);
+      }
+
       if (interaction.customId === 'updates_log_select') {
         const selectedIndex = Number.parseInt(interaction.values[0], 10);
         if (!Number.isInteger(selectedIndex) || selectedIndex < 1 || selectedIndex >= UPDATE_LOGS.length) {
@@ -2776,6 +2860,7 @@ module.exports = {
         }
         const sourceMessage = await sourceChannel.messages.fetch(messageId).catch(() => null);
         const messageContent = sourceMessage?.content?.slice(0, 1000) || '(message unavailable)';
+        const messageBlock = `\`\`\`\n${messageContent.slice(0, 950)}\n\`\`\``;
         const attachmentSummary = sourceMessage?.attachments?.size
           ? sourceMessage.attachments
             .map((attachment) => `• ${(attachment.name ?? 'attachment').slice(0, 120)}`)
@@ -2786,13 +2871,15 @@ module.exports = {
 
         const reportEmbed = new EmbedBuilder()
           .setColor(0xed4245)
-          .setTitle('Message Report Submitted')
-          .setDescription(`**Reported Content**\n${messageContent}`)
+          .setTitle('Message Report Queue Entry')
+          .setDescription('Review this report and pick an action below. Use server rules for context before actioning.')
           .addFields(
             { name: 'Category', value: category.slice(0, 100), inline: true },
             { name: 'Reporter', value: `<@${interaction.user.id}>`, inline: true },
             { name: 'Author', value: `<@${authorId}>`, inline: true },
             { name: 'Channel', value: `${sourceChannel}`, inline: true },
+            { name: 'Rules', value: `[View Server Rules](${RULES_CHANNEL_URL})`, inline: true },
+            { name: 'Reported Content', value: `\`\`\`\n${messageContent.slice(0, 950)}\n\`\`\``, inline: false },
             { name: 'Attachments', value: attachmentSummary.slice(0, 1024), inline: false },
             { name: 'Reason', value: reason.slice(0, 1024), inline: false },
             { name: 'Jump Link', value: jumpLink, inline: false },
@@ -2811,7 +2898,7 @@ module.exports = {
           components: [actions],
         }).catch(() => null);
         touchReportCooldown(interaction.guild.id, interaction.user.id, Date.now());
-        await sendReporterStatusDm({ user: interaction.user, guild: interaction.guild, status: 'submitted' });
+        queueReportInboxUpdate(interaction.guild.id, interaction.user.id, 'submitted');
 
         return interaction.editReply({
           embeds: [embeds.success('Report submitted to moderators.', interaction.guild)],
@@ -2819,6 +2906,12 @@ module.exports = {
       }
 
       if (interaction.customId.startsWith('report_dismiss_reason:')) {
+        if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.moderator)) {
+          return interaction.reply({
+            embeds: [embeds.error('Only moderation staff can use report actions.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
         const [, reportMessageId, reporterId] = interaction.customId.split(':');
         const dismissReason = interaction.fields.getTextInputValue('reason').trim();
         if (!dismissReason) {
@@ -2852,18 +2945,18 @@ module.exports = {
           embeds: [embeds.success('Report dismissed with a recorded reason.', interaction.guild)],
         });
         if (reporterId) {
-          const reporter = await interaction.client.users.fetch(reporterId).catch(() => null);
-          await sendReporterStatusDm({
-            user: reporter,
-            guild: interaction.guild,
-            status: 'dismissed',
-            reportReason: dismissReason,
-          });
+          queueReportInboxUpdate(interaction.guild.id, reporterId, 'dismissed', `Dismissal reason: ${dismissReason.slice(0, 300)}`);
         }
         return;
       }
 
       if (interaction.customId.startsWith(REPORT_WARN_MODAL_PREFIX)) {
+        if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.moderator)) {
+          return interaction.reply({
+            embeds: [embeds.error('Only moderation staff can use report actions.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
         const suffix = interaction.customId.slice(REPORT_WARN_MODAL_PREFIX.length);
         const [reportMessageId, sourceChannelId, messageId, authorId, reporterId = ''] = suffix.split(':');
         const reason = interaction.fields.getTextInputValue('reason').trim();
@@ -2903,13 +2996,6 @@ module.exports = {
           reason: fullReason,
           extra: `Total warnings: **${warnings.length}** • From report queue`,
         });
-        await sendCommandLog({
-          guild: interaction.guild,
-          moderator: interaction.user,
-          action: 'Warn (Report)',
-          target: targetUser ? `${targetUser.tag} (${targetUser.id})` : authorId,
-          details: `Reason: ${fullReason} — Total warnings: ${warnings.length}`,
-        });
         analytics.recordModAction(interaction.guild.id, 'warn', Date.now());
         if (reportMessageId) {
           const reportChannel = await interaction.guild.channels.fetch(REPORTS_CHANNEL_ID).catch(() => null);
@@ -2931,13 +3017,18 @@ module.exports = {
           }
         }
         if (reporterId) {
-          const reporter = await interaction.client.users.fetch(reporterId).catch(() => null);
-          await sendReporterStatusDm({ user: reporter, guild: interaction.guild, status: 'action_taken' });
+          queueReportInboxUpdate(interaction.guild.id, reporterId, 'action_taken');
         }
         return interaction.editReply({ embeds: [embeds.success('Author warned and action logged.', interaction.guild)] });
       }
 
       if (interaction.customId.startsWith(REPORT_TIMEOUT_MODAL_PREFIX)) {
+        if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.moderator)) {
+          return interaction.reply({
+            embeds: [embeds.error('Only moderation staff can use report actions.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
         const suffix = interaction.customId.slice(REPORT_TIMEOUT_MODAL_PREFIX.length);
         const [reportMessageId, sourceChannelId, messageId, authorId, reporterId = ''] = suffix.split(':');
         const reason = interaction.fields.getTextInputValue('reason').trim();
@@ -2990,13 +3081,6 @@ module.exports = {
           reason: fullReason,
           extra: `Duration: **${durationLabel}** • From report queue`,
         });
-        await sendCommandLog({
-          guild: interaction.guild,
-          moderator: interaction.user,
-          action: 'Timeout (Report)',
-          target: targetUser ? `${targetUser.tag} (${targetUser.id})` : authorId,
-          details: `Duration: ${durationLabel} — Reason: ${fullReason}`,
-        });
         analytics.recordModAction(interaction.guild.id, 'timeout', Date.now());
         if (reportMessageId) {
           const reportChannel = await interaction.guild.channels.fetch(REPORTS_CHANNEL_ID).catch(() => null);
@@ -3018,10 +3102,66 @@ module.exports = {
           }
         }
         if (reporterId) {
-          const reporter = await interaction.client.users.fetch(reporterId).catch(() => null);
-          await sendReporterStatusDm({ user: reporter, guild: interaction.guild, status: 'action_taken' });
+          queueReportInboxUpdate(interaction.guild.id, reporterId, 'action_taken');
         }
         return interaction.editReply({ embeds: [embeds.success(`Author timed out for ${durationLabel} and action logged.`, interaction.guild)] });
+      }
+
+      if (interaction.customId.startsWith(AUTOMOD_REVIEW_TIMEOUT_MODAL_PREFIX)) {
+        if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.moderator)) {
+          return interaction.reply({
+            embeds: [embeds.error('Only moderation staff can use AutoMod review actions.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        const suffix = interaction.customId.slice(AUTOMOD_REVIEW_TIMEOUT_MODAL_PREFIX.length);
+        const [authorId, sourceChannelId, messageId] = suffix.split(':');
+        const reason = interaction.fields.getTextInputValue('reason').trim();
+        const durationRaw = interaction.fields.getTextInputValue('duration').trim();
+        if (!reason || !durationRaw) {
+          return interaction.reply({
+            embeds: [embeds.error('Reason and duration are required.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        const durationMs = parseDuration(durationRaw);
+        if (!durationMs || durationMs <= 0) {
+          return interaction.reply({
+            embeds: [embeds.error('Invalid duration. Use values like `15m`, `1h`, or `1d`.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        await tryDeferReplyEphemeral(interaction);
+        const targetMember = await interaction.guild.members.fetch(authorId).catch(() => null);
+        if (!targetMember || !targetMember.moderatable) {
+          return interaction.editReply({
+            embeds: [embeds.error('Cannot timeout this user (missing member, permissions, or role hierarchy).', interaction.guild)],
+          });
+        }
+
+        await targetMember.timeout(durationMs, `${interaction.user.tag}: ${reason}`).catch(() => null);
+        await sendModerationActionDm({
+          user: targetMember.user,
+          guild: interaction.guild,
+          action: 'Timeout',
+          reason,
+          moderatorTag: interaction.user.tag,
+          duration: formatDuration(durationMs),
+        });
+        await sendModLog({
+          guild: interaction.guild,
+          target: targetMember.user,
+          moderator: interaction.user,
+          action: 'Timeout',
+          reason,
+          extra: `Source: AutoMod review • Duration: **${formatDuration(durationMs)}** • Channel: <#${sourceChannelId}> • Message ID: \`${messageId}\``,
+        });
+
+        await interaction.message.edit({ components: [] }).catch(() => null);
+        return interaction.editReply({ embeds: [embeds.success(`Timed out <@${authorId}> for **${formatDuration(durationMs)}**.`, interaction.guild)] });
       }
 
       if (interaction.customId === 'bakery_modal_name') {
@@ -3249,261 +3389,138 @@ module.exports = {
         });
       }
 
-      if (interaction.customId.startsWith('bakeadmin_gift_all_modal:')) {
-        const parts = interaction.customId.split(':');
-        const actorId = parts[1];
-        const rewardBoxId = parts[2];
+      if (interaction.customId.startsWith('bakeadmin_alliance_delete_select:')) {
+        const [, actorId, targetId] = interaction.customId.split(':');
         if (actorId !== interaction.user.id) {
           return interaction.reply({
-            embeds: [embeds.error('This admin modal is not assigned to you.', interaction.guild)],
+            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
-        const quantity = Number.parseInt(interaction.fields.getTextInputValue('quantity').trim(), 10);
-        if (!Number.isInteger(quantity) || quantity <= 0) {
+        const allianceId = interaction.values[0];
+        const alliance = alliances.listAlliances(interaction.guild.id).find((entry) => entry.id === allianceId);
+        if (!alliance) {
           return interaction.reply({
-            embeds: [embeds.error('Quantity must be a positive integer.', interaction.guild)],
+            embeds: [embeds.error('Unknown alliance selection.', interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
-        const giftMessage = interaction.fields.getTextInputValue('message')?.trim() ?? '';
+        const modal = new ModalBuilder()
+          .setCustomId(`bakeadmin_alliance_delete_modal:${actorId}:${targetId}:${alliance.id}`)
+          .setTitle(`Delete ${alliance.name}`)
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('confirm')
+                .setLabel('Type DELETE to confirm')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true),
+            ),
+          );
+        return interaction.showModal(modal);
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_achievement_select:')) {
+        const [, actorId, targetId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const achievementId = interaction.values[0];
+        const ok = economy.adminGrantAchievement(interaction.guild.id, targetId, achievementId);
+        if (!ok) {
+          return interaction.reply({
+            embeds: [embeds.error('Could not grant that achievement.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        await tryDeferReplyEphemeral(interaction);
+        await sendBakeAdminLog(interaction, targetId, 'Grant Achievement', `Achievement: ${achievementId}`);
+        return interaction.editReply({
+          embeds: [embeds.success(`Granted achievement \`${achievementId}\` to <@${targetId}>.`, interaction.guild)],
+        });
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_rank_select:')) {
+        const [, actorId, targetId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const rankId = interaction.values[0];
+        const ok = economy.adminSetRank(interaction.guild.id, targetId, rankId);
+        if (!ok) {
+          return interaction.reply({
+            embeds: [embeds.error('Could not set that rank.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const rank = economy.RANKS.find((entry) => entry.id === rankId);
+        await tryDeferReplyEphemeral(interaction);
+        await sendBakeAdminLog(interaction, targetId, 'Set Rank', `Rank: ${rankId}`);
+        return interaction.editReply({
+          embeds: [embeds.success(`Set rank for <@${targetId}> to ${economy.getRankEmoji(rank, interaction.guild)} **${rank?.name ?? rankId}**.`, interaction.guild)],
+        });
+      }
+
+      if (interaction.customId.startsWith('bakeadmin_reward_box_select:')) {
+        const [, actorId, targetId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const rewardBoxId = interaction.values[0];
         const rewardBox = economy.REWARD_BOXES.find((entry) => entry.id === rewardBoxId);
-        const count = economy.adminGiftAllUsers(interaction.guild.id, rewardBoxId, quantity, giftMessage, interaction.user.tag);
-        if (!count) {
+        if (!rewardBox) {
           return interaction.reply({
-            embeds: [embeds.warning('No tracked users found or invalid box.', interaction.guild)],
+            embeds: [embeds.error('Unknown reward gift box.', interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
-        await tryDeferReplyEphemeral(interaction);
-        await sendBakeAdminLog(interaction, interaction.user.id, 'Gift All Users', `${rewardBoxId} x${quantity} — ${count} users`);
-        return interaction.editReply({
-          embeds: [embeds.success(`Gifted ${economy.getRewardBoxEmoji(rewardBox, interaction.guild)} **${quantity}x ${rewardBox?.name ?? rewardBoxId}** to **${count}** tracked user(s).`, interaction.guild)],
-        });
+        const modal = new ModalBuilder()
+          .setCustomId(`bakeadmin_reward_box_modal:${actorId}:${targetId}:${rewardBoxId}`)
+          .setTitle(`Grant ${rewardBox.name}`)
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('quantity')
+                .setLabel('Quantity')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true),
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('message')
+                .setLabel('Gift message (required)')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true)
+                .setMaxLength(500),
+            ),
+          );
+        return interaction.showModal(modal);
       }
 
-      if (interaction.customId.startsWith('bakeadmin_global_modal:')) {
-        const parts = interaction.customId.split(':');
-        const actorId = parts[1];
-        const action = parts[2];
-        const extraParam = parts[3] ?? null; // e.g. event id for start_event
-        if (actorId !== interaction.user.id) {
+      if (interaction.customId === 'updates_log_select') {
+        const selectedIndex = Number.parseInt(interaction.values[0], 10);
+        if (!Number.isInteger(selectedIndex) || selectedIndex < 1 || selectedIndex >= UPDATE_LOGS.length) {
           return interaction.reply({
-            embeds: [embeds.error('This admin modal is not assigned to you.', interaction.guild)],
+            embeds: [embeds.error('Invalid update log selection.', interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
-        if (action === 'start_event') {
-          const durationRaw = interaction.fields.getTextInputValue('durationMinutes').trim();
-          const durationMinutes = Number.parseInt(durationRaw, 10);
-          if (!Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 1440) {
-            return interaction.reply({
-              embeds: [embeds.error('Duration must be a whole number between 1 and 1440 minutes.', interaction.guild)],
-              flags: MessageFlags.Ephemeral,
-            });
-          }
-          const eventId = extraParam ?? 'special_cookie_hunt';
-          const eventDef = economy.COOKIE_EVENT_DEFINITIONS.find((e) => e.id === eventId) ?? economy.COOKIE_EVENT_DEFINITIONS[0];
-          const event = economy.adminStartEvent(interaction.guild.id, durationMinutes, eventId);
-          await tryDeferReplyEphemeral(interaction);
-          await sendBakeAdminLog(interaction, actorId, 'Global: Start Event', `${eventDef.name} for ${durationMinutes} minute(s)`);
-          await sendBakeEventStartLog(interaction, eventDef, durationMinutes, event.startedAt, event.endsAt);
-          return interaction.editReply({
-            embeds: [embeds.success(`Started **${eventDef.name}** for **${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}**.`, interaction.guild)],
-          });
-        }
-        if (action === 'reset_economy') {
-          const confirm = interaction.fields.getTextInputValue('confirm').trim();
-          if (confirm !== 'RESET ALL') {
-            return interaction.reply({
-              embeds: [embeds.warning('Reset cancelled. Type `RESET ALL` exactly next time.', interaction.guild)],
-              flags: MessageFlags.Ephemeral,
-            });
-          }
-          economy.adminResetGuildEconomy(interaction.guild.id);
-          await tryDeferReplyEphemeral(interaction);
-          await sendBakeAdminLog(interaction, actorId, 'Global: Reset Economy', 'Full guild bakery economy reset');
-          const dashboardEmbed = economy.buildBakeAdminDashboardEmbed(interaction.guild, actorId);
-          const dashboardComponents = economy.buildBakeAdminDashboardComponents(actorId);
-          return interaction.editReply({
-            embeds: [
-              embeds.success('Entire bakery economy reset completed for this guild.', interaction.guild),
-              dashboardEmbed,
-            ],
-            components: dashboardComponents,
-          });
-        }
-      }
 
-      if (interaction.customId.startsWith('bakeadmin_modal:')) {
-        const [, actorId, targetId, action] = interaction.customId.split(':');
-        if (actorId !== interaction.user.id) {
-          return interaction.reply({
-            embeds: [embeds.error('This admin modal is not assigned to you.', interaction.guild)],
-            flags: MessageFlags.Ephemeral,
-          });
-        }
-        if (action === 'give_cookies' || action === 'remove_cookies') {
-          const amountRaw = interaction.fields.getTextInputValue('amount').trim();
-          const amount = Number.parseInt(amountRaw, 10);
-          if (!Number.isInteger(amount) || amount <= 0) {
-            return interaction.reply({
-              embeds: [embeds.error('Amount must be a positive integer.', interaction.guild)],
-              flags: MessageFlags.Ephemeral,
-            });
-          }
-          const delta = action === 'remove_cookies' ? -amount : amount;
-          economy.adminGiveCookies(interaction.guild.id, targetId, delta);
-          await tryDeferReplyEphemeral(interaction);
-          await sendBakeAdminLog(interaction, targetId, action === 'remove_cookies' ? 'Remove Cookies' : 'Give Cookies', `${delta} cookies`);
-          return interaction.editReply({
-            embeds: [embeds.success(`${delta >= 0 ? 'Gave' : 'Removed'} **${economy.toCookieNumber(Math.abs(delta))}** cookies ${delta >= 0 ? 'to' : 'from'} <@${targetId}>.`, interaction.guild)],
-          });
-        }
-        if (action === 'reset_user') {
-          const confirm = interaction.fields.getTextInputValue('confirm').trim();
-          if (confirm !== 'RESET') {
-            return interaction.reply({
-              embeds: [embeds.warning('Reset cancelled. Type `RESET` exactly next time.', interaction.guild)],
-              flags: MessageFlags.Ephemeral,
-            });
-          }
-          economy.adminResetUser(interaction.guild.id, targetId);
-          await tryDeferReplyEphemeral(interaction);
-          await sendBakeAdminLog(interaction, targetId, 'Reset User', 'Full economy reset');
-          return interaction.editReply({
-            embeds: [embeds.success(`Reset all baking data for <@${targetId}>.`, interaction.guild)],
-          });
-        }
-        if (action === 'start_event') {
-          const durationRaw = interaction.fields.getTextInputValue('durationMinutes').trim();
-          const durationMinutes = Number.parseInt(durationRaw, 10);
-          if (!Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 1440) {
-            return interaction.reply({
-              embeds: [embeds.error('Duration must be a whole number between 1 and 1440 minutes.', interaction.guild)],
-              flags: MessageFlags.Ephemeral,
-            });
-          }
-          const eventIdParam = interaction.customId.split(':')[4] ?? 'special_cookie_hunt';
-          const eventDef = economy.COOKIE_EVENT_DEFINITIONS.find((e) => e.id === eventIdParam) ?? economy.COOKIE_EVENT_DEFINITIONS[0];
-          const event = economy.adminStartEvent(interaction.guild.id, durationMinutes, eventDef.id);
-          await tryDeferReplyEphemeral(interaction);
-          await sendBakeAdminLog(interaction, targetId, 'Start Event', `${eventDef.name} for ${durationMinutes} minute(s)`);
-          await sendBakeEventStartLog(interaction, eventDef, durationMinutes, event.startedAt, event.endsAt);
-          return interaction.editReply({
-            embeds: [embeds.success(`Started **${eventDef.name}** for **${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}**.`, interaction.guild)],
-          });
-        }
-      }
-
-      // ── Staff Message modal submit ─────────────────────────────────────────
-      if (interaction.customId.startsWith('staffmsg_modal:')) {
-        const parts = interaction.customId.split(':');
-        const actorId = parts[1];
-        const messageType = parts[2];
-        const recipientIds = getPendingStaffMessageSelection(interaction.guild.id, actorId);
-        const legacyRecipientIds = (parts[3] ?? '').split(',').filter(Boolean);
-        const finalRecipientIds = recipientIds.length > 0 ? recipientIds : legacyRecipientIds;
-        if (actorId !== interaction.user.id) {
-          return interaction.reply({ embeds: [embeds.error('This modal is not assigned to you.', interaction.guild)], flags: MessageFlags.Ephemeral });
-        }
-        if (!staffMessageCommand.hasSeniorModPlus(interaction.member)) {
-          return interaction.reply({ embeds: [embeds.error('Permission denied.', interaction.guild)], flags: MessageFlags.Ephemeral });
-        }
-        if (finalRecipientIds.length === 0) {
-          return interaction.reply({
-            embeds: [embeds.warning('Recipient selection expired. Run `/staffmessage` again.', interaction.guild)],
-            flags: MessageFlags.Ephemeral,
-          });
-        }
-        const title = interaction.fields.getTextInputValue('title').trim();
-        const content = interaction.fields.getTextInputValue('content').trim();
-        for (const userId of finalRecipientIds) {
-          economy.addPendingMessage(interaction.guild.id, userId, {
-            type: 'staff_message',
-            messageType,
-            title,
-            content,
-            from: interaction.user.tag,
-            claimed: false,
-            suppressDeliveryDm: messageType === 'all',
-          });
-        }
-        clearPendingStaffMessageSelection(interaction.guild.id, actorId);
-        const recipientMentions = finalRecipientIds.map((id) => `<@${id}>`).join(', ');
-        return interaction.reply({
-          embeds: [embeds.success(`Message sent to ${recipientMentions}.`, interaction.guild)],
-          flags: MessageFlags.Ephemeral,
-        });
-      }
-
-      // ── Broadcast Message modal submit ────────────────────────────────────
-      if (interaction.customId.startsWith('broadcastmsg_modal:')) {
-        const parts = interaction.customId.split(':');
-        const actorId = parts[1];
-        const messageType = parts[2];
-        const audience = decodeBroadcastAudience(parts.slice(3).join(':'));
-        if (actorId !== interaction.user.id) {
-          return interaction.reply({ embeds: [embeds.error('This modal is not assigned to you.', interaction.guild)], flags: MessageFlags.Ephemeral });
-        }
-        if (!broadcastMessageCommand.hasLeadManagement(interaction.member)) {
-          return interaction.reply({ embeds: [embeds.error('Permission denied.', interaction.guild)], flags: MessageFlags.Ephemeral });
-        }
-        await tryDeferReplyEphemeral(interaction);
-        const title = interaction.fields.getTextInputValue('title').trim();
-        const content = interaction.fields.getTextInputValue('content').trim();
-
-        let targetUserIds = [];
-        if (audience === 'everyone') {
-          await interaction.guild.members.fetch().catch(() => null);
-          targetUserIds = interaction.guild.members.cache
-            .filter((member) => !member.user.bot)
-            .map((member) => member.id);
-        } else if (audience.startsWith('role:')) {
-          const roleKey = audience.slice(5);
-          let roleSet;
-          if (roleKey === 'moderation') roleSet = broadcastMessageCommand.MODERATION_ROLE_IDS;
-          else if (roleKey === 'sid') roleSet = broadcastMessageCommand.SID_ROLE_IDS;
-          else if (roleKey === 'osc') roleSet = broadcastMessageCommand.OSC_ROLE_IDS;
-          else if (roleKey === 'facility') roleSet = broadcastMessageCommand.FACILITY_ROLE_IDS;
-          else if (roleKey === 'all_staff') roleSet = broadcastMessageCommand.ALL_STAFF_ROLE_IDS;
-          if (roleSet) {
-            await interaction.guild.members.fetch().catch(() => null);
-            for (const member of interaction.guild.members.cache.values()) {
-              if ([...roleSet].some((roleId) => member.roles.cache.has(roleId))) {
-                targetUserIds.push(member.id);
-              }
-            }
-          }
-        }
-        targetUserIds = [...new Set(targetUserIds)];
-
-        if (targetUserIds.length === 0) {
-          return interaction.editReply({
-            embeds: [embeds.warning('No matching users found for the selected audience.', interaction.guild)],
-          });
-        }
-
-        for (const userId of targetUserIds) {
-          economy.addPendingMessage(interaction.guild.id, userId, {
-            type: 'staff_message',
-            messageType,
-            title,
-            content,
-            from: interaction.user.tag,
-            claimed: false,
-            suppressDeliveryDm: audience === 'everyone',
-          });
-        }
-        const audienceLabel = getBroadcastAudienceLabel(audience);
-
-        return interaction.editReply({
-          embeds: [embeds.success(`Broadcast sent to **${targetUserIds.length}** user(s) (audience: *${audienceLabel}*).`, interaction.guild)],
-        });
+        const selected = UPDATE_LOGS[selectedIndex];
+        const updatedEmbed = createUpdateEmbed(interaction.guild, botVersion, selected, selectedIndex);
+        return interaction.update({ embeds: [updatedEmbed], components: interaction.message.components });
       }
     }
 
-    // ── Autocomplete ────────────────────────────────────────────────────────
     if (interaction.isAutocomplete()) {
       const focused = interaction.options.getFocused(true);
 

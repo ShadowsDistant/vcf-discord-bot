@@ -1201,23 +1201,23 @@ const CHANNEL_TYPE_MAP = {
 // ── Helpers ──────────────────────────────────────────────────────────────────────
 
 /**
- * Strip <think>...</think> blocks (and leading/trailing whitespace) from a string.
+ * Strip _strip..._strip blocks (and leading/trailing whitespace) from a string.
  * @param {string} text
  * @returns {string}
  */
 function stripThinkBlocks(text) {
   if (typeof text !== 'string') return '';
-  return text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  return text.replace(/_strip[\s\S]*?_strip/gi, '').trim();
 }
 
 /**
- * Extract all <think>...</think> blocks from text.
+ * Extract all _strip..._strip blocks from text.
  * @param {string} text
  * @returns {string}
  */
 function extractThinkBlocks(text) {
   if (typeof text !== 'string') return '';
-  const matches = [...text.matchAll(/<think>([\s\S]*?)<\/think>/gi)];
+  const matches = [...text.matchAll(/_strip([\s\S]*?)_strip/gi)];
   return matches.map((match) => String(match[1] ?? '').trim()).filter(Boolean).join('\n\n').trim();
 }
 
@@ -1787,7 +1787,7 @@ function formatThinkingForDisplay(thinkingText) {
  */
 function formatThinkingForHidden(thinkingText) {
   const raw = String(thinkingText ?? '')
-    .replace(/<\/?think>/gi, '\n')
+    .replace(/_strip\/?_strip/gi, '\n')
     .trim();
   if (!raw) return '';
   const lines = raw
@@ -3803,6 +3803,7 @@ function buildFinalComponents(session) {
  * @returns {Promise<{outputEmbeds:EmbedBuilder[],reviewEmbed:EmbedBuilder,linkButtons:Array,uiRows:Array<ActionRowBuilder>,uiState:object,rawContent:string,thinkingText:string,promptText:string,blocked:boolean,blockReason:string|null,safetyRating:string|null,safetyDetails?:{prompt?:{harm:string,rule:string,severity:string,reason:string},response?:{harm:string,rule:string,severity:string,reason:string}},toolsUsed?:Array<object>}>}
  */
 async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
+  const turnToolsUsed = [];
   const requestStartMs = Date.now();
   let ttftMs = null;
   let promptTokens = null;
@@ -3834,7 +3835,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
           promptTokens: null,
           completionTokens: null,
         },
-        toolsUsed,
+        turnToolsUsed,
         settings,
       );
       return {
@@ -3858,7 +3859,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
             reason: formatSafetyValue(promptSafety.responseReason, 'reason', FIELD_VALUE_MAX),
           },
         },
-        toolsUsed: [...toolsUsed],
+        toolsUsed: [...turnToolsUsed],
       };
     }
   }
@@ -3923,7 +3924,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
               promptTokens,
               completionTokens,
             },
-            toolsUsed,
+            turnToolsUsed,
             settings,
           );
           return {
@@ -3947,7 +3948,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
               },
               response: responseSafetyResult,
             },
-            toolsUsed: [...toolsUsed],
+            toolsUsed: [...turnToolsUsed],
           };
         }
         const promptDetails = promptSafetyResult ?? {
@@ -3978,7 +3979,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
             promptTokens,
             completionTokens,
           },
-          toolsUsed,
+          turnToolsUsed,
           settings,
         );
         return {
@@ -3997,7 +3998,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
             prompt: promptDetails,
             response: responseDetails,
           },
-          toolsUsed: [...toolsUsed],
+          toolsUsed: [...turnToolsUsed],
         };
       }
       messages.push({
@@ -4021,7 +4022,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
           promptTokens,
           completionTokens,
         },
-        toolsUsed,
+        turnToolsUsed,
         settings,
       );
       return {
@@ -4037,7 +4038,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
         blockReason: null,
         safetyRating: safetyEnabled ? 'passed' : null,
         safetyDetails: null,
-        toolsUsed: [...toolsUsed],
+        toolsUsed: [...turnToolsUsed],
       };
     }
     messages.push({
@@ -4058,7 +4059,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
       let toolResult;
       if (!safetyEnabled && (toolName === 'kick_member' || toolName === 'ban_member')) {
         toolResult = 'Unsafe mode still forbids kick_member and ban_member. Ask for an alternative action.';
-        toolsUsed.push({ name: toolName, args: toolArgs, denied: true });
+        turnToolsUsed.push({ name: toolName, args: toolArgs, denied: true });
       } else
       if (DANGEROUS_TOOLS.has(toolName)) {
         await interaction.editReply({
@@ -4068,7 +4069,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
         const confirmed = await awaitConfirmation(interaction, replyMsg, toolName, toolArgs);
         if (!confirmed) {
           toolResult = 'Action was denied by the user (or timed out). Do not attempt this action again without asking the user.';
-          toolsUsed.push({ name: toolName, args: toolArgs, denied: true });
+          turnToolsUsed.push({ name: toolName, args: toolArgs, denied: true });
           await interaction.editReply({
             embeds: [buildProcessingEmbed('Action denied. Continuing…')],
             components: [],
@@ -4076,10 +4077,10 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
         } else {
           try {
             toolResult = await executeTool(toolName, toolArgs, interaction, settings?.toolPermissions);
-            toolsUsed.push({ name: toolName, args: toolArgs, success: true });
+            turnToolsUsed.push({ name: toolName, args: toolArgs, success: true });
           } catch (err) {
             toolResult = `Error executing ${toolName}: ${err.message}`;
-            toolsUsed.push({ name: toolName, args: toolArgs, error: err.message });
+            turnToolsUsed.push({ name: toolName, args: toolArgs, error: err.message });
           }
           await interaction.editReply({
             embeds: [buildProcessingEmbed('Action executed. Continuing…')],
@@ -4089,10 +4090,10 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
       } else {
         try {
           toolResult = await executeTool(toolName, toolArgs, interaction, settings?.toolPermissions);
-          toolsUsed.push({ name: toolName, args: toolArgs, success: true });
+          turnToolsUsed.push({ name: toolName, args: toolArgs, success: true });
         } catch (err) {
           toolResult = `Error executing ${toolName}: ${err.message}`;
-          toolsUsed.push({ name: toolName, args: toolArgs, error: err.message });
+          turnToolsUsed.push({ name: toolName, args: toolArgs, error: err.message });
         }
       }
 
@@ -4119,7 +4120,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
       promptTokens,
       completionTokens,
     },
-    toolsUsed,
+    turnToolsUsed,
     settings,
   );
   return {
@@ -4135,7 +4136,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
     blockReason: null,
     safetyRating: null,
     safetyDetails: null,
-    toolsUsed: [...toolsUsed],
+    toolsUsed: [...turnToolsUsed],
   };
 }
 
@@ -4702,7 +4703,7 @@ async function sendAiInteractionLog(
 
   const embed = new EmbedBuilder()
     .setColor(color)
-    .setTitle(blocked ? '🛡️ AI Interaction — Blocked' : hasMediumPlusSeverity ? '⚠️ AI Interaction — Elevated Severity' : 'AI Interaction')
+    .setTitle(blocked ? '🛡️ AI Interaction — Blocked' : hasMediumPlusSeverity ? 'AI Interaction — Elevated Severity' : 'AI Interaction')
     .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
     .addFields(baseFields)
     .setTimestamp();
@@ -4710,7 +4711,7 @@ async function sendAiInteractionLog(
   const personaLabel = getPersonaConfig(personaKey).label;
   embed.addFields({ name: 'Persona', value: personaLabel, inline: true });
 
-  const logSafetyRating = blocked ? 'failed' : safetyRating;
+  const logSafetyRating = blocked || blockReason ? 'failed' : safetyRating;
   if (logSafetyRating) {
     embed.addFields({ name: 'Safety Rating', value: String(logSafetyRating).slice(0, 256), inline: true });
   }
