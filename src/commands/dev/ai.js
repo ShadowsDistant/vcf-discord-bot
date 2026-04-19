@@ -65,6 +65,12 @@ const SAFETY_CLASSIFIER_PROMPT_HEADER = [
   '',
   'Prompt harm: ',
   'Prompt rule: ',
+  'Prompt severity: ',
+  'Prompt reason: ',
+  'Response harm: ',
+  'Response rule: ',
+  'Response severity: ',
+  'Response reason: ',
 ].join('\n');
 const DEFAULT_COLOR = 0x99aab5; // default grey
 const MAX_TIMEOUT_MS = 28 * 24 * 60 * 60 * 1000;
@@ -246,8 +252,10 @@ Guidelines:
 Tool Usage:
 - If the answer is known, answer directly without tools.
 - If using tools, wait for tool results before responding and never guess tool output.
+- Never present unverified server-specific facts as certain; if tool data is missing/unavailable, explicitly say you don't know.
 - If a tool errors, report it clearly and do not retry with identical args.
 - You may call multiple tools in one turn when needed; synthesize results into one cohesive response and note discrepancies if results conflict.
+- Use query_valley_mcp_docs only for direct MCP documentation requests; do not use it for server/alliance/member data.
 - Use convince only when the user is explicitly asking to be granted cookies and is genuinely trying to convince you.
 - Never call convince for plain asks like "I want cookies". First collect a persuasive reason from the user, then pass that reason in convince.argument.
 - For moderation requests with incomplete names (e.g. "warn somoto"), use member search tools first; if multiple matches are plausible, present a select menu of candidates or ask the user to confirm the top match before taking action.
@@ -848,6 +856,19 @@ const TOOL_SCHEMAS = [
   {
     type: 'function',
     function: {
+      name: 'list_alliances',
+      description: 'List alliances in the current guild with key summary stats.',
+      parameters: {
+        type: 'object',
+        properties: {
+          limit: { type: 'number', description: 'Optional maximum results to return (1–50). Defaults to 25.' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'get_user_message_inbox',
       description: 'Fetch inbox entries used by /messages for a member (defaults to the interacting user).',
       parameters: {
@@ -1403,10 +1424,11 @@ function parseSafetyOutput(text) {
     const match = source.match(new RegExp(`^${label}:\\s*(.+)$`, 'im'));
     return match?.[1]?.trim() || fallback;
   };
+  const promptReasonFallback = read('Reason', 'No reason provided by classifier.');
   return {
     promptHarm: read('Prompt harm', 'unharmful'),
     promptRule: read('Prompt rule', 'None'),
-    promptReason: read('Reason', 'No reason provided by classifier.'),
+    promptReason: read('Prompt reason', promptReasonFallback),
     promptSeverity: read('Prompt severity', 'unknown'),
     responseHarm: read('Response harm', 'None'),
     responseRule: read('Response rule', 'None'),
@@ -2502,6 +2524,28 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
       };
     }
 
+    case 'list_alliances': {
+      const limit = Math.min(50, Math.max(1, Number.parseInt(args?.limit, 10) || 25));
+      const all = alliances.listAlliances(guild.id);
+      const items = all
+        .slice(0, limit)
+        .map((alliance) => ({
+          id: alliance.id,
+          name: alliance.name,
+          owner_id: alliance.ownerId ?? null,
+          member_count: Array.isArray(alliance.members) ? alliance.members.length : 0,
+          max_members: alliances.MAX_ALLIANCE_MEMBERS,
+          join_approval_enabled: Boolean(alliance.joinApprovalEnabled),
+          description: String(alliance.description ?? '').trim() || null,
+          store_credits: Number(alliance.storeCredits ?? 0),
+        }));
+      return {
+        success: true,
+        total_alliances: all.length,
+        alliances: items,
+      };
+    }
+
     case 'get_user_message_inbox': {
       let member = null;
       if (args?.user_id || args?.user_query) {
@@ -2516,19 +2560,26 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
       const limit = Math.min(50, Math.max(1, Number.parseInt(args?.limit, 10) || 20));
       const snapshot = economy.getUserSnapshot(guild.id, member.id);
       const pendingMessages = Array.isArray(snapshot?.user?.pendingMessages) ? snapshot.user.pendingMessages : [];
-      const latest = [...pendingMessages]
-        .sort((a, b) => Number(b?.createdAt ?? 0) - Number(a?.createdAt ?? 0))
+      const pendingWithTimestamp = pendingMessages.map((msg) => ({
+        msg,
+        createdAtMs: new Date(msg?.createdAt ?? 0).getTime(),
+      }));
+      const latest = pendingWithTimestamp
+        .sort((a, b) => b.createdAtMs - a.createdAtMs)
         .slice(0, limit)
-        .map((msg) => ({
-          id: msg.id ?? null,
-          type: msg.type ?? 'unknown',
-          notification_type: msg.notificationType ?? null,
-          title: msg.title ?? null,
-          content: msg.content ?? null,
-          from_user_id: msg.fromUserId ?? null,
-          claimed: Boolean(msg.claimed),
-          created_at: Number.isFinite(Number(msg.createdAt)) ? new Date(Number(msg.createdAt)).toISOString() : null,
-        }));
+        .map(({ msg, createdAtMs }) => {
+          const createdAtIso = Number.isFinite(createdAtMs) ? new Date(createdAtMs).toISOString() : null;
+          return {
+            id: msg.id ?? null,
+            type: msg.type ?? 'unknown',
+            notification_type: msg.notificationType ?? null,
+            title: msg.title ?? null,
+            content: msg.content ?? null,
+            from_user_id: msg.fromUserId ?? null,
+            claimed: Boolean(msg.claimed),
+            created_at: createdAtIso,
+          };
+        });
       return {
         success: true,
         user_id: member.id,
@@ -3770,7 +3821,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
         promptText: latestUserMessage,
         blocked: true,
         blockReason: formatSafetyValue(promptSafety.promptReason, 'reason', 400),
-        safetyRating: 'blocked',
+        safetyRating: 'failed',
         safetyDetails: {
           prompt: promptSafetyResult,
           response: {
@@ -3859,7 +3910,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
             promptText: latestUserMessage,
             blocked: true,
             blockReason: formatSafetyValue(responseSafety.responseReason, 'reason', 400),
-            safetyRating: 'blocked',
+            safetyRating: 'failed',
             safetyDetails: {
               prompt: promptSafetyResult ?? {
                 harm: sanitizeSafetyText(responseSafety.promptHarm, 60),
@@ -4628,8 +4679,9 @@ async function sendAiInteractionLog(
   const personaLabel = getPersonaConfig(personaKey).label;
   embed.addFields({ name: 'Persona', value: personaLabel, inline: true });
 
-  if (safetyRating) {
-    embed.addFields({ name: 'Safety Rating', value: String(safetyRating).slice(0, 256), inline: true });
+  const logSafetyRating = blocked ? 'failed' : safetyRating;
+  if (logSafetyRating) {
+    embed.addFields({ name: 'Safety Rating', value: String(logSafetyRating).slice(0, 256), inline: true });
   }
 
   if (blocked) {

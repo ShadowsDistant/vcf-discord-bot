@@ -252,6 +252,7 @@ module.exports = {
     if (typeof challengeRotationTimer.unref === 'function') challengeRotationTimer.unref();
 
     processDueGiveaways(client).catch(() => null);
+    processAllianceRewardDms(client).catch(() => null);
     processChallengeRotations(client).catch(() => null);
   },
 };

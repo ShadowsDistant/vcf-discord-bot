@@ -782,7 +782,8 @@ module.exports = {
         const parts = interaction.customId.split(':');
         const currentPage = Number.parseInt(parts[1], 10) || 0;
         const messageId = Number.parseInt(parts[2], 10);
-        const result = economy.claimPendingMessage(interaction.guild.id, interaction.user.id, messageId);
+        const messageCreatedAtMs = Number.parseInt(parts[3], 10);
+        const result = economy.claimPendingMessage(interaction.guild.id, interaction.user.id, messageId, messageCreatedAtMs);
         if (!result.ok) {
           return interaction.reply({
             embeds: [embeds.warning(result.reason, interaction.guild)],
@@ -845,7 +846,8 @@ module.exports = {
         const parts = interaction.customId.split(':');
         const currentPage = Number.parseInt(parts[1], 10) || 0;
         const messageId = Number.parseInt(parts[2], 10);
-        economy.deletePendingMessage(interaction.guild.id, interaction.user.id, messageId);
+        const messageCreatedAtMs = Number.parseInt(parts[3], 10);
+        economy.deletePendingMessage(interaction.guild.id, interaction.user.id, messageId, messageCreatedAtMs);
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const totalPages = Math.max(1, Math.ceil(snapshot.user.pendingMessages.length / 8));
         const safePage = Math.max(0, Math.min(currentPage, totalPages - 1));
