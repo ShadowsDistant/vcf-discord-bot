@@ -42,7 +42,7 @@ module.exports = {
       .setTitle(`  ${guild.name}`)
       .setThumbnail(guild.iconURL({ dynamic: true, size: 256 }) ?? null)
       .addFields(
-        { name: '🆔  Server ID', value: `\`${guild.id}\``, inline: true },
+        { name: 'Server ID', value: `\`${guild.id}\``, inline: true },
         { name: '  Owner', value: owner ? `${owner.user}` : 'Unknown', inline: true },
         { name: '  Region', value: guild.preferredLocale ?? 'Unknown', inline: true },
         {

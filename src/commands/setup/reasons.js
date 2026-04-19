@@ -108,7 +108,7 @@ module.exports = {
               guild,
             )
             .addFields(
-              { name: '🆔  ID', value: `\`${entry.id}\``, inline: true },
+              { name: 'ID', value: `\`${entry.id}\``, inline: true },
               { name: '  Reason', value: reason },
             ),
         ],

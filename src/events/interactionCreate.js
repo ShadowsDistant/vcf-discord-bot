@@ -2162,7 +2162,7 @@ module.exports = {
           });
           return interaction.reply({
             embeds: [embeds.info(
-              action === 'alliance_take_points' ? 'Alliance: Take Points' : 'Alliance: Add Points',
+              action === 'alliance_add_points' ? 'Alliance: Add Points' : 'Alliance: Take Points',
               'Select the alliance to update points.',
               interaction.guild,
             )],
@@ -2923,7 +2923,7 @@ module.exports = {
             if (existingEmbed) {
               existingEmbed.addFields({
                 name: 'Action Taken',
-                value: `⚠️ Warned by ${interaction.user} — ${reason}`,
+                value: `Warned by ${interaction.user} — ${reason}`,
                 inline: false,
               });
               await reportMessage.edit({ embeds: [existingEmbed], components: [] }).catch(() => null);
@@ -3010,7 +3010,7 @@ module.exports = {
             if (existingEmbed) {
               existingEmbed.addFields({
                 name: 'Action Taken',
-                value: `⏳ Timed out ${durationLabel} by ${interaction.user} — ${reason}`,
+                value: `Timed out ${durationLabel} by ${interaction.user} — ${reason}`,
                 inline: false,
               });
               await reportMessage.edit({ embeds: [existingEmbed], components: [] }).catch(() => null);
@@ -3426,6 +3426,7 @@ module.exports = {
             content,
             from: interaction.user.tag,
             claimed: false,
+            suppressDeliveryDm: messageType === 'all',
           });
         }
         clearPendingStaffMessageSelection(interaction.guild.id, actorId);
