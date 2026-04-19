@@ -552,7 +552,7 @@ const COUNTING_FILE = 'counting.json';
  */
 function getCountingState(guildId) {
   const data = read(COUNTING_FILE, {});
-  return data[guildId] ?? { count: 0, lastUserId: null, lastMessageId: null };
+  return data[guildId] ?? { count: 0, lastUserId: null, lastMessageId: null, highScore: 0 };
 }
 
 /**
@@ -572,7 +572,7 @@ function setCountingState(guildId, state) {
  */
 function resetCountingState(guildId) {
   update(COUNTING_FILE, {}, (data) => {
-    data[guildId] = { count: 0, lastUserId: null, lastMessageId: null };
+    data[guildId] = { count: 0, lastUserId: null, lastMessageId: null, highScore: Math.max(0, Number(data[guildId]?.highScore ?? 0) || 0) };
   });
 }
 

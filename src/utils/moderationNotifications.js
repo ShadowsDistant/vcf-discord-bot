@@ -3,6 +3,21 @@
 const { EmbedBuilder } = require('discord.js');
 const { fetchLogChannel } = require('./logChannels');
 
+const RECENT_LOG_KEYS = new Map();
+const LOG_DEDUPE_WINDOW_MS = 4_000;
+
+function shouldSkipDuplicateLog(keyBase) {
+  const now = Date.now();
+  for (const [key, ts] of RECENT_LOG_KEYS.entries()) {
+    if (now - ts > LOG_DEDUPE_WINDOW_MS) RECENT_LOG_KEYS.delete(key);
+  }
+  const key = String(keyBase ?? '');
+  const prev = RECENT_LOG_KEYS.get(key);
+  if (prev && now - prev <= LOG_DEDUPE_WINDOW_MS) return true;
+  RECENT_LOG_KEYS.set(key, now);
+  return false;
+}
+
 async function sendModerationActionDm({
   user,
   guild,
@@ -50,6 +65,8 @@ async function sendModerationActionDm({
  */
 async function sendModLog({ guild, target, moderator, action, reason, extra } = {}) {
   if (!guild) return;
+  const dedupeKey = `mod:${guild.id}:${action}:${target?.id ?? 'unknown'}:${moderator?.id ?? 'unknown'}:${String(reason ?? '').slice(0, 120)}`;
+  if (shouldSkipDuplicateLog(dedupeKey)) return;
   const channel = await fetchLogChannel(guild, 'punishmentLog');
   if (!channel) return;
 
@@ -97,6 +114,8 @@ async function sendModLog({ guild, target, moderator, action, reason, extra } = 
  */
 async function sendCommandLog({ guild, moderator, action, target, details } = {}) {
   if (!guild) return;
+  const dedupeKey = `cmd:${guild.id}:${action}:${moderator?.id ?? 'unknown'}:${String(target ?? '').slice(0, 80)}:${String(details ?? '').slice(0, 120)}`;
+  if (shouldSkipDuplicateLog(dedupeKey)) return;
   const channel = await fetchLogChannel(guild, 'commandLog');
   if (!channel) return;
 
