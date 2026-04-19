@@ -27,6 +27,13 @@ function formatShare(part, total) {
   return ((part / total) * 100).toFixed(1);
 }
 
+function formatHourRange(hour) {
+  const h = Number(hour);
+  const start = String(h).padStart(2, '0');
+  const end = String((h + 1) % 24).padStart(2, '0');
+  return `${start}:00–${end}:00 UTC`;
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('analytics')
@@ -58,63 +65,71 @@ module.exports = {
     const targetUser = interaction.options.getUser('user');
     const days = resolveDays(period);
 
-    // When a specific user is provided, show ONLY that user's data.
+    // When a specific user is provided, show activity stats + bakery data.
     if (targetUser) {
+      const userActivity = analytics.getUserAnalytics(interaction.guild.id, targetUser.id, days);
       const snapshot = economy.getUserSnapshot(interaction.guild.id, targetUser.id);
       const u = snapshot.user;
       const rank = economy.RANKS.find((r) => r.id === u.rankId);
       const cps = economy.computeCps(u, Date.now());
 
-      const buildingLines = economy.BUILDINGS
-        .map((b) => {
-          const owned = u.buildings[b.id] ?? 0;
-          return owned > 0 ? `${b.name}: **×${owned}**` : null;
-        })
-        .filter(Boolean)
-        .join('\n') || 'None';
+      const topChannels = userActivity.channelTotals.length
+        ? userActivity.channelTotals
+          .map((entry, idx) => `${idx + 1}. <#${entry.channelId}> — **${entry.count.toLocaleString()}** msg${entry.count !== 1 ? 's' : ''}`)
+          .join('\n')
+        : 'No data recorded.';
+
+      const peakHour = userActivity.peakHour
+        ? `**${formatHourRange(userActivity.peakHour.hour)}** (${userActivity.peakHour.count.toLocaleString()} msgs)`
+        : 'No data recorded.';
+
+      const busyHours = userActivity.busyHours.length
+        ? userActivity.busyHours.map((entry, idx) => `${idx + 1}. **${formatHourRange(entry.hour)}** — ${entry.count.toLocaleString()} msgs`).join('\n')
+        : 'No data recorded.';
 
       const embed = new EmbedBuilder()
         .setColor(0x5865f2)
         .setTitle(`📈 User Analytics — ${targetUser.tag}`)
-        .setDescription(`Detailed profile for ${targetUser} (Period: **${period}**)`)
+        .setDescription(`Stats for ${targetUser} (Period: **${period}**)`)
         .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
         .addFields(
           {
-            name: '🍪 Economy',
+            name: '💬 Messaging Activity',
+            value: [
+              `Total messages: **${userActivity.messages.toLocaleString()}**`,
+              `Active days: **${userActivity.activeDays}/${Math.max(1, userActivity.dayKeys.length)}**`,
+              `Peak active hour: ${peakHour}`,
+            ].join('\n'),
+            inline: false,
+          },
+          {
+            name: '📊 Top Channels',
+            value: topChannels.slice(0, 1024),
+            inline: false,
+          },
+          {
+            name: '⏰ Busiest Hours',
+            value: busyHours.slice(0, 1024),
+            inline: false,
+          },
+          {
+            name: '🍪 Bakery',
             value: [
               `Cookies: **${economy.toCookieNumber(u.cookies)}**`,
               `CPS: **${economy.toCookieNumber(cps)}**/s`,
+              `Rank: **${rank?.name ?? 'Unknown'}**`,
               `Lifetime baked: **${economy.toCookieNumber(u.cookiesBakedAllTime)}**`,
-              `Lifetime spent: **${economy.toCookieNumber(u.cookiesSpent)}**`,
-              `Total bakes: **${economy.toCookieNumber(u.totalBakes)}**`,
             ].join('\n'),
             inline: true,
           },
           {
             name: '📈 Progression',
             value: [
-              `Rank: **${rank?.name ?? 'Unknown'}**`,
               `Achievements: **${economy.getEarnedAchievementCount(u)}/${economy.ACHIEVEMENTS.length}**`,
               `Upgrades: **${(u.upgrades ?? []).length}**`,
               `Highest CPS: **${economy.toCookieNumber(u.highestCps ?? 0)}**`,
-              `Rarest item: **${u.rarestItemId ? (economy.ITEM_MAP.get(u.rarestItemId)?.name ?? u.rarestItemId) : 'None'}**`,
             ].join('\n'),
             inline: true,
-          },
-          {
-            name: '🏗️ Buildings',
-            value: buildingLines.slice(0, 1024),
-          },
-          {
-            name: '📊 Activity',
-            value: [
-              `Golden Cookies: **${economy.toCookieNumber(u.goldenCookiesClaimed ?? 0)}/${economy.toCookieNumber(u.goldenCookiesTriggered ?? 0)} claimed**`,
-              `Marketplace buys: **${economy.toCookieNumber(u.marketplaceBuys ?? 0)}**`,
-              `Marketplace sells: **${economy.toCookieNumber(u.marketplaceSells ?? 0)}**`,
-              `Bake banned: **${u.bakeBanned ? 'Yes' : 'No'}**`,
-              `Unique items: **${(u.uniqueItemsDiscovered ?? []).length}/${economy.ITEMS.length}**`,
-            ].join('\n'),
-            inline: false,
           },
         )
         .setTimestamp()

@@ -62,6 +62,21 @@ function recordMessage(guildId, channelId, ts = Date.now()) {
   });
 }
 
+function recordUserMessage(guildId, userId, channelId, ts = Date.now()) {
+  db.update(ANALYTICS_FILE, {}, (data) => {
+    const guildStore = getGuildStore(data, guildId);
+    const day = getDayStore(guildStore, toDayKey(ts));
+    if (!day.users) day.users = {};
+    if (!day.users[userId]) day.users[userId] = { messages: 0, channels: {}, hours: {} };
+    const u = day.users[userId];
+    u.messages += 1;
+    u.channels[channelId] = (u.channels[channelId] ?? 0) + 1;
+    const hourKey = toHourKey(ts);
+    u.hours[hourKey] = (u.hours[hourKey] ?? 0) + 1;
+    pruneOldDays(guildStore);
+  });
+}
+
 function recordMemberJoin(guildId, ts = Date.now()) {
   db.update(ANALYTICS_FILE, {}, (data) => {
     const guildStore = getGuildStore(data, guildId);
@@ -81,7 +96,7 @@ function recordMemberLeave(guildId, ts = Date.now()) {
 }
 
 function recordModAction(guildId, action, ts = Date.now()) {
-  if (!['warn', 'kick', 'ban'].includes(action)) return;
+  if (!['warn', 'kick', 'ban', 'timeout'].includes(action)) return;
   db.update(ANALYTICS_FILE, {}, (data) => {
     const guildStore = getGuildStore(data, guildId);
     const day = getDayStore(guildStore, toDayKey(ts));
@@ -184,10 +199,69 @@ function getAnalytics(guildId, periodDays = 7) {
   };
 }
 
+function getUserAnalytics(guildId, userId, periodDays = 7) {
+  const data = db.read(ANALYTICS_FILE, {});
+  const guildStore = data[guildId] ?? { days: {} };
+  const allDayKeys = Object.keys(guildStore.days).sort();
+  if (allDayKeys.length === 0) {
+    return {
+      dayKeys: [],
+      messages: 0,
+      channelTotals: [],
+      peakHour: null,
+      activeDays: 0,
+      busyHours: [],
+    };
+  }
+
+  const dayKeys = allDayKeys.slice(-Math.max(1, periodDays));
+  const channelTotals = {};
+  const hourTotals = {};
+  let totalMessages = 0;
+  let activeDays = 0;
+
+  for (const dayKey of dayKeys) {
+    const day = guildStore.days[dayKey] ?? {};
+    const u = day.users?.[userId];
+    if (!u) continue;
+    const dayMsgs = Number(u.messages ?? 0);
+    if (dayMsgs > 0) activeDays += 1;
+    totalMessages += dayMsgs;
+    for (const [channelId, count] of Object.entries(u.channels ?? {})) {
+      channelTotals[channelId] = (channelTotals[channelId] ?? 0) + Number(count ?? 0);
+    }
+    for (const [hour, count] of Object.entries(u.hours ?? {})) {
+      hourTotals[hour] = (hourTotals[hour] ?? 0) + Number(count ?? 0);
+    }
+  }
+
+  const sortedChannels = Object.entries(channelTotals)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([channelId, count]) => ({ channelId, count }));
+
+  const peakHourEntry = Object.entries(hourTotals).sort((a, b) => b[1] - a[1])[0] ?? null;
+  const busyHours = Object.entries(hourTotals)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([hour, count]) => ({ hour, count }));
+
+  return {
+    dayKeys,
+    messages: totalMessages,
+    channelTotals: sortedChannels,
+    peakHour: peakHourEntry ? { hour: peakHourEntry[0], count: peakHourEntry[1] } : null,
+    activeDays,
+    busyHours,
+  };
+}
+
 module.exports = {
   recordMessage,
+  recordUserMessage,
   recordMemberJoin,
   recordMemberLeave,
   recordModAction,
   getAnalytics,
+  getUserAnalytics,
 };
