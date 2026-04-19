@@ -24,7 +24,7 @@ module.exports = {
 
     const overviewEmbed = new EmbedBuilder()
       .setColor(0x5865f2)
-      .setTitle('📘 Community Rules & Guidelines')
+      .setTitle('Community Rules & Guidelines')
       .setDescription([
         '“I haven’t read the rules” is **not** an excuse for breaking them.',
         'These standards apply across Discord and in-game shifts.',
@@ -65,7 +65,7 @@ module.exports = {
 
     const platformEmbed = new EmbedBuilder()
       .setColor(0x57f287)
-      .setTitle('🗂️ Discord & In-Game Expectations')
+      .setTitle('Discord & In-Game Expectations')
       .addFields(
         {
           name: 'Discord Rules',

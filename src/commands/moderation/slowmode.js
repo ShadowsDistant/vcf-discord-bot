@@ -80,7 +80,7 @@ module.exports = {
             .setColor(0xfee75c)
             .addFields(
               { name: '  Channel', value: `${channel}`, inline: true },
-              { name: '⏱  Delay', value: `\`${display}\``, inline: true },
+              { name: 'Delay', value: `\`${display}\``, inline: true },
               { name: '  Set by', value: `${interaction.user}`, inline: true },
             ),
         ],

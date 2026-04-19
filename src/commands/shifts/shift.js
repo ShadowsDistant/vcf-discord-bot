@@ -311,7 +311,7 @@ async function runEnd(interaction) {
       { name: '  Duration', value: formatDuration(record.durationMs), inline: true },
       { name: '  Started', value: `<t:${startedTs}:T>`, inline: true },
       { name: '  Ended', value: `<t:${endedTs}:T>`, inline: true },
-      { name: '⏱  Total Time on Record', value: formatDuration(totalMs), inline: true },
+      { name: 'Total Time on Record', value: formatDuration(totalMs), inline: true },
       { name: '  Total Shifts', value: `${history.length}`, inline: true },
     );
 
@@ -346,7 +346,7 @@ async function runStatus(interaction, target) {
         .setThumbnail(target.displayAvatarURL({ dynamic: true }))
         .addFields(
           { name: '  Started', value: `<t:${startedTs}:F>`, inline: true },
-          { name: '⏱  Elapsed', value: formatDuration(elapsedMs), inline: true },
+          { name: 'Elapsed', value: formatDuration(elapsedMs), inline: true },
         ),
     ],
     flags: MessageFlags.Ephemeral,
@@ -462,7 +462,7 @@ async function runHistory(interaction, target) {
     .setThumbnail(target.displayAvatarURL({ dynamic: true }))
     .addFields(
       { name: '  Completed Shifts', value: `${history.length}`, inline: true },
-      { name: '⏱  Total Time', value: formatDuration(totalMs), inline: true },
+      { name: 'Total Time', value: formatDuration(totalMs), inline: true },
     );
 
   if (wave && quotaMs > 0) {

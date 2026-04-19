@@ -81,8 +81,8 @@ module.exports = {
       const endsAt = now + durationMs;
       const giveawayEmbed = new EmbedBuilder()
         .setColor(0xfee75c)
-        .setTitle('🎉 Giveaway Started')
-        .setDescription(`React with 🎉 to enter!\n\n**Prize:** ${prize}`)
+        .setTitle('Giveaway Started')
+        .setDescription(`React to enter.\n\n**Prize:** ${prize}`)
         .addFields(
           { name: 'Hosted By', value: `${interaction.user}`, inline: true },
           { name: 'Winners', value: String(winners), inline: true },
@@ -167,7 +167,7 @@ module.exports = {
         embeds: [
           new EmbedBuilder()
             .setColor(0x5865f2)
-            .setTitle('🔁 Giveaway Reroll')
+            .setTitle('Giveaway Reroll')
             .setDescription(`Prize: **${record.prize}**\nNew winner(s): ${winnerMentions}`),
         ],
       }).catch(() => null);

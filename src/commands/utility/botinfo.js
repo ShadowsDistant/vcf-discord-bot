@@ -28,7 +28,7 @@ module.exports = {
       .setThumbnail(client.user.displayAvatarURL({ dynamic: true, size: 256 }))
       .setDescription('A feature-rich Discord bot built with discord.js.')
       .addFields(
-        { name: '🆔  Bot ID', value: `\`${client.user.id}\``, inline: true },
+        { name: 'Bot ID', value: `\`${client.user.id}\``, inline: true },
         { name: '  Tag', value: `\`${client.user.tag}\``, inline: true },
         { name: '  Created', value: `<t:${createdTs}:D> (<t:${createdTs}:R>)`, inline: true },
         {

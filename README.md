@@ -846,7 +846,21 @@ When inviting the bot to your server, grant the following permissions:
 
 > **Recommended invite URL:** Use the OAuth2 URL generator in the Developer Portal. Select `bot` + `applications.commands` scopes, and tick the permissions above. The bot should also have a role higher than any role it needs to assign or any member it needs to moderate.
 
-> **Privileged Intents:** The `Server Members Intent` must be enabled in the Developer Portal (Bot settings) for the welcome message feature (`guildMemberAdd` event) to work.
+### Gateway Intents
+
+The client registers only the intents it actually uses (see `index.js`):
+
+| Intent | Portal Toggle | Why It's Needed |
+|---|---|---|
+| `Guilds` | — (default) | Guild, channel, and role cache |
+| `GuildMembers` | ✅ **Server Members Intent** (privileged) | Welcome messages, member-based mod checks, shift eligibility |
+| `GuildMessages` | — (default) | Receiving messages for the counting game, report context, and message events |
+| `MessageContent` | ✅ **Message Content Intent** (privileged) | Reading message content for the counting game and report workflows |
+| `GuildModeration` | — (default) | Ban/audit-log events (`GuildBans` is merged into this intent in Discord.js v14+) |
+
+Plus `Partials.Channel` so DM events (moderation notifications, inbox delivery DMs) are delivered reliably.
+
+> Enable both privileged intents in the [Discord Developer Portal](https://discord.com/developers/applications) under **Bot → Privileged Gateway Intents** before starting the bot, or the login will fail.
 
 ---
 

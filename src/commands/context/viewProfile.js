@@ -47,7 +47,7 @@ module.exports = {
       .setTitle(`  ${target.tag}`)
       .setThumbnail(target.displayAvatarURL({ dynamic: true, size: 256 }))
       .addFields(
-        { name: '🆔  User ID', value: `\`${target.id}\``, inline: true },
+        { name: 'User ID', value: `\`${target.id}\``, inline: true },
         { name: '  Bot?', value: target.bot ? 'Yes' : 'No', inline: true },
         {
           name: '  Account Created',

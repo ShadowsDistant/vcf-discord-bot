@@ -89,12 +89,12 @@ module.exports = {
 
       const embed = new EmbedBuilder()
         .setColor(0x5865f2)
-        .setTitle(`📈 User Analytics — ${targetUser.tag}`)
+        .setTitle(`User Analytics — ${targetUser.tag}`)
         .setDescription(`Stats for ${targetUser} (Period: **${period}**)`)
         .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
         .addFields(
           {
-            name: '💬 Messaging Activity',
+            name: 'Messaging Activity',
             value: [
               `Total messages: **${userActivity.messages.toLocaleString()}**`,
               `Active days: **${userActivity.activeDays}/${Math.max(1, userActivity.dayKeys.length)}**`,
@@ -103,17 +103,17 @@ module.exports = {
             inline: false,
           },
           {
-            name: '📊 Top Channels',
+            name: 'Top Channels',
             value: topChannels.slice(0, 1024),
             inline: false,
           },
           {
-            name: '⏰ Busiest Hours',
+            name: 'Busiest Hours',
             value: busyHours.slice(0, 1024),
             inline: false,
           },
           {
-            name: '🍪 Bakery',
+            name: 'Bakery',
             value: [
               `Cookies: **${economy.toCookieNumber(u.cookies)}**`,
               `CPS: **${economy.toCookieNumber(cps)}**/s`,
@@ -123,7 +123,7 @@ module.exports = {
             inline: true,
           },
           {
-            name: '📈 Progression',
+            name: 'Progression',
             value: [
               `Achievements: **${economy.getEarnedAchievementCount(u)}/${economy.ACHIEVEMENTS.length}**`,
               `Upgrades: **${(u.upgrades ?? []).length}**`,
@@ -177,7 +177,7 @@ module.exports = {
 
     const embed = new EmbedBuilder()
       .setColor(0x5865f2)
-      .setTitle(`📈 Server Analytics (${period})`)
+      .setTitle(`Server Analytics (${period})`)
       .setDescription(
         data.dayKeys.length
           ? `Coverage: **${data.dayKeys[0]} → ${data.dayKeys[data.dayKeys.length - 1]}**`

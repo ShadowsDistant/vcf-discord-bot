@@ -5,6 +5,18 @@ const { PALETTE } = require('./embeds');
 
 const UPDATE_LOGS = [
   {
+    version: 'v1.5.0',
+    date: '2026-04-19',
+    changes: [
+      'Code review & refactor: scoped client intents to only what the bot uses (removed redundant `GuildBans`, which is now covered by `GuildModeration`) and added `Partials.Channel` for DM delivery reliability.',
+      'Added global safety nets for `unhandledRejection` and `uncaughtException`, plus `SIGINT`/`SIGTERM` handlers for graceful shutdown.',
+      'Wrapped event dispatch with a top-level async error guard so one bad handler cannot crash the process.',
+      'Standardized embed styling across non-bakery commands: stripped decorative emojis from `/rules`, `/announce`, `/giveaway`, `/analytics`, `/serverinfo`, `/userinfo`, `/botinfo`, `/slowmode`, `/shift`, `/reasons`, View Profile, and report-log entries. Bakery, `/messages`, and `/ai` embeds keep their themed emojis.',
+      'Hardened startup validation and login error logging; removed emoji-heavy console output in favor of consistent plain-text logs.',
+      'Updated README to reflect current slash command surface, required Discord portal intents, and `.env` setup.',
+    ],
+  },
+  {
     version: 'v1.4.0',
     date: '2026-04-18',
     changes: [
