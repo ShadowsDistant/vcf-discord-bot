@@ -10,6 +10,25 @@ const analytics = require('../utils/analytics');
 const { sendModerationActionDm } = require('../utils/moderationNotifications');
 const { fetchLogChannel } = require('../utils/logChannels');
 
+const AUTOMOD_REVIEW_CHANNEL_ID = '1384358117986402487';
+const AUTOMOD_SEVERE_CATEGORIES = new Set(['slurs', 'hate', 'threats', 'doxxing']);
+const AUTOMOD_EXTREME_PATTERNS = [
+  /\bi\s*(will|'ll)?\s*kill\s+you\b/i,
+  /\bkill\s+yourself\b/i,
+  /\bbomb\s+threat\b/i,
+  /\b(nigger|faggot|kike|spic|chink)\b/i,
+];
+
+function isExtremeCase(content, category) {
+  if (AUTOMOD_SEVERE_CATEGORIES.has(category)) return true;
+  return AUTOMOD_EXTREME_PATTERNS.some((pattern) => pattern.test(content));
+}
+
+function toCodeBlock(text, fallback = '(no content)') {
+  const raw = String(text ?? '').trim() || fallback;
+  return `\`\`\`\n${raw.slice(0, 950)}\n\`\`\``;
+}
+
 /** Channel ID for the counting game */
 const COUNTING_CHANNEL_ID = '1436101746928914675';
 
@@ -204,29 +223,36 @@ module.exports = {
     if (!result.triggered) return;
 
     // ── Apply punishment ─────────────────────────────────────────────────────
-    const punishment = automodConfig.punishment ?? 'delete';
+    const configuredPunishment = automodConfig.punishment ?? 'delete';
+    const extremeCase = isExtremeCase(content, result.category);
+    const punishment = extremeCase ? configuredPunishment : 'delete';
+    const categoryLabel = getCategoryLabel(result.category);
+    const suggestedTimeoutMs = automodConfig.timeoutDuration ?? 300_000;
 
     // Delete the offending message
     await message.delete().catch(() => null);
 
-    // Build the DM warning to the user
-    const categoryLabel = getCategoryLabel(result.category);
+    // Notify user in-channel (short-lived) instead of DM spam
     try {
-      await message.author.send({
+      const notice = await message.channel.send({
+        content: `${message.author}`,
         embeds: [
           embeds
             .warning(
-              `Your message in **${message.guild.name}** was removed because it violated the **${categoryLabel}** automod filter.\n\nPlease review the server rules to avoid further action.`,
+              `Your message was removed by AutoMod.\n\n**Reason:** ${categoryLabel}\n**Punishment:** ${punishment === 'delete' ? 'Message removed only' : punishment.replace('_', ' + ')}`,
             )
             .setTitle('AutoMod — Message Removed'),
         ],
       });
+      setTimeout(() => {
+        notice.delete().catch(() => null);
+      }, 15_000);
     } catch {
-      // User has DMs disabled — that's fine
+      // If message cannot be sent in-channel, continue silently
     }
 
-    // Apply additional punishment if configured
-    if ((punishment === 'delete_timeout' || punishment === 'timeout') && member.moderatable) {
+    // Apply auto punishment only for obvious severe cases
+    if (extremeCase && (punishment === 'delete_timeout' || punishment === 'timeout') && member.moderatable) {
       const timeoutMs = automodConfig.timeoutDuration ?? 300_000; // default 5 min
       await sendModerationActionDm({
         user: message.author,
@@ -241,7 +267,7 @@ module.exports = {
         .catch(() => null);
     }
 
-    if (punishment === 'delete_kick' && member.kickable) {
+    if (extremeCase && punishment === 'delete_kick' && member.kickable) {
       await sendModerationActionDm({
         user: message.author,
         guild: message.guild,
@@ -252,9 +278,10 @@ module.exports = {
       await member.kick(`AutoMod: ${categoryLabel} filter triggered`).catch(() => null);
     }
 
-    // ── Log to mod-log channel ───────────────────────────────────────────────
+    // ── Log / review queue ──────────────────────────────────────────────────
     {
-      const logChannel = await fetchLogChannel(message.guild, 'automod');
+      const logChannel = await message.guild.channels.fetch(AUTOMOD_REVIEW_CHANNEL_ID).catch(() => null)
+        ?? await fetchLogChannel(message.guild, 'automod');
       if (logChannel) {
         const punishmentLabel = {
           delete: 'Message deleted',
@@ -266,7 +293,7 @@ module.exports = {
         const logEmbed = embeds
           .base(message.guild)
           .setColor(0xed4245)
-          .setTitle('AutoMod Action')
+          .setTitle(extremeCase ? 'AutoMod Action' : 'AutoMod Review Required')
           .setThumbnail(message.author.displayAvatarURL({ dynamic: true }))
           .addFields(
             {
@@ -275,15 +302,32 @@ module.exports = {
               inline: true,
             },
             { name: 'Category', value: categoryLabel, inline: true },
-            { name: 'Action', value: punishmentLabel, inline: true },
+            { name: 'Action', value: extremeCase ? punishmentLabel : 'Message deleted (awaiting staff review)', inline: true },
             {
               name: 'Message',
-              value: content.length > 1000 ? `${content.slice(0, 997)}…` : content,
+              value: toCodeBlock(content),
             },
             { name: 'Channel', value: `${message.channel}`, inline: true },
+            { name: 'Message Link', value: message.url, inline: true },
+            { name: 'Matched Term', value: `\`${String(result.matchedTerm ?? 'unknown').slice(0, 120)}\``, inline: true },
           );
 
-        await logChannel.send({ embeds: [logEmbed] }).catch(() => null);
+        if (!extremeCase) {
+          const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+          const reviewRow = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`amr_timeout:${message.author.id}:${message.channel.id}:${message.id}`)
+              .setLabel('Timeout User')
+              .setStyle(ButtonStyle.Danger),
+            new ButtonBuilder()
+              .setCustomId(`amr_dismiss:${message.author.id}:${message.channel.id}:${message.id}`)
+              .setLabel('Dismiss')
+              .setStyle(ButtonStyle.Secondary),
+          );
+          await logChannel.send({ embeds: [logEmbed], components: [reviewRow] }).catch(() => null);
+        } else {
+          await logChannel.send({ embeds: [logEmbed] }).catch(() => null);
+        }
       }
     }
   },

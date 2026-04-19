@@ -22,12 +22,14 @@ const CATEGORIES = {
   profanity: {
     label: 'Targeted Profanity & Abuse',
     patterns: [
-      'fuck you', 'go fuck yourself',
+      'fuck you', 'go fuck yourself', 'fuck off',
       'stfu', 'gtfo',
       'eat shit', 'piece of shit',
       'you are a bitch', 'youre a bitch', "you're a bitch",
       'you are an asshole', 'youre an asshole', "you're an asshole",
-      'dumbass', 'jackass', 'dickhead',
+      'you are dumbass', 'youre dumbass', "you're dumbass",
+      'you are jackass', 'youre jackass', "you're jackass",
+      'you are dickhead', 'youre dickhead', "you're dickhead",
       /\bf[\W_]*u[\W_]*c[\W_]*k[\W_]*(y[\W_]*o[\W_]*u)?\b/i,
       /\bs[\W_]*t[\W_]*f[\W_]*u\b/i,
       /\bg[\W_]*t[\W_]*f[\W_]*o\b/i,
@@ -73,7 +75,6 @@ const CATEGORIES = {
   sexual: {
     label: 'Explicit Sexual Content',
     patterns: [
-      'fuck you', 'go fuck yourself',
       'cock', 'c0ck', 'c@ck',
       'pussy', 'puss1', 'p@ssy',
       'cunt', 'c@nt', 'c0nt',
@@ -89,7 +90,7 @@ const CATEGORIES = {
       'nude', 'nudes', 'naked pics', 'naked pictures',
       'child porn', 'child pornography', 'loli', 'shota',
       'sex tape', 'leaked nudes',
-      /\bsex(y|ual|ting)?\b/i,
+      /\bsex(ual|ting)?\b/i,
       /\bnsfwb/i,
     ],
   },
@@ -108,6 +109,9 @@ const CATEGORIES = {
       'im going to murder', "i'm going to murder",
       'gonna stab', 'going to stab',
       'slit your throat',
+      'im going to leak your address',
+      'i know where your family lives',
+      'im going to dox you',
       /\b(d[o0]x|d[o0]xx)\b/i,
       /\b(swat(ting)?)\b/i,
       'mass shooting', 'school shooting',
@@ -138,8 +142,8 @@ const CATEGORIES = {
     patterns: [
       // These are checked via special logic in scanMessage, not string match
       // Placeholder entries make the category visible
-      /(.)\1{9,}/,            // 10+ repeated characters
-      /[A-Z]{15,}/,           // 15+ consecutive caps
+      /(.)\1{13,}/,            // 14+ repeated characters
+      /[A-Z]{25,}/,            // 25+ consecutive caps
     ],
   },
 
