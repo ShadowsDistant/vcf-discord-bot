@@ -33,7 +33,8 @@ const staffInfractionCommand = require('../commands/moderation/staffinfraction')
 const staffMessageCommand = require('../commands/moderation/staffmessage');
 const broadcastMessageCommand = require('../commands/moderation/broadcastmessage');
 const challenges = require('../utils/bakeryChallenges');
-const { sendModerationActionDm, sendReporterStatusDm } = require('../utils/moderationNotifications');
+const { sendModerationActionDm, sendReporterStatusDm, sendModLog, sendCommandLog } = require('../utils/moderationNotifications');
+const analytics = require('../utils/analytics');
 const { version: botVersion } = require('../../package.json');
 
 /** Commands whose `reason` option supports preset-reason autocomplete. */
@@ -67,6 +68,8 @@ const REPORT_ACTION_BY_CODE = Object.freeze(Object.fromEntries(
 ));
 const COMPONENT_EXPIRY_DEFAULT_MS = 10 * 60 * 1000;
 const COMPONENT_EXPIRY_LONG_MS = 30 * 60 * 1000;
+const REPORT_WARN_MODAL_PREFIX = 'report_warn_reason:';
+const REPORT_TIMEOUT_MODAL_PREFIX = 'report_timeout_config:';
 const MAX_PENDING_RENAME_SELECTIONS = 2_000;
 const MAX_GUIDE_VIEW_SELECTIONS = 5_000;
 const STAFF_MESSAGE_SELECTION_TTL_MS = 10 * 60 * 1000;
@@ -697,6 +700,46 @@ module.exports = {
             );
           return interaction.showModal(modal);
         }
+        if (action === 'warn_author') {
+          const modal = new ModalBuilder()
+            .setCustomId(`${REPORT_WARN_MODAL_PREFIX}${interaction.message.id}:${sourceChannelId}:${messageId}:${authorId}:${reporterId ?? ''}`)
+            .setTitle('Warn Author')
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId('reason')
+                  .setLabel('Reason for warning')
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setMaxLength(500),
+              ),
+            );
+          return interaction.showModal(modal);
+        }
+        if (action === 'timeout_author') {
+          const modal = new ModalBuilder()
+            .setCustomId(`${REPORT_TIMEOUT_MODAL_PREFIX}${interaction.message.id}:${sourceChannelId}:${messageId}:${authorId}:${reporterId ?? ''}`)
+            .setTitle('Timeout Author')
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId('reason')
+                  .setLabel('Reason for timeout')
+                  .setStyle(TextInputStyle.Paragraph)
+                  .setRequired(true)
+                  .setMaxLength(500),
+              ),
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId('duration')
+                  .setLabel('Duration (e.g. 1h, 30m, 1d — default 1h)')
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(false)
+                  .setMaxLength(20),
+              ),
+            );
+          return interaction.showModal(modal);
+        }
         await tryDeferReplyEphemeral(interaction);
         const targetChannel = await interaction.guild.channels.fetch(sourceChannelId).catch(() => null);
         if (!targetChannel || !targetChannel.isTextBased()) {
@@ -705,53 +748,20 @@ module.exports = {
           });
         }
         const targetMessage = await targetChannel.messages.fetch(messageId).catch(() => null);
-        const targetMember = await interaction.guild.members.fetch(authorId).catch(() => null);
         if (action === 'delete_message' && targetMessage) {
           await targetMessage.delete().catch(() => null);
+          await sendCommandLog({
+            guild: interaction.guild,
+            moderator: interaction.user,
+            action: 'Delete Message (Report)',
+            target: `<@${authorId}> in <#${sourceChannelId}>`,
+            details: `Message deleted from report queue.`,
+          });
           if (reporterId) {
             const reporter = await interaction.client.users.fetch(reporterId).catch(() => null);
             await sendReporterStatusDm({ user: reporter, guild: interaction.guild, status: 'action_taken' });
           }
           return interaction.editReply({ embeds: [embeds.success('Reported message deleted.', interaction.guild)] });
-        }
-        if (action === 'warn_author') {
-          const reportedContent = (targetMessage?.content ?? '(message unavailable)').slice(0, 700);
-          const reason = `Warning issued from report queue.\nReported content: ${reportedContent}`;
-          db.addWarning(interaction.guild.id, authorId, {
-            moderatorId: interaction.user.id,
-            reason,
-          });
-          if (targetMember?.user) {
-            await sendModerationActionDm({
-              user: targetMember.user,
-              guild: interaction.guild,
-              action: 'Warning',
-              reason,
-              moderatorTag: interaction.user.tag,
-            });
-          }
-          if (reporterId) {
-            const reporter = await interaction.client.users.fetch(reporterId).catch(() => null);
-            await sendReporterStatusDm({ user: reporter, guild: interaction.guild, status: 'action_taken' });
-          }
-          return interaction.editReply({ embeds: [embeds.success('Author warned.', interaction.guild)] });
-        }
-        if (action === 'timeout_author' && targetMember) {
-          const reason = 'Timeout issued from report queue.';
-          await sendModerationActionDm({
-            user: targetMember.user,
-            guild: interaction.guild,
-            action: 'Timeout',
-            reason,
-            moderatorTag: interaction.user.tag,
-            duration: '1 hour',
-          });
-          await targetMember.timeout(60 * 60_000, `${interaction.user.tag}: report action`).catch(() => null);
-          if (reporterId) {
-            const reporter = await interaction.client.users.fetch(reporterId).catch(() => null);
-            await sendReporterStatusDm({ user: reporter, guild: interaction.guild, status: 'action_taken' });
-          }
-          return interaction.editReply({ embeds: [embeds.success('Author timed out for 1 hour.', interaction.guild)] });
         }
       }
 
@@ -1473,7 +1483,7 @@ module.exports = {
 
         const reportEmbed = new EmbedBuilder()
           .setColor(0xed4245)
-          .setTitle('🚨 Message Report Submitted')
+          .setTitle('Message Report Submitted')
           .setDescription(`**Reported Content**\n${messageContent}`)
           .addFields(
             { name: 'Reason', value: reasonLabel, inline: true },
@@ -1493,7 +1503,6 @@ module.exports = {
         );
 
         await reportChannel.send({
-          content: `<@&${REPORTS_PING_ROLE_ID}>`,
           embeds: [reportEmbed],
           components: [actions],
         }).catch(() => null);
@@ -2777,7 +2786,7 @@ module.exports = {
 
         const reportEmbed = new EmbedBuilder()
           .setColor(0xed4245)
-          .setTitle('🚨 Message Report Submitted')
+          .setTitle('Message Report Submitted')
           .setDescription(`**Reported Content**\n${messageContent}`)
           .addFields(
             { name: 'Category', value: category.slice(0, 100), inline: true },
@@ -2798,7 +2807,6 @@ module.exports = {
         );
 
         await reportChannel.send({
-          content: `<@&${REPORTS_PING_ROLE_ID}>`,
           embeds: [reportEmbed],
           components: [actions],
         }).catch(() => null);
@@ -2853,6 +2861,167 @@ module.exports = {
           });
         }
         return;
+      }
+
+      if (interaction.customId.startsWith(REPORT_WARN_MODAL_PREFIX)) {
+        const suffix = interaction.customId.slice(REPORT_WARN_MODAL_PREFIX.length);
+        const [reportMessageId, sourceChannelId, messageId, authorId, reporterId = ''] = suffix.split(':');
+        const reason = interaction.fields.getTextInputValue('reason').trim();
+        if (!reason) {
+          return interaction.reply({
+            embeds: [embeds.error('A reason is required.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        await tryDeferReplyEphemeral(interaction);
+        const targetMember = await interaction.guild.members.fetch(authorId).catch(() => null);
+        const targetUser = targetMember?.user ?? await interaction.client.users.fetch(authorId).catch(() => null);
+        const targetChannel = await interaction.guild.channels.fetch(sourceChannelId).catch(() => null);
+        const targetMessage = targetChannel?.isTextBased()
+          ? await targetChannel.messages.fetch(messageId).catch(() => null)
+          : null;
+        const reportedContent = (targetMessage?.content ?? '(message unavailable)').slice(0, 300);
+        const fullReason = `${reason}\nReported content: ${reportedContent}`;
+        const warnings = db.addWarning(interaction.guild.id, authorId, {
+          moderatorId: interaction.user.id,
+          reason: fullReason,
+        });
+        if (targetUser) {
+          await sendModerationActionDm({
+            user: targetUser,
+            guild: interaction.guild,
+            action: 'Warning',
+            reason: fullReason,
+            moderatorTag: interaction.user.tag,
+          });
+        }
+        await sendModLog({
+          guild: interaction.guild,
+          target: targetUser,
+          moderator: interaction.user,
+          action: 'Warn',
+          reason: fullReason,
+          extra: `Total warnings: **${warnings.length}** • From report queue`,
+        });
+        await sendCommandLog({
+          guild: interaction.guild,
+          moderator: interaction.user,
+          action: 'Warn (Report)',
+          target: targetUser ? `${targetUser.tag} (${targetUser.id})` : authorId,
+          details: `Reason: ${fullReason} — Total warnings: ${warnings.length}`,
+        });
+        analytics.recordModAction(interaction.guild.id, 'warn', Date.now());
+        if (reportMessageId) {
+          const reportChannel = await interaction.guild.channels.fetch(REPORTS_CHANNEL_ID).catch(() => null);
+          const reportMessage = reportChannel?.isTextBased()
+            ? await reportChannel.messages.fetch(reportMessageId).catch(() => null)
+            : null;
+          if (reportMessage) {
+            const existingEmbed = reportMessage.embeds?.[0]
+              ? EmbedBuilder.from(reportMessage.embeds[0])
+              : null;
+            if (existingEmbed) {
+              existingEmbed.addFields({
+                name: 'Action Taken',
+                value: `⚠️ Warned by ${interaction.user} — ${reason}`,
+                inline: false,
+              });
+              await reportMessage.edit({ embeds: [existingEmbed], components: [] }).catch(() => null);
+            }
+          }
+        }
+        if (reporterId) {
+          const reporter = await interaction.client.users.fetch(reporterId).catch(() => null);
+          await sendReporterStatusDm({ user: reporter, guild: interaction.guild, status: 'action_taken' });
+        }
+        return interaction.editReply({ embeds: [embeds.success('Author warned and action logged.', interaction.guild)] });
+      }
+
+      if (interaction.customId.startsWith(REPORT_TIMEOUT_MODAL_PREFIX)) {
+        const suffix = interaction.customId.slice(REPORT_TIMEOUT_MODAL_PREFIX.length);
+        const [reportMessageId, sourceChannelId, messageId, authorId, reporterId = ''] = suffix.split(':');
+        const reason = interaction.fields.getTextInputValue('reason').trim();
+        if (!reason) {
+          return interaction.reply({
+            embeds: [embeds.error('A reason is required.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const durationRaw = interaction.fields.getTextInputValue('duration').trim().toLowerCase();
+        let durationMs = 60 * 60_000; // default 1 hour
+        let durationLabel = '1 hour';
+        if (durationRaw) {
+          const match = durationRaw.match(/^(\d+)\s*(m(?:in(?:utes?)?)?|h(?:ours?)?|d(?:ays?)?)$/i);
+          if (match) {
+            const amount = Number.parseInt(match[1], 10);
+            const unit = match[2][0].toLowerCase();
+            if (unit === 'm') { durationMs = amount * 60_000; durationLabel = `${amount} minute(s)`; }
+            else if (unit === 'h') { durationMs = amount * 60 * 60_000; durationLabel = `${amount} hour(s)`; }
+            else if (unit === 'd') { durationMs = amount * 24 * 60 * 60_000; durationLabel = `${amount} day(s)`; }
+          }
+        }
+        // Discord timeout max is 28 days
+        durationMs = Math.min(durationMs, 28 * 24 * 60 * 60_000);
+        await tryDeferReplyEphemeral(interaction);
+        const targetMember = await interaction.guild.members.fetch(authorId).catch(() => null);
+        const targetUser = targetMember?.user ?? await interaction.client.users.fetch(authorId).catch(() => null);
+        const targetChannel = await interaction.guild.channels.fetch(sourceChannelId).catch(() => null);
+        const targetMessage = targetChannel?.isTextBased()
+          ? await targetChannel.messages.fetch(messageId).catch(() => null)
+          : null;
+        const reportedContent = (targetMessage?.content ?? '(message unavailable)').slice(0, 300);
+        const fullReason = `${reason}\nReported content: ${reportedContent}`;
+        if (targetMember) {
+          await sendModerationActionDm({
+            user: targetMember.user,
+            guild: interaction.guild,
+            action: 'Timeout',
+            reason: fullReason,
+            moderatorTag: interaction.user.tag,
+            duration: durationLabel,
+          });
+          await targetMember.timeout(durationMs, `${interaction.user.tag}: ${reason}`).catch(() => null);
+        }
+        await sendModLog({
+          guild: interaction.guild,
+          target: targetUser,
+          moderator: interaction.user,
+          action: 'Timeout',
+          reason: fullReason,
+          extra: `Duration: **${durationLabel}** • From report queue`,
+        });
+        await sendCommandLog({
+          guild: interaction.guild,
+          moderator: interaction.user,
+          action: 'Timeout (Report)',
+          target: targetUser ? `${targetUser.tag} (${targetUser.id})` : authorId,
+          details: `Duration: ${durationLabel} — Reason: ${fullReason}`,
+        });
+        analytics.recordModAction(interaction.guild.id, 'timeout', Date.now());
+        if (reportMessageId) {
+          const reportChannel = await interaction.guild.channels.fetch(REPORTS_CHANNEL_ID).catch(() => null);
+          const reportMessage = reportChannel?.isTextBased()
+            ? await reportChannel.messages.fetch(reportMessageId).catch(() => null)
+            : null;
+          if (reportMessage) {
+            const existingEmbed = reportMessage.embeds?.[0]
+              ? EmbedBuilder.from(reportMessage.embeds[0])
+              : null;
+            if (existingEmbed) {
+              existingEmbed.addFields({
+                name: 'Action Taken',
+                value: `⏳ Timed out ${durationLabel} by ${interaction.user} — ${reason}`,
+                inline: false,
+              });
+              await reportMessage.edit({ embeds: [existingEmbed], components: [] }).catch(() => null);
+            }
+          }
+        }
+        if (reporterId) {
+          const reporter = await interaction.client.users.fetch(reporterId).catch(() => null);
+          await sendReporterStatusDm({ user: reporter, guild: interaction.guild, status: 'action_taken' });
+        }
+        return interaction.editReply({ embeds: [embeds.success(`Author timed out for ${durationLabel} and action logged.`, interaction.guild)] });
       }
 
       if (interaction.customId === 'bakery_modal_name') {

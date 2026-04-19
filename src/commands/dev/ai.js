@@ -237,11 +237,8 @@ Guidelines:
 
 - Do NOT set title to your own name; title must always be a contextual heading (e.g., "Server Overview", "Search Results", "Role List").
 - Leave author_name null unless a specific author label is necessary.
-- When reasoning through a problem, include only important reasoning as Discord blockquotes before the main response, then one blank line (max 3 short lines):
-  > Important thinking line 1
-  > Important thinking line 2
-
-  Actual response starts here.
+- Do NOT include reasoning steps, internal monologue, or thinking in the description or any field. Respond directly with the answer.
+- Do NOT include a footer value; always set footer to null.
 - Use color consistently: red (#ed4245) for errors/danger/destructive results, green (#57f287) for success, blue (#5865f2) for informational/neutral, yellow (#fee75c) for warnings, null for default grey.
 - Text limits: description <= 4096, field.name <= 256, field.value <= 1024, max 25 fields, footer <= 2048.
 - Use Discord markdown in description and field values (**bold**, *italic*, \`code\`, \\n for line breaks).
@@ -255,7 +252,7 @@ Tool Usage:
 - Never present unverified server-specific facts as certain; if tool data is missing/unavailable, explicitly say you don't know.
 - If a tool errors, report it clearly and do not retry with identical args.
 - You may call multiple tools in one turn when needed; synthesize results into one cohesive response and note discrepancies if results conflict.
-- Use query_valley_mcp_docs only for direct MCP documentation requests; do not use it for server/alliance/member data.
+- Use query_valley_mcp_docs for questions about server rules, community guidelines, faction information, or any VCF documentation. Do not use it for live server/member data (use Discord tools for that).
 - Use convince only when the user is explicitly asking to be granted cookies and is genuinely trying to convince you.
 - Never call convince for plain asks like "I want cookies". First collect a persuasive reason from the user, then pass that reason in convince.argument.
 - For moderation requests with incomplete names (e.g. "warn somoto"), use member search tools first; if multiple matches are plausible, present a select menu of candidates or ask the user to confirm the top match before taking action.
@@ -1155,7 +1152,7 @@ const TOOL_SCHEMAS = [
     type: 'function',
     function: {
       name: 'query_valley_mcp_docs',
-      description: 'Lookup Valley Correctional MCP docs from https://docs.valleycorrectional.xyz/mcp.',
+      description: 'Look up Valley Correctional documentation including server rules, community guidelines, faction info, and other VCF docs.',
       parameters: {
         type: 'object',
         properties: {
@@ -1445,6 +1442,16 @@ function parseSafetyOutput(text) {
 function isHarmfulLabel(value) {
   const normalized = String(value ?? '').trim().toLowerCase();
   return normalized === 'harmful' || normalized === 'unsafe';
+}
+
+/**
+ * Check if a severity value is medium or higher.
+ * @param {string} value
+ * @returns {boolean}
+ */
+function isMediumOrHigherSeverity(value) {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return normalized === 'medium' || normalized === 'high' || normalized === 'critical' || normalized === 'severe';
 }
 
 /**
@@ -3182,6 +3189,24 @@ function trimConversationHistory(messages) {
 }
 
 /**
+ * Strip leading blockquote monologue lines from a description string.
+ * Removes lines starting with "> " at the beginning of the text that look like
+ * internal reasoning or step-by-step actions.
+ * @param {string} text
+ * @returns {string}
+ */
+function stripLeadingBlockquoteMonologue(text) {
+  if (typeof text !== 'string') return text;
+  // Remove leading lines that are blockquotes (> ...) followed by actual content
+  const lines = text.split('\n');
+  let firstNonQuote = lines.findIndex((line) => !line.trimStart().startsWith('>'));
+  if (firstNonQuote <= 0) return text;
+  // Only strip if the non-quote content is non-empty
+  const rest = lines.slice(firstNonQuote).join('\n').trimStart();
+  return rest || text;
+}
+
+/**
  * Parse AI output JSON and apply defaults/sanitization.
  * @param {string} rawContent
  * @returns {object}
@@ -3214,7 +3239,7 @@ function parseAiOutput(rawContent) {
     && (normalizedAuthorName ? normalizedTitle !== normalizedAuthorName : true),
   );
   const title = isTitleValid ? rawTitle : null;
-  const description = stripCodeMarkup(stripThinkBlocks(String(data.description ?? NO_RESPONSE_TEXT)));
+  const description = stripLeadingBlockquoteMonologue(stripCodeMarkup(stripThinkBlocks(String(data.description ?? NO_RESPONSE_TEXT))));
   const fields = [];
   if (Array.isArray(data.fields)) {
     for (const f of data.fields) {
@@ -3281,10 +3306,9 @@ function buildFinalOutput(rawContent, options = {}) {
     if (parsed.authorName) {
       embed.setAuthor({ name: parsed.authorName, iconURL: parsed.authorIconUrl });
     }
-    if (parsed.footerText || chunks.length > 1 || runtimeFooter) {
-      const base = parsed.footerText ? `${parsed.footerText}` : '';
+    if (chunks.length > 1 || runtimeFooter) {
       const page = chunks.length > 1 ? `Page ${index + 1}/${chunks.length}` : '';
-      const footer = truncate([base, runtimeFooter, page].filter(Boolean).join(' • '), FOOTER_MAX);
+      const footer = truncate([runtimeFooter, page].filter(Boolean).join(' • '), FOOTER_MAX);
       embed.setFooter({ text: footer });
     }
     if (parsed.thumbnailUrl) {
@@ -3680,10 +3704,6 @@ function buildFinalComponents(session) {
       .setCustomId(AI_TOGGLE_THINKING_BUTTON_ID)
       .setStyle(ButtonStyle.Secondary)
       .setLabel('View Thinking'),
-    new ButtonBuilder()
-      .setCustomId(AI_CUSTOM_INSTRUCTIONS_BUTTON_ID)
-      .setStyle(ButtonStyle.Secondary)
-      .setLabel(session.customInstructions ? 'Edit Instructions' : 'Add Instructions'),
   );
   rows.push(controls);
 
@@ -3730,15 +3750,22 @@ function buildFinalComponents(session) {
   if (mode === 'review' && rows.length < 5 && canToggleAiSafety(session.allowedUserId)) {
     rows.push(buildSafetySelectRow(session.safetyEnabled));
   }
-  if (mode === 'review' && rows.length < 5 && session.customInstructions) {
-    rows.push(
-      new ActionRowBuilder().addComponents(
+  if (mode === 'review' && rows.length < 5) {
+    const instructionsRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(AI_CUSTOM_INSTRUCTIONS_BUTTON_ID)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel(session.customInstructions ? 'Edit Instructions' : 'Add Instructions'),
+    );
+    if (session.customInstructions) {
+      instructionsRow.addComponents(
         new ButtonBuilder()
           .setCustomId(AI_CLEAR_CUSTOM_INSTRUCTIONS_BUTTON_ID)
           .setStyle(ButtonStyle.Danger)
           .setLabel('Clear Instructions'),
-      ),
-    );
+      );
+    }
+    rows.push(instructionsRow);
   }
 
   if (mode === 'output' && Array.isArray(turn.uiRows)) {
@@ -4646,7 +4673,11 @@ async function sendAiInteractionLog(
   const logChannel = await fetchLogChannel(interaction.guild, 'aiLog').catch(() => null);
   if (!logChannel) return;
 
-  const color = blocked ? 0xed4245 : 0x57f287;
+  const promptSeverity = safetyDetails?.prompt?.severity ?? '';
+  const responseSeverity = safetyDetails?.response?.severity ?? '';
+  const hasMediumPlusSeverity = isMediumOrHigherSeverity(promptSeverity) || isMediumOrHigherSeverity(responseSeverity);
+  const isRed = blocked || hasMediumPlusSeverity;
+  const color = isRed ? 0xed4245 : 0x57f287;
   const responseText = typeof response === 'string' ? response : '';
   let parsedTitle = null;
   let parsedDesc = null;
@@ -4671,7 +4702,7 @@ async function sendAiInteractionLog(
 
   const embed = new EmbedBuilder()
     .setColor(color)
-    .setTitle(blocked ? '🛡️ AI Interaction — Blocked' : 'AI Interaction')
+    .setTitle(blocked ? '🛡️ AI Interaction — Blocked' : hasMediumPlusSeverity ? '⚠️ AI Interaction — Elevated Severity' : 'AI Interaction')
     .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
     .addFields(baseFields)
     .setTimestamp();

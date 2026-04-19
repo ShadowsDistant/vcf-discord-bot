@@ -168,7 +168,9 @@ module.exports = {
   async execute(message) {
     // Ignore bots and DMs
     if (message.author.bot || !message.guild) return;
-    analytics.recordMessage(message.guild.id, message.channel.id, Date.now());
+    const now = Date.now();
+    analytics.recordMessage(message.guild.id, message.channel.id, now);
+    analytics.recordUserMessage(message.guild.id, message.author.id, message.channel.id, now);
 
     // Handle counting channel
     if (message.channel.id === COUNTING_CHANNEL_ID) {
