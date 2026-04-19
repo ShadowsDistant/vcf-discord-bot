@@ -65,6 +65,11 @@ const AUDIENCE_OPTIONS = [
     value: 'role:all_staff',
     description: 'All staff members across all departments.',
   },
+  {
+    label: '🤖 VAI Access',
+    value: 'role:vai_access',
+    description: 'Users with the VAI Access role (1493414609678499890).',
+  },
 ];
 
 module.exports = {
