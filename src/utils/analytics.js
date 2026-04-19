@@ -100,7 +100,6 @@ function recordModAction(guildId, action, ts = Date.now()) {
   db.update(ANALYTICS_FILE, {}, (data) => {
     const guildStore = getGuildStore(data, guildId);
     const day = getDayStore(guildStore, toDayKey(ts));
-    if (!day.modActions.timeout) day.modActions.timeout = 0;
     day.modActions[action] = (day.modActions[action] ?? 0) + 1;
     pruneOldDays(guildStore);
   });

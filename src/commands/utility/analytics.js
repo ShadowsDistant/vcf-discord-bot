@@ -27,6 +27,13 @@ function formatShare(part, total) {
   return ((part / total) * 100).toFixed(1);
 }
 
+function formatHourRange(hour) {
+  const h = Number(hour);
+  const start = String(h).padStart(2, '0');
+  const end = String((h + 1) % 24).padStart(2, '0');
+  return `${start}:00–${end}:00 UTC`;
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('analytics')
@@ -73,11 +80,11 @@ module.exports = {
         : 'No data recorded.';
 
       const peakHour = userActivity.peakHour
-        ? `**${userActivity.peakHour.hour}:00–${String((Number(userActivity.peakHour.hour) + 1) % 24).padStart(2, '0')}:00 UTC** (${userActivity.peakHour.count.toLocaleString()} msgs)`
+        ? `**${formatHourRange(userActivity.peakHour.hour)}** (${userActivity.peakHour.count.toLocaleString()} msgs)`
         : 'No data recorded.';
 
       const busyHours = userActivity.busyHours.length
-        ? userActivity.busyHours.map((entry, idx) => `${idx + 1}. **${entry.hour}:00 UTC** — ${entry.count.toLocaleString()} msgs`).join('\n')
+        ? userActivity.busyHours.map((entry, idx) => `${idx + 1}. **${formatHourRange(entry.hour)}** — ${entry.count.toLocaleString()} msgs`).join('\n')
         : 'No data recorded.';
 
       const embed = new EmbedBuilder()
