@@ -34,6 +34,11 @@ const ACTION_LABELS = {
   suspended: 'Suspension',
   terminate: 'Termination',
 };
+const ACTION_LABELS_BY_SEVERITY = {
+  minor: ACTION_LABELS.warn,
+  moderate: ACTION_LABELS.suspended,
+  severe: ACTION_LABELS.terminate,
+};
 
 function parseMentionUserId(value) {
   const raw = String(value ?? '').trim();
@@ -239,7 +244,7 @@ async function handleIssue(interaction, actionType) {
     issuedById: interaction.user.id,
     reason,
     severity: actionType === 'warn' ? 'minor' : actionType === 'suspended' ? 'moderate' : 'severe',
-    action: details,
+    action: details ? `${actionLabel} — ${details}` : actionLabel,
   });
 
   const color = ACTION_COLORS[actionType] ?? 0xfee75c;
@@ -306,7 +311,8 @@ async function handleView(interaction) {
 
   const fieldLines = infractions.map((inf, idx) => {
     const ts = `<t:${Math.floor(new Date(inf.timestamp).getTime() / 1000)}:D>`;
-    const actionLine = inf.action ? `\nAction: ${inf.action}` : '';
+    const expectedDefaultAction = ACTION_LABELS_BY_SEVERITY[inf.severity] ?? null;
+    const actionLine = inf.action && inf.action !== expectedDefaultAction ? `\nAction: ${inf.action}` : '';
     return `**#${idx + 1}** — \`${inf.severity}\` — ID: \`${inf.id}\`\nReason: ${inf.reason}${actionLine}\nDate: ${ts} — Issued by <@${inf.issuedById}>`;
   });
 

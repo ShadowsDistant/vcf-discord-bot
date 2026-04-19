@@ -352,7 +352,6 @@ async function runEnd(interaction) {
     { name: 'Started', value: `<t:${startedTs}:T>`, inline: true },
     { name: 'Ended', value: `<t:${endedTs}:T>`, inline: true },
   ]);
-  return undefined;
 }
 
 async function runStatus(interaction, target) {
@@ -645,7 +644,6 @@ async function runManageEdit(interaction) {
     { name: 'Target', value: `<@${updated.userId}>`, inline: true },
     { name: 'New Duration', value: formatDuration(minutes * 60_000), inline: true },
   ]);
-  return undefined;
 }
 
 async function runManageDelete(interaction) {
@@ -676,7 +674,6 @@ async function runManageDelete(interaction) {
     { name: 'Target', value: `<@${removed.userId}>`, inline: true },
     { name: 'Duration', value: formatDuration(removed.durationMs), inline: true },
   ]);
-  return undefined;
 }
 
 module.exports = {
