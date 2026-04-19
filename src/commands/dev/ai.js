@@ -4474,7 +4474,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
     },
   });
 
-  async function runFollowUpTurn(status, usagePolicy) {
+  async function runFollowUpTurn(status, validatedUsagePolicy) {
     session.busy = true;
     refreshSessionSystemPrompt(session);
     await replyMsg.edit({ embeds: [buildProcessingEmbed(status)], components: [] }).catch(() => null);
@@ -4501,7 +4501,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
         pageIndex: 0,
         viewMode: 'output',
       });
-      consumeUsageAndDecorateReview(result.reviewEmbed, usagePolicy, interaction.user.id);
+      consumeUsageAndDecorateReview(result.reviewEmbed, validatedUsagePolicy, interaction.user.id);
       session.turnIndex = session.turns.length - 1;
       // Log follow-up AI interaction if safety is enabled
       if (session.safetyEnabled !== false) {
@@ -4969,7 +4969,8 @@ async function sendAiInteractionLog(
     for (const [fingerprint, seenAt] of RECENT_AI_LOG_KEYS) {
       if (seenAt < cutoff) RECENT_AI_LOG_KEYS.delete(fingerprint);
     }
-    while (RECENT_AI_LOG_KEYS.size > AI_LOG_DEDUPE_CACHE_MAX) {
+    const overflow = RECENT_AI_LOG_KEYS.size - AI_LOG_DEDUPE_CACHE_MAX;
+    for (let i = 0; i < overflow; i++) {
       const oldestKey = RECENT_AI_LOG_KEYS.keys().next().value;
       if (!oldestKey) break;
       RECENT_AI_LOG_KEYS.delete(oldestKey);
