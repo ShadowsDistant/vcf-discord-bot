@@ -15,6 +15,8 @@ const LOG_CHANNEL_IDS = {
   commandLog: '1494889843887706172',
   /** AI interaction logs */
   aiLog: '1494887958543597668',
+  /** Shift action logs */
+  shiftLog: '1420950428446752849',
 };
 
 async function fetchLogChannel(guild, key) {

@@ -14,6 +14,7 @@ const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 const { formatDuration, makeProgressBar } = require('../../utils/helpers');
 const { PALETTE } = require('../../utils/embeds');
+const { fetchLogChannel } = require('../../utils/logChannels');
 const {
   hasShiftAccessRole,
   ROLE_IDS,
@@ -246,6 +247,24 @@ function buildModal(action) {
   return null;
 }
 
+async function sendShiftActionLog(interaction, title, fields = []) {
+  const channel = await fetchLogChannel(interaction.guild, 'shiftLog');
+  if (!channel) return;
+  const embed = new EmbedBuilder()
+    .setColor(PALETTE.shift)
+    .setTitle(title)
+    .addFields(
+      { name: 'Staff Member', value: `${interaction.user} (\`${interaction.user.tag}\`)`, inline: true },
+      ...fields,
+    )
+    .setTimestamp()
+    .setFooter({
+      text: interaction.guild.name,
+      iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined,
+    });
+  await channel.send({ embeds: [embed] }).catch(() => null);
+}
+
 async function runStart(interaction) {
   const config = db.getConfig(interaction.guild.id);
   const result = db.startShift(interaction.guild.id, interaction.user.id, interaction.user.tag);
@@ -271,6 +290,10 @@ async function runStart(interaction) {
     );
 
   await interaction.reply({ embeds: [shiftEmbed], flags: MessageFlags.Ephemeral });
+
+  await sendShiftActionLog(interaction, '🟢 Shift Started', [
+    { name: 'Started At', value: `<t:${startedTs}:T> (<t:${startedTs}:R>)`, inline: true },
+  ]);
 
   if (config.shiftDmsEnabled !== false) {
     const dmEmbed = new EmbedBuilder()
@@ -323,7 +346,12 @@ async function runEnd(interaction) {
     });
   }
 
-  return interaction.reply({ embeds: [shiftEmbed], flags: MessageFlags.Ephemeral });
+  await interaction.reply({ embeds: [shiftEmbed], flags: MessageFlags.Ephemeral });
+  await sendShiftActionLog(interaction, '🔴 Shift Ended', [
+    { name: 'Duration', value: formatDuration(record.durationMs), inline: true },
+    { name: 'Started', value: `<t:${startedTs}:T>`, inline: true },
+    { name: 'Ended', value: `<t:${endedTs}:T>`, inline: true },
+  ]);
 }
 
 async function runStatus(interaction, target) {
@@ -606,10 +634,16 @@ async function runManageEdit(interaction) {
     });
   }
 
-  return interaction.reply({
+  await interaction.reply({
     embeds: [embeds.success(`Shift record \`${id}\` updated to **${minutes} minutes**.`, interaction.guild)],
     flags: MessageFlags.Ephemeral,
   });
+
+  await sendShiftActionLog(interaction, '✏️ Shift Record Updated', [
+    { name: 'Record ID', value: `\`${id}\``, inline: true },
+    { name: 'Target', value: `<@${updated.userId}>`, inline: true },
+    { name: 'New Duration', value: formatDuration(minutes * 60_000), inline: true },
+  ]);
 }
 
 async function runManageDelete(interaction) {
@@ -631,10 +665,15 @@ async function runManageDelete(interaction) {
     });
   }
 
-  return interaction.reply({
+  await interaction.reply({
     embeds: [embeds.success(`Shift record \`${id}\` has been deleted.`, interaction.guild)],
     flags: MessageFlags.Ephemeral,
   });
+  await sendShiftActionLog(interaction, '🗑️ Shift Record Deleted', [
+    { name: 'Record ID', value: `\`${id}\``, inline: true },
+    { name: 'Target', value: `<@${removed.userId}>`, inline: true },
+    { name: 'Duration', value: formatDuration(removed.durationMs), inline: true },
+  ]);
 }
 
 module.exports = {
