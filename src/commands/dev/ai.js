@@ -4948,6 +4948,8 @@ async function sendAiInteractionLog(
     toolsUsed,
   } = {},
 ) {
+  const promptForFingerprint = truncate(String(prompt ?? ''), 4000);
+  const responseForFingerprint = truncate(String(response ?? ''), 4000);
   const logFingerprint = createHash('sha1')
     .update([
       String(interaction.guildId ?? ''),
@@ -4956,8 +4958,8 @@ async function sendAiInteractionLog(
       String(aiMessageId ?? ''),
       String(blocked ? 1 : 0),
       String(safetyRating ?? ''),
-      String(prompt ?? ''),
-      String(response ?? ''),
+      promptForFingerprint,
+      responseForFingerprint,
     ].join('|'))
     .digest('hex');
   const now = Date.now();
@@ -4970,8 +4972,9 @@ async function sendAiInteractionLog(
       if (seenAt < cutoff) RECENT_AI_LOG_KEYS.delete(fingerprint);
     }
     const overflow = RECENT_AI_LOG_KEYS.size - AI_LOG_DEDUPE_CACHE_MAX;
+    const keyIterator = RECENT_AI_LOG_KEYS.keys();
     for (let i = 0; i < overflow; i++) {
-      const oldestKey = RECENT_AI_LOG_KEYS.keys().next().value;
+      const oldestKey = keyIterator.next().value;
       if (!oldestKey) break;
       RECENT_AI_LOG_KEYS.delete(oldestKey);
     }
