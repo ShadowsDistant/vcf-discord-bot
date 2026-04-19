@@ -16,6 +16,7 @@ const {
   UserSelectMenuBuilder,
 } = require('discord.js');
 const OpenAI = require('openai');
+const { createHash } = require('node:crypto');
 const {
   canUseDevCommand,
   MODERATION_ROLE_IDS,
@@ -136,8 +137,11 @@ const AI_BASE_LIMIT_ELEVATED = 30;
 const AI_ELEVATED_LIMIT_ROLE_ID = '1428427384495018115';
 const AI_UNLIMITED_ROLE_IDS = new Set(['1470915374441693376', '1379199481886802061']);
 const AI_LOG_CHANNEL_KEY = 'aiLog';
+const AI_LOG_DEDUPE_WINDOW_MS = 30_000;
+const AI_LOG_DEDUPE_CACHE_MAX = 500;
 const MODEL_NVIDIA_EMOJI_ID = '1493406682666231900';
 let AI_USER_SETTINGS_LOADED = false;
+const RECENT_AI_LOG_KEYS = new Map();
 const ESCAPED_CODE_FENCE = '``\\`';
 const AI_MODELS = Object.freeze([
   {
@@ -1695,6 +1699,56 @@ function renderUsageBar(used, limit) {
   const pct = limit <= 0 ? 100 : Math.min(100, Math.round((used / limit) * 100));
   const filled = Math.max(0, Math.min(10, Math.round((pct / 100) * 10)));
   return `${'█'.repeat(filled)}${'░'.repeat(10 - filled)} ${pct}% (${used}/${limit})`;
+}
+
+function buildUsageLimitReachedEmbed(usageSnapshot, usagePolicy) {
+  const resetAt = new Date(usageSnapshot.bucketStart + AI_USAGE_WINDOW_MS);
+  return new EmbedBuilder()
+    .setColor(0xed4245)
+    .setTitle('AI Usage Limit Reached')
+    .setDescription(`You have used **${usageSnapshot.used}/${usagePolicy.limit}** AI requests in this 6-hour window.\nResets <t:${Math.floor(resetAt.getTime() / 1000)}:R>.`)
+    .setTimestamp();
+}
+
+function upsertUsageField(reviewEmbed, usageSnapshot, usagePolicy) {
+  if (!reviewEmbed || typeof reviewEmbed.toJSON !== 'function') return;
+  const usageValue = renderUsageBar(usageSnapshot.used, usagePolicy.limit);
+  const fields = reviewEmbed.toJSON()?.fields;
+  if (!Array.isArray(fields)) return;
+  const usageField = { name: 'Usage', value: usageValue, inline: false };
+  const existingIndex = fields.findIndex((field) => field?.name === 'Usage');
+  if (existingIndex >= 0 && typeof reviewEmbed.spliceFields === 'function') {
+    reviewEmbed.spliceFields(existingIndex, 1, usageField);
+    return;
+  }
+  if (typeof reviewEmbed.addFields === 'function') {
+    reviewEmbed.addFields(usageField);
+  }
+}
+
+async function ensureUsageAllowed(interactionLike, member) {
+  const usagePolicy = getUsageLimitForMember(member ?? interactionLike.member);
+  const usageSnapshot = getUsageForUser(interactionLike.user.id, Date.now());
+  if (usagePolicy.limit != null && usageSnapshot.used >= usagePolicy.limit) {
+    const payload = {
+      embeds: [buildUsageLimitReachedEmbed(usageSnapshot, usagePolicy)],
+      flags: MessageFlags.Ephemeral,
+    };
+    if (interactionLike.deferred || interactionLike.replied) {
+      await interactionLike.followUp(payload).catch(() => null);
+    } else {
+      await interactionLike.reply(payload).catch(() => null);
+    }
+    return null;
+  }
+  return usagePolicy;
+}
+
+function consumeUsageAndDecorateReview(reviewEmbed, usagePolicy, userId) {
+  incrementUsageForUser(userId, Date.now());
+  const usageAfter = getUsageForUser(userId, Date.now());
+  upsertUsageField(reviewEmbed, usageAfter, usagePolicy);
+  return usageAfter;
 }
 
 function getModelConfig(modelKey) {
@@ -3723,28 +3777,36 @@ function buildReviewEmbed(stats, toolsUsed, settings, usageInfo = null) {
   const modelConfig = getModelConfig(settings?.modelKey);
   const personaConfig = getPersonaConfig(settings?.personaKey);
   const toolLines = formatToolsUsedLines(toolsUsed);
+  const fields = [
+    { name: 'Runtime Model', value: modelConfig.model, inline: false },
+    { name: 'Model Preset', value: modelConfig.label, inline: true },
+    { name: 'Persona', value: personaConfig.label, inline: true },
+    { name: 'Thinking Delivery', value: 'Hidden (ephemeral)', inline: true },
+    { name: 'Custom Instructions', value: settings?.customInstructions ? 'Configured' : 'Not set', inline: true },
+    { name: 'Safety Guardrails', value: settings?.safetyEnabled === false ? 'Disabled' : 'Enabled', inline: true },
+    { name: 'Can Use Moderation Tools', value: settings?.toolPermissions?.canUseModerationTools ? 'Yes' : 'No', inline: true },
+    { name: 'Can Use Management Tools', value: settings?.toolPermissions?.canUseManagementTools ? 'Yes' : 'No', inline: true },
+    { name: 'Can Use Dev Tools', value: settings?.toolPermissions?.canUseDevTools ? 'Yes' : 'No', inline: true },
+    { name: 'TTFT', value: stats.ttftMs != null ? `${stats.ttftMs} ms` : 'N/A', inline: true },
+    { name: 'Total Time', value: `${stats.totalMs} ms`, inline: true },
+    { name: 'Iterations', value: String(stats.iterations), inline: true },
+    { name: 'Prompt Tokens', value: stats.promptTokens != null ? String(stats.promptTokens) : 'N/A', inline: true },
+    { name: 'Completion Tokens', value: stats.completionTokens != null ? String(stats.completionTokens) : 'N/A', inline: true },
+    { name: 'Tools Used', value: truncate(toolLines, FIELD_VALUE_MAX), inline: false },
+  ];
+  if (usageInfo?.usageSnapshot && usageInfo?.usagePolicy) {
+    fields.push({
+      name: 'Usage',
+      value: renderUsageBar(usageInfo.usageSnapshot.used, usageInfo.usagePolicy.limit),
+      inline: false,
+    });
+  }
 
   return new EmbedBuilder()
     .setColor(0x5865f2)
     .setTitle('🧾 AI Review')
     .setDescription('Diagnostics for this AI response.')
-    .addFields(
-      { name: 'Runtime Model', value: modelConfig.model, inline: false },
-      { name: 'Model Preset', value: modelConfig.label, inline: true },
-      { name: 'Persona', value: personaConfig.label, inline: true },
-      { name: 'Thinking Delivery', value: 'Hidden (ephemeral)', inline: true },
-      { name: 'Custom Instructions', value: settings?.customInstructions ? 'Configured' : 'Not set', inline: true },
-      { name: 'Safety Guardrails', value: settings?.safetyEnabled === false ? 'Disabled' : 'Enabled', inline: true },
-      { name: 'Can Use Moderation Tools', value: settings?.toolPermissions?.canUseModerationTools ? 'Yes' : 'No', inline: true },
-      { name: 'Can Use Management Tools', value: settings?.toolPermissions?.canUseManagementTools ? 'Yes' : 'No', inline: true },
-      { name: 'Can Use Dev Tools', value: settings?.toolPermissions?.canUseDevTools ? 'Yes' : 'No', inline: true },
-      { name: 'TTFT', value: stats.ttftMs != null ? `${stats.ttftMs} ms` : 'N/A', inline: true },
-      { name: 'Total Time', value: `${stats.totalMs} ms`, inline: true },
-      { name: 'Iterations', value: String(stats.iterations), inline: true },
-      { name: 'Prompt Tokens', value: stats.promptTokens != null ? String(stats.promptTokens) : 'N/A', inline: true },
-      { name: 'Completion Tokens', value: stats.completionTokens != null ? String(stats.completionTokens) : 'N/A', inline: true },
-      { name: 'Tools Used', value: truncate(toolLines, FIELD_VALUE_MAX), inline: false },
-    )
+    .addFields(fields)
     .setTimestamp();
 }
 
@@ -4412,7 +4474,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
     },
   });
 
-  async function runFollowUpTurn(status) {
+  async function runFollowUpTurn(status, validatedUsagePolicy) {
     session.busy = true;
     refreshSessionSystemPrompt(session);
     await replyMsg.edit({ embeds: [buildProcessingEmbed(status)], components: [] }).catch(() => null);
@@ -4439,6 +4501,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
         pageIndex: 0,
         viewMode: 'output',
       });
+      consumeUsageAndDecorateReview(result.reviewEmbed, validatedUsagePolicy, interaction.user.id);
       session.turnIndex = session.turns.length - 1;
       // Log follow-up AI interaction if safety is enabled
       if (session.safetyEnabled !== false) {
@@ -4716,6 +4779,8 @@ function attachReviewHandler(replyMsg, interaction, session) {
         await modalSubmit.reply({ content: 'Prompt cannot be empty.', flags: MessageFlags.Ephemeral }).catch(() => null);
         return;
       }
+      const usagePolicy = await ensureUsageAllowed(modalSubmit, modalSubmit.member);
+      if (!usagePolicy) return;
 
       session.busy = true;
       await modalSubmit.deferUpdate().catch(() => null);
@@ -4746,6 +4811,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
           pageIndex: 0,
           viewMode: 'output',
         });
+        consumeUsageAndDecorateReview(result.reviewEmbed, usagePolicy, interaction.user.id);
         session.turnIndex = session.turns.length - 1;
         // Log follow-up AI interaction if safety is enabled
         if (session.safetyEnabled !== false) {
@@ -4782,9 +4848,11 @@ function attachReviewHandler(replyMsg, interaction, session) {
       const uiState = turn.uiState ?? { buttons: {}, selects: {}, modals: {} };
       const button = uiState.buttons[i.customId];
       if (!button) return i.reply({ content: 'Button configuration is unavailable.', flags: MessageFlags.Ephemeral }).catch(() => null);
+      const usagePolicy = await ensureUsageAllowed(i, i.member);
+      if (!usagePolicy) return;
       session.messages.push({ role: 'user', content: `UI button clicked: ${button.id}` });
       await i.deferUpdate().catch(() => null);
-      await runFollowUpTurn(`Processing button \`${button.id}\`…`);
+      await runFollowUpTurn(`Processing button \`${button.id}\`…`, usagePolicy);
       return;
     }
 
@@ -4793,10 +4861,12 @@ function attachReviewHandler(replyMsg, interaction, session) {
       const uiState = turn.uiState ?? { buttons: {}, selects: {}, modals: {} };
       const select = uiState.selects[i.customId];
       if (!select) return i.reply({ content: 'Select menu configuration is unavailable.', flags: MessageFlags.Ephemeral }).catch(() => null);
+      const usagePolicy = await ensureUsageAllowed(i, i.member);
+      if (!usagePolicy) return;
       const values = i.values?.join(', ') || 'none';
       session.messages.push({ role: 'user', content: `UI select used: ${select.id} -> ${values}` });
       await i.deferUpdate().catch(() => null);
-      await runFollowUpTurn(`Processing selection \`${select.id}\`…`);
+      await runFollowUpTurn(`Processing selection \`${select.id}\`…`, usagePolicy);
       return;
     }
 
@@ -4833,9 +4903,11 @@ function attachReviewHandler(replyMsg, interaction, session) {
         return;
       }
       const collected = modalDef.fields.map((field) => `${field.id}: ${modalSubmit.fields.getTextInputValue(field.id)}`);
+      const usagePolicy = await ensureUsageAllowed(modalSubmit, modalSubmit.member);
+      if (!usagePolicy) return;
       session.messages.push({ role: 'user', content: `UI modal submitted: ${modalDef.id} -> ${collected.join(' | ')}` });
       await modalSubmit.deferUpdate().catch(() => null);
-      await runFollowUpTurn(`Processing modal \`${modalDef.id}\`…`);
+      await runFollowUpTurn(`Processing modal \`${modalDef.id}\`…`, usagePolicy);
     }
   });
 
@@ -4876,6 +4948,38 @@ async function sendAiInteractionLog(
     toolsUsed,
   } = {},
 ) {
+  const promptForFingerprint = truncate(String(prompt ?? ''), 4000);
+  const responseForFingerprint = truncate(String(response ?? ''), 4000);
+  const logFingerprint = createHash('sha1')
+    .update([
+      String(interaction.guildId ?? ''),
+      String(interaction.channelId ?? ''),
+      String(interaction.user?.id ?? ''),
+      String(aiMessageId ?? ''),
+      String(blocked ? 1 : 0),
+      String(safetyRating ?? ''),
+      promptForFingerprint,
+      responseForFingerprint,
+    ].join('|'))
+    .digest('hex');
+  const now = Date.now();
+  const priorSeenAt = RECENT_AI_LOG_KEYS.get(logFingerprint);
+  if (typeof priorSeenAt === 'number' && (now - priorSeenAt) < AI_LOG_DEDUPE_WINDOW_MS) return;
+  RECENT_AI_LOG_KEYS.set(logFingerprint, now);
+  if (RECENT_AI_LOG_KEYS.size > AI_LOG_DEDUPE_CACHE_MAX) {
+    const cutoff = now - AI_LOG_DEDUPE_WINDOW_MS;
+    for (const [fingerprint, seenAt] of RECENT_AI_LOG_KEYS) {
+      if (seenAt < cutoff) RECENT_AI_LOG_KEYS.delete(fingerprint);
+    }
+    const overflow = RECENT_AI_LOG_KEYS.size - AI_LOG_DEDUPE_CACHE_MAX;
+    const keyIterator = RECENT_AI_LOG_KEYS.keys();
+    for (let i = 0; i < overflow; i++) {
+      const oldestKey = keyIterator.next().value;
+      if (!oldestKey) break;
+      RECENT_AI_LOG_KEYS.delete(oldestKey);
+    }
+  }
+
   const logChannel = await fetchLogChannel(interaction.guild, 'aiLog').catch(() => null);
   if (!logChannel) return;
 
@@ -5043,15 +5147,8 @@ module.exports = {
 
     const prompt = interaction.options.getString('prompt', true);
 
-    const usagePolicy = getUsageLimitForMember(interaction.member);
-    const usageSnapshot = getUsageForUser(interaction.user.id, Date.now());
-    if (usagePolicy.limit != null && usageSnapshot.used >= usagePolicy.limit) {
-      const resetAt = new Date(usageSnapshot.bucketStart + AI_USAGE_WINDOW_MS);
-      return interaction.reply({
-        embeds: [new EmbedBuilder().setColor(0xed4245).setTitle('AI Usage Limit Reached').setDescription(`You have used **${usageSnapshot.used}/${usagePolicy.limit}** AI requests in this 6-hour window.\nResets <t:${Math.floor(resetAt.getTime()/1000)}:R>.`).setTimestamp()],
-        flags: MessageFlags.Ephemeral,
-      });
-    }
+    const usagePolicy = await ensureUsageAllowed(interaction, interaction.member);
+    if (!usagePolicy) return null;
 
     // ── Defer reply immediately ───────────────────────────────────────────────
     await interaction.deferReply();
@@ -5098,11 +5195,7 @@ module.exports = {
       });
     }
 
-    incrementUsageForUser(interaction.user.id, Date.now());
-    const usageAfter = getUsageForUser(interaction.user.id, Date.now());
-    if (result?.reviewEmbed && typeof result.reviewEmbed.addFields === 'function') {
-      try { result.reviewEmbed.addFields({ name: 'Usage', value: renderUsageBar(usageAfter.used, usagePolicy.limit), inline: false }); } catch {}
-    }
+    consumeUsageAndDecorateReview(result.reviewEmbed, usagePolicy, interaction.user.id);
 
     // Log AI interaction if safety is enabled
     if (userSettings.safetyEnabled !== false) {
