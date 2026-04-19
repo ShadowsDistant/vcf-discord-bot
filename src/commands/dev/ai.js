@@ -61,6 +61,7 @@ const SAFETY_CLASSIFIER_PROMPT_HEADER = [
   'Critical: Zero-tolerance (Bans).',
   '',
   'Instructions',
+  'Treat Roblox profile lookups and Discord user/member lookups as allowed operational data, not PII violations by themselves.',
   'Determine whether the prompt or response violates rules, constitutes a refusal, or is harmful. Output your answer strictly in the following format:',
   '',
   'Prompt harm: ',
@@ -128,6 +129,14 @@ const MODEL_MINIMAX_EMOJI_ID = '1493415617116504134';
 const MODEL_ZAI_EMOJI_ID = '1493417351402754252';
 const AI_ALLOWED_ROLE_ID = '1493414609678499890';
 const AI_USER_SETTINGS_FILE = 'ai_user_settings.json';
+const AI_USAGE_FILE = 'ai_usage_limits.json';
+const AI_USAGE_WINDOW_MS = 6 * 60 * 60 * 1000;
+const AI_BASE_LIMIT_DEFAULT = 15;
+const AI_BASE_LIMIT_ELEVATED = 30;
+const AI_ELEVATED_LIMIT_ROLE_ID = '1428427384495018115';
+const AI_UNLIMITED_ROLE_IDS = new Set(['1470915374441693376', '1379199481886802061']);
+const AI_LOG_CHANNEL_KEY = 'aiLog';
+const MODEL_NVIDIA_EMOJI_ID = '1493406682666231900';
 let AI_USER_SETTINGS_LOADED = false;
 const ESCAPED_CODE_FENCE = '``\\`';
 const AI_MODELS = Object.freeze([
@@ -197,7 +206,7 @@ const AI_PERSONAS = Object.freeze([
   },
 ]);
 const AI_PERSONA_BY_KEY = new Map(AI_PERSONAS.map((persona) => [persona.key, persona]));
-const DEFAULT_PERSONA_KEY = 'default';
+const DEFAULT_PERSONA_KEY = 'professional';
 
 const aiClient = new OpenAI({
   baseURL: NVIDIA_API_BASE,
@@ -218,7 +227,7 @@ Guidelines:
 - ALWAYS respond with a valid JSON object matching this exact embed schema (no markdown fences, just raw JSON):
 
 {
-  "title": "Optional short contextual title string",
+  "title": "Required short contextual title string",
   "description": "Main response text (required)",
   "color": "#rrggbb or null",
   "fields": [{ "name": "Field Title", "value": "Content", "inline": true }],
@@ -252,7 +261,8 @@ Tool Usage:
 - Never present unverified server-specific facts as certain; if tool data is missing/unavailable, explicitly say you don't know.
 - If a tool errors, report it clearly and do not retry with identical args.
 - You may call multiple tools in one turn when needed; synthesize results into one cohesive response and note discrepancies if results conflict.
-- Use query_valley_mcp_docs for questions about server rules, community guidelines, faction information, or any VCF documentation. Do not use it for live server/member data (use Discord tools for that).
+- Never use artificial "AI assistant" phrasing; sound natural and human.
+- Avoid em dashes in responses.
 - Use convince only when the user is explicitly asking to be granted cookies and is genuinely trying to convince you.
 - Never call convince for plain asks like "I want cookies". First collect a persuasive reason from the user, then pass that reason in convince.argument.
 - For moderation requests with incomplete names (e.g. "warn somoto"), use member search tools first; if multiple matches are plausible, present a select menu of candidates or ask the user to confirm the top match before taking action.
@@ -1022,10 +1032,26 @@ const TOOL_SCHEMAS = [
         type: 'object',
         properties: {
           channel_id: { type: 'string', description: 'The ID of the channel.' },
-          limit: { type: 'number', description: 'Number of messages to retrieve (1–100). Defaults to 25.' },
+          limit: { type: 'number', description: 'Number of messages to retrieve (1–50). Defaults to 25.' },
           include_message_urls: { type: 'boolean', description: 'Include direct jump URLs for each message. Defaults to true.' },
         },
         required: ['channel_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_user_messages_in_channel',
+      description: 'Fetch up to 50 recent messages from a specific user in a channel.',
+      parameters: {
+        type: 'object',
+        properties: {
+          channel_id: { type: 'string', description: 'The ID of the channel.' },
+          user_id: { type: 'string', description: 'The user ID to filter by.' },
+          limit: { type: 'number', description: 'Max messages to return (1–50). Defaults to 20.' },
+        },
+        required: ['channel_id','user_id'],
       },
     },
   },
@@ -1151,14 +1177,45 @@ const TOOL_SCHEMAS = [
   {
     type: 'function',
     function: {
-      name: 'query_valley_mcp_docs',
-      description: 'Look up Valley Correctional documentation including server rules, community guidelines, faction info, and other VCF docs.',
+      name: 'list_scheduled_events',
+      description: 'List scheduled server events in this guild.',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_scheduled_event',
+      description: 'Create a scheduled server event (management/lead only).',
       parameters: {
         type: 'object',
         properties: {
-          path: { type: 'string', description: 'Optional docs subpath under /mcp (for example: "tools" or "authentication").' },
-          query: { type: 'string', description: 'Optional text filter to extract relevant sections from the docs response.' },
+          name: { type: 'string' },
+          start_time: { type: 'string', description: 'ISO date/time' },
+          end_time: { type: 'string', description: 'ISO date/time' },
+          description: { type: 'string' },
+          channel_id: { type: 'string' },
         },
+        required: ['name','start_time','end_time','channel_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'edit_scheduled_event',
+      description: 'Edit a scheduled server event (management/lead only).',
+      parameters: {
+        type: 'object',
+        properties: {
+          event_id: { type: 'string' },
+          name: { type: 'string' },
+          start_time: { type: 'string' },
+          end_time: { type: 'string' },
+          description: { type: 'string' },
+          channel_id: { type: 'string' },
+        },
+        required: ['event_id'],
       },
     },
   },
@@ -1563,6 +1620,83 @@ function canUseAiCommand(member, guild) {
  * @param {string} modelKey
  * @returns {typeof AI_MODELS[number]}
  */
+
+function readAiUsageStore() {
+  return db.read(AI_USAGE_FILE, { userOverrides: {}, roleOverrides: {} });
+}
+
+function writeAiUsageStore(mutator) {
+  db.update(AI_USAGE_FILE, { userOverrides: {}, roleOverrides: {} }, (data) => {
+    if (!data.userOverrides || typeof data.userOverrides !== 'object') data.userOverrides = {};
+    if (!data.roleOverrides || typeof data.roleOverrides !== 'object') data.roleOverrides = {};
+    mutator(data);
+  });
+}
+
+function getRoleIds(member) {
+  return getMemberRoleIds(member);
+}
+
+function getUsageLimitForMember(member) {
+  const roleIds = new Set(getRoleIds(member));
+  for (const rid of AI_UNLIMITED_ROLE_IDS) {
+    if (roleIds.has(rid)) return { limit: null, source: `role:${rid}` };
+  }
+  const store = readAiUsageStore();
+  for (const rid of roleIds) {
+    const override = store.roleOverrides?.[rid];
+    if (!override) continue;
+    if (override.unlimited) return { limit: null, source: `role-override:${rid}` };
+    if (Number.isFinite(override.limit)) return { limit: Math.max(0, Number(override.limit)), source: `role-override:${rid}` };
+  }
+  const userId = String(member?.id ?? member?.user?.id ?? '');
+  const userOverride = store.userOverrides?.[userId];
+  if (userOverride) {
+    if (userOverride.unlimited) return { limit: null, source: `user-override:${userId}` };
+    if (Number.isFinite(userOverride.limit)) return { limit: Math.max(0, Number(userOverride.limit)), source: `user-override:${userId}` };
+  }
+  if (roleIds.has(AI_ELEVATED_LIMIT_ROLE_ID)) return { limit: AI_BASE_LIMIT_ELEVATED, source: `role:${AI_ELEVATED_LIMIT_ROLE_ID}` };
+  return { limit: AI_BASE_LIMIT_DEFAULT, source: 'default' };
+}
+
+function getUsageBucketStart(now = Date.now()) {
+  return Math.floor(now / AI_USAGE_WINDOW_MS) * AI_USAGE_WINDOW_MS;
+}
+
+function getUsageForUser(userId, now = Date.now()) {
+  const bucketStart = getUsageBucketStart(now);
+  const store = readAiUsageStore();
+  const usage = store.usage ?? {};
+  const key = String(userId);
+  const rec = usage[key] ?? {};
+  if (Number(rec.bucketStart) !== bucketStart) {
+    return { used: 0, bucketStart };
+  }
+  return { used: Number(rec.used ?? 0), bucketStart };
+}
+
+function incrementUsageForUser(userId, now = Date.now()) {
+  const bucketStart = getUsageBucketStart(now);
+  writeAiUsageStore((data) => {
+    if (!data.usage || typeof data.usage !== 'object') data.usage = {};
+    const key = String(userId);
+    const rec = data.usage[key] ?? { bucketStart, used: 0 };
+    if (Number(rec.bucketStart) !== bucketStart) {
+      rec.bucketStart = bucketStart;
+      rec.used = 0;
+    }
+    rec.used = Number(rec.used ?? 0) + 1;
+    data.usage[key] = rec;
+  });
+}
+
+function renderUsageBar(used, limit) {
+  if (limit == null) return '∞ Unlimited';
+  const pct = limit <= 0 ? 100 : Math.min(100, Math.round((used / limit) * 100));
+  const filled = Math.max(0, Math.min(10, Math.round((pct / 100) * 10)));
+  return `${'█'.repeat(filled)}${'░'.repeat(10 - filled)} ${pct}% (${used}/${limit})`;
+}
+
 function getModelConfig(modelKey) {
   return AI_MODEL_BY_KEY.get(String(modelKey ?? '')) ?? AI_MODEL_BY_KEY.get(DEFAULT_MODEL_KEY);
 }
@@ -2109,6 +2243,28 @@ function assertToolAllowedForPermissions(toolName, permissions) {
  * @param {{canUseModerationTools:boolean,canUseManagementTools:boolean,canUseDevTools:boolean}} [toolPermissions]
  * @returns {Promise<unknown>}
  */
+function getHighestRolePosition(member, guild) {
+  const roleIds = getMemberRoleIds(member);
+  let highest = 0;
+  for (const id of roleIds) {
+    const role = guild.roles.cache.get(String(id));
+    if (role && role.position > highest) highest = role.position;
+  }
+  return highest;
+}
+
+function assertRoleManagementAllowed(interaction, roleId) {
+  const invoker = interaction.member;
+  const guild = interaction.guild;
+  const hasMgmt = hasAnyRole(invoker, MANAGEMENT_ROLE_IDS);
+  const hasLead = getMemberRoleIds(invoker).includes('1470915962860736553') || getMemberRoleIds(invoker).includes('1470915374441693376');
+  if (!hasMgmt && !hasLead) throw new Error('Only management or lead oversight can manage roles via AI.');
+  const targetRole = guild.roles.cache.get(String(roleId));
+  if (!targetRole) throw new Error('Role not found.');
+  const highest = getHighestRolePosition(invoker, guild);
+  if (targetRole.position >= highest) throw new Error('You can only manage roles lower than your highest role.');
+}
+
 async function executeTool(toolName, args, interaction, toolPermissions) {
   const guild = interaction.guild;
   assertToolAllowedForPermissions(toolName, toolPermissions);
@@ -2125,7 +2281,8 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
       const ch = await guild.channels.fetch(args.channel_id);
       if (!ch?.isTextBased()) throw new Error('Channel not found or not text-based.');
       const embed = new EmbedBuilder();
-      if (args.title) embed.setTitle(String(args.title).slice(0, 256));
+if (!args.title || !String(args.title).trim()) throw new Error('Embed title is required.');
+      embed.setTitle(String(args.title).slice(0, 256));
       if (args.description) embed.setDescription(String(args.description).slice(0, 4096));
       if (args.color) {
         try { embed.setColor(hexToInt(args.color)); } catch { /* ignore invalid color */ }
@@ -2213,6 +2370,7 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
     }
 
     case 'get_member_info': {
+      assertRoleManagementAllowed(interaction, args.role_id);
       const member = await guild.members.fetch(args.user_id);
       if (!member) throw new Error('Member not found.');
       return {
@@ -2278,6 +2436,7 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
     }
 
     case 'create_role': {
+      if (!(hasAnyRole(interaction.member, MANAGEMENT_ROLE_IDS) || getMemberRoleIds(interaction.member).includes('1470915962860736553') || getMemberRoleIds(interaction.member).includes('1470915374441693376'))) throw new Error('Only management or lead oversight can create roles via AI.');
       const options = { name: args.name };
       if (args.color) options.color = hexToInt(args.color);
       if (typeof args.hoist === 'boolean') options.hoist = args.hoist;
@@ -2287,6 +2446,7 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
     }
 
     case 'edit_role': {
+      assertRoleManagementAllowed(interaction, args.role_id);
       const role = await guild.roles.fetch(args.role_id);
       if (!role) throw new Error('Role not found.');
       const options = {};
@@ -2299,6 +2459,7 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
     }
 
     case 'delete_role': {
+      assertRoleManagementAllowed(interaction, args.role_id);
       const role = await guild.roles.fetch(args.role_id);
       if (!role) throw new Error('Role not found.');
       await role.delete();
@@ -2306,6 +2467,7 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
     }
 
     case 'add_role': {
+      assertRoleManagementAllowed(interaction, args.role_id);
       const member = await guild.members.fetch(args.user_id);
       if (!member) throw new Error('Member not found.');
       await member.roles.add(args.role_id);
@@ -2313,6 +2475,7 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
     }
 
     case 'remove_role': {
+      assertRoleManagementAllowed(interaction, args.role_id);
       const member = await guild.members.fetch(args.user_id);
       if (!member) throw new Error('Member not found.');
       await member.roles.remove(args.role_id);
@@ -2352,6 +2515,7 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
     case 'kick_member': {
       const reason = String(args.reason ?? '').trim();
       if (!reason) throw new Error('Reason is required.');
+      assertRoleManagementAllowed(interaction, args.role_id);
       const member = await guild.members.fetch(args.user_id);
       if (!member) throw new Error('Member not found.');
       if (member.id === interaction.user.id) throw new Error('You cannot target yourself for this moderation action.');
@@ -2378,6 +2542,7 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
     case 'timeout_member': {
       const reason = String(args.reason ?? '').trim();
       if (!reason) throw new Error('Reason is required.');
+      assertRoleManagementAllowed(interaction, args.role_id);
       const member = await guild.members.fetch(args.user_id);
       if (!member) throw new Error('Member not found.');
       if (member.id === interaction.user.id) throw new Error('You cannot target yourself for this moderation action.');
@@ -2703,7 +2868,7 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
     case 'get_message_history': {
       const ch = await guild.channels.fetch(args.channel_id);
       if (!ch?.isTextBased()) throw new Error('Channel not found or not text-based.');
-      const limit = Math.min(100, Math.max(1, args.limit ?? 25));
+      const limit = Math.min(50, Math.max(1, args.limit ?? 25));
       const messages = await ch.messages.fetch({ limit });
       const includeMessageUrls = args?.include_message_urls !== false;
       return [...messages.values()].map((m) => ({
@@ -2734,6 +2899,61 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
       return { success: true };
     }
 
+
+    case 'get_user_messages_in_channel': {
+      const ch = await guild.channels.fetch(args.channel_id).catch(() => null);
+      if (!ch?.isTextBased()) throw new Error('Channel not found or not text-based.');
+      const limit = Math.min(50, Math.max(1, Number.parseInt(args?.limit, 10) || 20));
+      const fetched = await ch.messages.fetch({ limit: 50 });
+      const filtered = [...fetched.values()]
+        .filter((m) => String(m.author?.id) === String(args.user_id))
+        .slice(0, limit)
+        .map((m) => ({ id: m.id, content: m.content ?? '', created_at: m.createdAt?.toISOString() ?? null, url: m.url }));
+      return { channel_id: ch.id, user_id: String(args.user_id), total: filtered.length, messages: filtered };
+    }
+
+    case 'list_scheduled_events': {
+      const events = await guild.scheduledEvents.fetch();
+      return [...events.values()].map((e) => ({
+        id: e.id,
+        name: e.name,
+        description: e.description ?? null,
+        status: e.status,
+        start_time: e.scheduledStartTimestamp ? new Date(e.scheduledStartTimestamp).toISOString() : null,
+        end_time: e.scheduledEndTimestamp ? new Date(e.scheduledEndTimestamp).toISOString() : null,
+        channel_id: e.channelId ?? null,
+        url: `https://discord.com/events/${guild.id}/${e.id}`,
+      }));
+    }
+
+    case 'create_scheduled_event': {
+      if (!(hasAnyRole(interaction.member, MANAGEMENT_ROLE_IDS) || getMemberRoleIds(interaction.member).includes('1470915962860736553') || getMemberRoleIds(interaction.member).includes('1470915374441693376'))) throw new Error('Only management or lead oversight can create events via AI.');
+      const event = await guild.scheduledEvents.create({
+        name: String(args.name).slice(0, 100),
+        scheduledStartTime: new Date(String(args.start_time)),
+        scheduledEndTime: new Date(String(args.end_time)),
+        description: args.description ? String(args.description).slice(0, 1000) : undefined,
+        entityType: 2,
+        channel: String(args.channel_id),
+        privacyLevel: 2,
+      });
+      return { success: true, event_id: event.id, url: `https://discord.com/events/${guild.id}/${event.id}` };
+    }
+
+    case 'edit_scheduled_event': {
+      if (!(hasAnyRole(interaction.member, MANAGEMENT_ROLE_IDS) || getMemberRoleIds(interaction.member).includes('1470915962860736553') || getMemberRoleIds(interaction.member).includes('1470915374441693376'))) throw new Error('Only management or lead oversight can edit events via AI.');
+      const event = await guild.scheduledEvents.fetch(String(args.event_id));
+      if (!event) throw new Error('Event not found.');
+      const patch = {};
+      if (args.name) patch.name = String(args.name).slice(0, 100);
+      if (args.start_time) patch.scheduledStartTime = new Date(String(args.start_time));
+      if (args.end_time) patch.scheduledEndTime = new Date(String(args.end_time));
+      if (args.description) patch.description = String(args.description).slice(0, 1000);
+      if (args.channel_id) patch.channel = String(args.channel_id);
+      await event.edit(patch);
+      return { success: true, event_id: event.id, url: `https://discord.com/events/${guild.id}/${event.id}` };
+    }
+
     case 'get_audit_logs': {
       const limit = Math.min(50, Math.max(1, args.limit ?? 10));
       const fetchOptions = { limit };
@@ -2752,7 +2972,7 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
     }
 
     case 'list_bans': {
-      const limit = Math.min(100, Math.max(1, args.limit ?? 25));
+      const limit = Math.min(50, Math.max(1, args.limit ?? 25));
       const bans = await guild.bans.fetch();
       return [...bans.values()].slice(0, limit).map((ban) => ({
         user_id: ban.user.id,
@@ -2840,31 +3060,6 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
       };
     }
 
-    case 'query_valley_mcp_docs': {
-      const rawPath = String(args?.path ?? '').trim().replace(/^\/+/, '');
-      const endpoint = rawPath ? `https://docs.valleycorrectional.xyz/mcp/${encodeURI(rawPath)}` : 'https://docs.valleycorrectional.xyz/mcp';
-      const response = await fetch(endpoint, {
-        method: 'GET',
-        headers: { Accept: 'text/markdown,text/plain,text/html,*/*' },
-      }).catch((error) => {
-        throw new Error(`Failed to fetch MCP docs: ${error.message}`);
-      });
-      if (!response?.ok) throw new Error(`MCP docs request failed (${response?.status ?? 'unknown'}).`);
-      const body = String(await response.text()).slice(0, 20_000);
-      const query = String(args?.query ?? '').trim().toLowerCase();
-      let content = body;
-      if (query) {
-        const lines = body.split('\n');
-        const matched = lines.filter((line) => line.toLowerCase().includes(query)).slice(0, 40);
-        if (matched.length > 0) content = matched.join('\n');
-      }
-      return {
-        source: endpoint,
-        query: query || null,
-        content: truncate(content, 6_000),
-      };
-    }
-
     case 'set_bot_status': {
       if (!canUseDevCommand(interaction.member, interaction.guild, 'ai')) {
         throw new Error('Only developers can change the bot status.');
@@ -2891,11 +3086,21 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
       if (!query) throw new Error('Query is required.');
       const limit = getRobloxSearchLimit(args.limit);
       const results = await searchRobloxUsersWithFallback(query, limit);
+      const ids = results.slice(0, limit).map((u) => u.id).join(',');
+      let avatarMap = new Map();
+      if (ids) {
+        try {
+          const thumbs = await fetchRobloxJson(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${ids}&size=150x150&format=Png&isCircular=false`);
+          const arr = Array.isArray(thumbs?.data) ? thumbs.data : [];
+          avatarMap = new Map(arr.map((a) => [String(a.targetId), a.imageUrl ?? null]));
+        } catch {}
+      }
       return results.slice(0, limit).map((user) => ({
         id: user.id,
         username: user.name,
         display_name: user.displayName ?? user.name,
         has_verified_badge: Boolean(user.hasVerifiedBadge),
+        avatar_url: avatarMap.get(String(user.id)) ?? null,
         profile_url: `https://www.roblox.com/users/${user.id}/profile`,
       }));
     }
@@ -3238,7 +3443,7 @@ function parseAiOutput(rawContent) {
     && !BLOCKED_AI_TITLE_NORMALIZED.has(normalizedTitle)
     && (normalizedAuthorName ? normalizedTitle !== normalizedAuthorName : true),
   );
-  const title = isTitleValid ? rawTitle : null;
+  const title = isTitleValid ? rawTitle : 'Response';
   const description = stripLeadingBlockquoteMonologue(stripCodeMarkup(stripThinkBlocks(String(data.description ?? NO_RESPONSE_TEXT))));
   const fields = [];
   if (Array.isArray(data.fields)) {
@@ -3514,7 +3719,7 @@ function formatSafetySummary(safety) {
  * @param {{modelKey:string,personaKey?:string,customInstructions?:string,showThinking:boolean,safetyEnabled:boolean,toolPermissions?:{canUseModerationTools:boolean,canUseManagementTools:boolean,canUseDevTools:boolean}}} settings
  * @returns {EmbedBuilder}
  */
-function buildReviewEmbed(stats, toolsUsed, settings) {
+function buildReviewEmbed(stats, toolsUsed, settings, usageInfo = null) {
   const modelConfig = getModelConfig(settings?.modelKey);
   const personaConfig = getPersonaConfig(settings?.personaKey);
   const toolLines = formatToolsUsedLines(toolsUsed);
@@ -3747,9 +3952,6 @@ function buildFinalComponents(session) {
   if (mode === 'review' && rows.length < 5) {
     rows.push(buildPersonaSelectRow(session.personaKey));
   }
-  if (mode === 'review' && rows.length < 5 && canToggleAiSafety(session.allowedUserId)) {
-    rows.push(buildSafetySelectRow(session.safetyEnabled));
-  }
   if (mode === 'review' && rows.length < 5) {
     const instructionsRow = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
@@ -3766,6 +3968,9 @@ function buildFinalComponents(session) {
       );
     }
     rows.push(instructionsRow);
+  }
+  if (mode === 'review' && rows.length < 5 && canToggleAiSafety(session.allowedUserId)) {
+    rows.push(buildSafetySelectRow(session.safetyEnabled));
   }
 
   if (mode === 'output' && Array.isArray(turn.uiRows)) {
@@ -4838,6 +5043,16 @@ module.exports = {
 
     const prompt = interaction.options.getString('prompt', true);
 
+    const usagePolicy = getUsageLimitForMember(interaction.member);
+    const usageSnapshot = getUsageForUser(interaction.user.id, Date.now());
+    if (usagePolicy.limit != null && usageSnapshot.used >= usagePolicy.limit) {
+      const resetAt = new Date(usageSnapshot.bucketStart + AI_USAGE_WINDOW_MS);
+      return interaction.reply({
+        embeds: [new EmbedBuilder().setColor(0xed4245).setTitle('AI Usage Limit Reached').setDescription(`You have used **${usageSnapshot.used}/${usagePolicy.limit}** AI requests in this 6-hour window.\nResets <t:${Math.floor(resetAt.getTime()/1000)}:R>.`).setTimestamp()],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+
     // ── Defer reply immediately ───────────────────────────────────────────────
     await interaction.deferReply();
     const replyMsg = await interaction.fetchReply();
@@ -4881,6 +5096,12 @@ module.exports = {
         embeds: [buildErrorEmbed(err.message, err.status)],
         components: [],
       });
+    }
+
+    incrementUsageForUser(interaction.user.id, Date.now());
+    const usageAfter = getUsageForUser(interaction.user.id, Date.now());
+    if (result?.reviewEmbed && typeof result.reviewEmbed.addFields === 'function') {
+      try { result.reviewEmbed.addFields({ name: 'Usage', value: renderUsageBar(usageAfter.used, usagePolicy.limit), inline: false }); } catch {}
     }
 
     // Log AI interaction if safety is enabled
