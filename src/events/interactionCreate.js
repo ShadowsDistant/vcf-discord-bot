@@ -10,9 +10,11 @@ const {
   Events,
   MessageFlags,
   ModalBuilder,
+  RoleSelectMenuBuilder,
   StringSelectMenuBuilder,
   TextInputBuilder,
   TextInputStyle,
+  UserSelectMenuBuilder,
 } = require('discord.js');
 const embeds = require('../utils/embeds');
 const db = require('../utils/database');
@@ -32,6 +34,7 @@ const automodCommand = require('../commands/setup/automod');
 const staffInfractionCommand = require('../commands/moderation/staffinfraction');
 const staffMessageCommand = require('../commands/moderation/staffmessage');
 const broadcastMessageCommand = require('../commands/moderation/broadcastmessage');
+const aiManageCommand = require('../commands/dev/aiusage');
 const challenges = require('../utils/bakeryChallenges');
 const { sendModerationActionDm, sendModLog, sendCommandLog } = require('../utils/moderationNotifications');
 const analytics = require('../utils/analytics');
@@ -536,10 +539,10 @@ module.exports = {
         const hasVcfProfileTag = economy.inferVcfProfileTagStatus(interaction.member, interaction.user);
         economy.setUserVcfTagStatus(interaction.guildId, interaction.user.id, hasVcfProfileTag);
       }
-      if (interaction.isButton()) {
+      if (interaction.isButton() || interaction.isStringSelectMenu()) {
       if (isComponentExpired(interaction)) {
         return interaction.reply({
-          embeds: [embeds.warning('These buttons have expired. Run the command again to refresh.', interaction.guild)],
+          embeds: [embeds.warning('This component has expired. Run the command again to refresh.', interaction.guild)],
           flags: MessageFlags.Ephemeral,
         });
       }
@@ -1810,85 +1813,138 @@ module.exports = {
         return interaction.showModal(modal);
       }
 
-      if (interaction.customId.startsWith('broadcastmsg_modal:')) {
-        if (!hasModLevel(interaction.member, interaction.guild.id, MOD_LEVEL.moderator)) {
-          return interaction.reply({
-            embeds: [embeds.error('Only moderation staff can use report actions.', interaction.guild)],
-            flags: MessageFlags.Ephemeral,
-          });
-        }
+      if (interaction.customId.startsWith('broadcastmsg_audience_select:')) {
         const [, actorId] = interaction.customId.split(':');
         if (actorId !== interaction.user.id) {
           return interaction.reply({
-            embeds: [embeds.error('This admin panel is not assigned to you.', interaction.guild)],
+            embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
-        const suffix = interaction.customId.slice('broadcastmsg_modal:'.length);
-        const [messageType, sourceChannelId, messageId, authorId, reporterId = ''] = suffix.split(':');
-        const reason = interaction.fields.getTextInputValue('reason').trim();
-        if (!reason) {
+        if (!broadcastMessageCommand.hasLeadManagement(interaction.member)) {
           return interaction.reply({
-            embeds: [embeds.error('A reason is required.', interaction.guild)],
+            embeds: [embeds.error('You need to be Lead Oversight or Management to use this command.', interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
-        await tryDeferReplyEphemeral(interaction);
-        const targetChannel = await interaction.guild.channels.fetch(sourceChannelId).catch(() => null);
-        if (!targetChannel || !targetChannel.isTextBased()) {
-          return interaction.editReply({
-            embeds: [embeds.error('Source channel is unavailable for this report.', interaction.guild)],
+        const audience = interaction.values[0];
+        const audienceLabel = broadcastMessageCommand.AUDIENCE_OPTIONS.find((o) => o.value === audience)?.label ?? audience;
+        const modal = new ModalBuilder()
+          .setCustomId(`broadcastmsg_compose:${actorId}:${audience}`)
+          .setTitle('📢 Compose Broadcast')
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('title')
+                .setLabel('Title')
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+                .setMaxLength(100)
+                .setPlaceholder('Announcement title'),
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('message')
+                .setLabel(`Message — to: ${audienceLabel}`)
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true)
+                .setMaxLength(2000)
+                .setPlaceholder('Write your broadcast message here...'),
+            ),
+          );
+        return interaction.showModal(modal);
+      }
+
+      if (interaction.customId.startsWith('staffmsg_type_select:')) {
+        const [, actorId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
           });
         }
-        const targetMessage = await targetChannel.messages.fetch(messageId).catch(() => null);
-        if (!targetMessage) {
-          return interaction.editReply({
-            embeds: [embeds.error('Message not found.', interaction.guild)],
+        const type = interaction.values[0];
+        const typeLabel = staffMessageCommand.MESSAGE_TYPES.find((t) => t.value === type)?.label ?? type;
+        const modal = new ModalBuilder()
+          .setCustomId(`staffmsg_message_modal:${actorId}:${type}`)
+          .setTitle(`📨 Staff Message — ${typeLabel}`)
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId('message')
+                .setLabel('Message Content')
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true)
+                .setMaxLength(2000)
+                .setPlaceholder('Write your message to the recipients...'),
+            ),
+          );
+        return interaction.showModal(modal);
+      }
+
+      if (shiftCommand.isShiftPanelSelect(interaction.customId) && interaction.isStringSelectMenu()) {
+        return shiftCommand.handleShiftPanelSelect(interaction);
+      }
+
+      if (interaction.customId.startsWith('aimanage_action_select:')) {
+        const [, actorId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
           });
         }
-        const messageContent = targetMessage.content?.slice(0, 1000) || '(message unavailable)';
-        const messageBlock = `\`\`\`\n${messageContent.slice(0, 950)}\n\`\`\``;
-        const attachmentSummary = targetMessage.attachments?.size
-          ? targetMessage.attachments
-            .map((attachment) => `• ${(attachment.name ?? 'attachment').slice(0, 120)}`)
-            .slice(0, 3)
-            .join('\n')
-          : 'None';
-        const jumpLink = targetMessage.url ?? 'Unavailable';
-
-        const reportEmbed = new EmbedBuilder()
-          .setColor(0xed4245)
-          .setTitle('Message Report Queue Entry')
-          .setDescription('Review this report and pick an action below. Use server rules for context before actioning.')
-          .addFields(
-            { name: 'Category', value: category.slice(0, 100), inline: true },
-            { name: 'Reporter', value: `<@${interaction.user.id}>`, inline: true },
-            { name: 'Author', value: `<@${authorId}>`, inline: true },
-            { name: 'Channel', value: `${sourceChannel}`, inline: true },
-            { name: 'Rules', value: `[View Server Rules](${RULES_CHANNEL_URL})`, inline: true },
-            { name: 'Reported Content', value: `\`\`\`\n${messageContent.slice(0, 950)}\n\`\`\``, inline: false },
-            { name: 'Attachments', value: attachmentSummary.slice(0, 1024), inline: false },
-            { name: 'Reason', value: reason.slice(0, 1024), inline: false },
-            { name: 'Jump Link', value: jumpLink, inline: false },
-          )
-          .setTimestamp();
-
-        const actions = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setCustomId(buildReportActionCustomId('delete_message', messageId, interaction.user.id)).setLabel('Delete Message').setStyle(ButtonStyle.Danger),
-          new ButtonBuilder().setCustomId(buildReportActionCustomId('warn_author', messageId, interaction.user.id)).setLabel('Warn Author').setStyle(ButtonStyle.Secondary),
-          new ButtonBuilder().setCustomId(buildReportActionCustomId('timeout_author', messageId, interaction.user.id)).setLabel('Timeout Author').setStyle(ButtonStyle.Primary),
-          new ButtonBuilder().setCustomId(buildReportActionCustomId('dismiss', messageId, interaction.user.id)).setLabel('Dismiss').setStyle(ButtonStyle.Success),
-        );
-
-        await reportChannel.send({
-          embeds: [reportEmbed],
-          components: [actions],
-        }).catch(() => null);
-        touchReportCooldown(interaction.guild.id, interaction.user.id, Date.now());
-        queueReportInboxUpdate(interaction.guild.id, interaction.user.id, 'submitted');
-
-        return interaction.editReply({
-          embeds: [embeds.success('Report submitted to moderators.', interaction.guild)],
+        if (!aiManageCommand.canManageAiUsage(interaction.member)) {
+          return interaction.reply({
+            embeds: [embeds.error('You do not have permission to manage AI usage.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const action = interaction.values[0];
+        const actionLabel = aiManageCommand.ACTION_OPTIONS.find((o) => o.value === action)?.label ?? action;
+        if (aiManageCommand.USER_ACTIONS.has(action)) {
+          return interaction.reply({
+            embeds: [{
+              color: 0x5865f2,
+              title: '🤖 AI Management',
+              description: `**Action:** ${actionLabel}\n\nSelect the target user below.`,
+              timestamp: new Date().toISOString(),
+            }],
+            components: [
+              new ActionRowBuilder().addComponents(
+                new UserSelectMenuBuilder()
+                  .setCustomId(`aimanage_user_select:${actorId}:${action}`)
+                  .setPlaceholder('Select a user...')
+                  .setMinValues(1)
+                  .setMaxValues(1),
+              ),
+            ],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (aiManageCommand.ROLE_ACTIONS.has(action)) {
+          return interaction.reply({
+            embeds: [{
+              color: 0x5865f2,
+              title: '🤖 AI Management',
+              description: `**Action:** ${actionLabel}\n\nSelect the target role below.`,
+              timestamp: new Date().toISOString(),
+            }],
+            components: [
+              new ActionRowBuilder().addComponents(
+                new RoleSelectMenuBuilder()
+                  .setCustomId(`aimanage_role_select:${actorId}:${action}`)
+                  .setPlaceholder('Select a role...')
+                  .setMinValues(1)
+                  .setMaxValues(1),
+              ),
+            ],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        return interaction.reply({
+          embeds: [embeds.error('Unknown action.', interaction.guild)],
+          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -2006,6 +2062,119 @@ module.exports = {
         const components = [...userActionRows, ...dashboardActionRows];
         return interaction.update({ embeds: [embed], components });
       }
+      if (shiftCommand.isShiftPanelSelect(interaction.customId)) {
+        return shiftCommand.handleShiftPanelSelect(interaction);
+      }
+      if (interaction.customId.startsWith('aimanage_user_select:')) {
+        const [, actorId, action] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (!aiManageCommand.canManageAiUsage(interaction.member)) {
+          return interaction.reply({
+            embeds: [embeds.error('You do not have permission to manage AI usage.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const targetId = interaction.values[0];
+        if (aiManageCommand.VALUE_ACTIONS.has(action)) {
+          const isSet = action === 'set-user';
+          const modal = new ModalBuilder()
+            .setCustomId(`aimanage_value_modal:${actorId}:${action}:${targetId}`)
+            .setTitle(isSet ? 'Set User AI Limit' : 'Grant User Adjustment')
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId('value')
+                  .setLabel(isSet ? 'Limit per 6h (use -1 for unlimited)' : 'Adjustment amount (positive = grant)')
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setMaxLength(10)
+                  .setPlaceholder(isSet ? 'e.g. 30 or -1' : 'e.g. 5'),
+              ),
+            );
+          return interaction.showModal(modal);
+        }
+        // Non-value user actions: execute immediately
+        if (action === 'clear-user') {
+          aiManageCommand.writeUsage((data) => { delete data.userOverrides[targetId]; });
+          return interaction.reply({
+            embeds: [embeds.success(`Cleared AI usage override for <@${targetId}>.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'allow-safety-user') {
+          aiManageCommand.writeUsage((data) => { data.safetyToggleUsers[targetId] = true; });
+          return interaction.reply({
+            embeds: [embeds.success(`Allowed <@${targetId}> to disable AI safety in /ai.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'disallow-safety-user') {
+          aiManageCommand.writeUsage((data) => { delete data.safetyToggleUsers[targetId]; });
+          return interaction.reply({
+            embeds: [embeds.success(`Removed <@${targetId}>'s permission to disable AI safety.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        return interaction.reply({ embeds: [embeds.error('Unknown action.', interaction.guild)], flags: MessageFlags.Ephemeral });
+      }
+    }
+
+    if (interaction.isRoleSelectMenu()) {
+      const ownerId = getComponentOwnerId(interaction);
+      if (ownerId && ownerId !== interaction.user.id) {
+        return interaction.reply({
+          embeds: [embeds.error('This role picker belongs to someone else\'s command.', interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+      if (interaction.customId.startsWith('aimanage_role_select:')) {
+        const [, actorId, action] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (!aiManageCommand.canManageAiUsage(interaction.member)) {
+          return interaction.reply({
+            embeds: [embeds.error('You do not have permission to manage AI usage.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const roleId = interaction.values[0];
+        if (aiManageCommand.VALUE_ACTIONS.has(action)) {
+          const isSet = action === 'set-role';
+          const modal = new ModalBuilder()
+            .setCustomId(`aimanage_value_modal:${actorId}:${action}:${roleId}`)
+            .setTitle(isSet ? 'Set Role AI Limit' : 'Grant Role Adjustment')
+            .addComponents(
+              new ActionRowBuilder().addComponents(
+                new TextInputBuilder()
+                  .setCustomId('value')
+                  .setLabel(isSet ? 'Limit per 6h (use -1 for unlimited)' : 'Adjustment amount (positive = grant)')
+                  .setStyle(TextInputStyle.Short)
+                  .setRequired(true)
+                  .setMaxLength(10)
+                  .setPlaceholder(isSet ? 'e.g. 30 or -1' : 'e.g. 5'),
+              ),
+            );
+          return interaction.showModal(modal);
+        }
+        // clear-role
+        if (action === 'clear-role') {
+          aiManageCommand.writeUsage((data) => { delete data.roleOverrides[roleId]; });
+          return interaction.reply({
+            embeds: [embeds.success(`Cleared AI usage override for <@&${roleId}>.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        return interaction.reply({ embeds: [embeds.error('Unknown action.', interaction.guild)], flags: MessageFlags.Ephemeral });
+      }
     }
 
     if (interaction.isModalSubmit()) {
@@ -2021,6 +2190,190 @@ module.exports = {
       if (staffInfractionCommand.isStaffInfractionPanelModal(interaction.customId)) {
         return staffInfractionCommand.handleStaffInfractionPanelModal(interaction);
       }
+
+      if (interaction.customId.startsWith('aimanage_value_modal:')) {
+        const [, actorId, action, targetId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (!aiManageCommand.canManageAiUsage(interaction.member)) {
+          return interaction.reply({
+            embeds: [embeds.error('You do not have permission to manage AI usage.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const rawValue = interaction.fields.getTextInputValue('value').trim();
+        const value = Number.parseInt(rawValue, 10);
+        if (!Number.isFinite(value)) {
+          return interaction.reply({
+            embeds: [embeds.error('Value must be a valid integer.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'set-user') {
+          aiManageCommand.writeUsage((data) => {
+            data.userOverrides[targetId] = value < 0 ? { unlimited: true } : { limit: Math.max(0, value), unlimited: false };
+          });
+          return interaction.reply({
+            embeds: [embeds.success(`Set user override for <@${targetId}> to **${value < 0 ? 'unlimited' : `${value}/6h`}**.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'set-role') {
+          aiManageCommand.writeUsage((data) => {
+            data.roleOverrides[targetId] = value < 0 ? { unlimited: true } : { limit: Math.max(0, value), unlimited: false };
+          });
+          return interaction.reply({
+            embeds: [embeds.success(`Set role override for <@&${targetId}> to **${value < 0 ? 'unlimited' : `${value}/6h`}**.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'grant-user') {
+          const bucketStart = aiManageCommand.getBucketStart(Date.now());
+          aiManageCommand.writeUsage((data) => {
+            const rec = data.usage[targetId] ?? { bucketStart, used: 0 };
+            if (Number(rec.bucketStart) !== bucketStart) { rec.bucketStart = bucketStart; rec.used = 0; }
+            rec.used = Math.max(0, Number(rec.used ?? 0) - value);
+            data.usage[targetId] = rec;
+          });
+          const direction = value >= 0 ? `+${value}` : String(value);
+          return interaction.reply({
+            embeds: [embeds.success(`Applied one-time adjustment **${direction}** to <@${targetId}> this window.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'grant-role') {
+          const members = await interaction.guild.members.fetch();
+          const targets = [...members.values()].filter((m) => m.roles.cache.has(targetId));
+          const bucketStart = aiManageCommand.getBucketStart(Date.now());
+          aiManageCommand.writeUsage((data) => {
+            for (const m of targets) {
+              const rec = data.usage[m.id] ?? { bucketStart, used: 0 };
+              if (Number(rec.bucketStart) !== bucketStart) { rec.bucketStart = bucketStart; rec.used = 0; }
+              rec.used = Math.max(0, Number(rec.used ?? 0) - value);
+              data.usage[m.id] = rec;
+            }
+          });
+          const direction = value >= 0 ? `+${value}` : String(value);
+          return interaction.reply({
+            embeds: [embeds.success(`Applied adjustment **${direction}** for **${targets.length}** member(s) in <@&${targetId}>.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        return interaction.reply({ embeds: [embeds.error('Unknown action.', interaction.guild)], flags: MessageFlags.Ephemeral });
+      }
+
+      if (interaction.customId.startsWith('broadcastmsg_compose:')) {
+        const rest = interaction.customId.slice('broadcastmsg_compose:'.length);
+        const colonIdx = rest.indexOf(':');
+        const actorId = rest.slice(0, colonIdx);
+        const audience = rest.slice(colonIdx + 1);
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (!broadcastMessageCommand.hasLeadManagement(interaction.member)) {
+          return interaction.reply({
+            embeds: [embeds.error('You need to be Lead Oversight or Management to use this command.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const title = interaction.fields.getTextInputValue('title').trim();
+        const message = interaction.fields.getTextInputValue('message').trim();
+        if (!message) {
+          return interaction.reply({
+            embeds: [embeds.error('A message is required.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        await tryDeferReplyEphemeral(interaction);
+        const guildMembers = await interaction.guild.members.fetch().catch(() => null);
+        if (!guildMembers) {
+          return interaction.editReply({ embeds: [embeds.error('Failed to fetch guild members.', interaction.guild)] });
+        }
+        let targetIds = [];
+        if (audience === 'everyone') {
+          targetIds = [...guildMembers.values()].filter((m) => !m.user.bot).map((m) => m.id);
+        } else if (audience.startsWith('role:')) {
+          const roleKey = audience.slice(5);
+          const roleSetMap = {
+            moderation: broadcastMessageCommand.MODERATION_ROLE_IDS,
+            sid: broadcastMessageCommand.SID_ROLE_IDS,
+            osc: broadcastMessageCommand.OSC_ROLE_IDS,
+            facility: broadcastMessageCommand.FACILITY_ROLE_IDS,
+            all_staff: broadcastMessageCommand.ALL_STAFF_ROLE_IDS,
+            vai_access: new Set(['1493414609678499890']),
+          };
+          const roleSet = roleSetMap[roleKey];
+          if (roleSet) {
+            targetIds = [...guildMembers.values()]
+              .filter((m) => !m.user.bot && [...roleSet].some((roleId) => m.roles.cache.has(roleId)))
+              .map((m) => m.id);
+          }
+        }
+        const audienceLabel = broadcastMessageCommand.AUDIENCE_OPTIONS.find((o) => o.value === audience)?.label ?? audience;
+        for (const memberId of targetIds) {
+          economy.addPendingMessage(interaction.guild.id, memberId, {
+            type: 'broadcast',
+            from: `${interaction.user.tag}`,
+            title,
+            content: message,
+          });
+        }
+        return interaction.editReply({
+          embeds: [embeds.success(`Broadcast **"${title}"** delivered to **${targetIds.length}** member(s) (${audienceLabel}).`, interaction.guild)],
+        });
+      }
+
+      if (interaction.customId.startsWith('staffmsg_message_modal:')) {
+        const [, actorId, type] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (!staffMessageCommand.hasSeniorModPlus(interaction.member)) {
+          return interaction.reply({
+            embeds: [embeds.error('You need to be a Senior Moderator or above to use this command.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const message = interaction.fields.getTextInputValue('message').trim();
+        if (!message) {
+          return interaction.reply({
+            embeds: [embeds.error('A message is required.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        const recipients = getPendingStaffMessageSelection(interaction.guild.id, actorId);
+        if (!recipients.length) {
+          return interaction.reply({
+            embeds: [embeds.error('No recipients found. Please start over with `/staffmessage`.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        clearPendingStaffMessageSelection(interaction.guild.id, actorId);
+        for (const recipientId of recipients) {
+          economy.addPendingMessage(interaction.guild.id, recipientId, {
+            type: 'staff_message',
+            messageType: type,
+            from: interaction.user.tag,
+            content: message,
+          });
+        }
+        const typeLabel = staffMessageCommand.MESSAGE_TYPES.find((t) => t.value === type)?.label ?? type;
+        return interaction.reply({
+          embeds: [embeds.success(`Message delivered to **${recipients.length}** recipient(s) as **${typeLabel}**.`, interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
+      }
+
       if (interaction.customId.startsWith('ctx_report_message:')) {
         const [, sourceChannelId, messageId, authorId] = interaction.customId.split(':');
         const remainingMs = getReportCooldownRemainingMs(interaction.guild.id, interaction.user.id, Date.now());
