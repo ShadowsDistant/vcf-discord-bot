@@ -1928,6 +1928,58 @@ module.exports = {
         return shiftCommand.handleShiftPanelSelect(interaction);
       }
 
+      if (interaction.isStringSelectMenu() && interaction.customId.startsWith('aimanage_action_select:')) {
+        const [, actorId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (!aiManageCommand.canManageAiUsage(interaction.member)) {
+          return interaction.reply({
+            embeds: [embeds.error('You do not have permission to manage AI usage.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        await interaction.deferUpdate().catch(() => null);
+        const action = interaction.values[0];
+        if (aiManageCommand.USER_ACTIONS.has(action)) {
+          return interaction.editReply({
+            embeds: [aiManageCommand.buildAiManagePanel(interaction.guild, actorId)],
+            components: [
+              new ActionRowBuilder().addComponents(
+                new UserSelectMenuBuilder()
+                  .setCustomId(`aimanage_user_select:${actorId}:${action}`)
+                  .setPlaceholder('Select a user…')
+                  .setMinValues(1)
+                  .setMaxValues(1),
+              ),
+              buildAimanageActionRow(actorId),
+            ],
+          });
+        }
+        if (aiManageCommand.ROLE_ACTIONS.has(action)) {
+          return interaction.editReply({
+            embeds: [aiManageCommand.buildAiManagePanel(interaction.guild, actorId)],
+            components: [
+              new ActionRowBuilder().addComponents(
+                new RoleSelectMenuBuilder()
+                  .setCustomId(`aimanage_role_select:${actorId}:${action}`)
+                  .setPlaceholder('Select a role…')
+                  .setMinValues(1)
+                  .setMaxValues(1),
+              ),
+              buildAimanageActionRow(actorId),
+            ],
+          });
+        }
+        return interaction.editReply({
+          embeds: [embeds.error('Unknown action selected.', interaction.guild)],
+          components: [buildAimanageActionRow(actorId)],
+        });
+      }
+
       if (helpCommand.isHelpCategorySelect(interaction.customId)) {
         return helpCommand.handleHelpCategorySelect(interaction);
       }
@@ -2047,153 +2099,35 @@ module.exports = {
       if (shiftCommand.isShiftPanelSelect(interaction.customId)) {
         return shiftCommand.handleShiftPanelSelect(interaction);
       }
-      if (interaction.customId.startsWith('aimanage_action_select:')) {
-    const [, actorId] = interaction.customId.split(':');
-    if (actorId !== interaction.user.id) {
-      return interaction.reply({
-        embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)],
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-    if (!aiManageCommand.canManageAiUsage(interaction.member)) {
-      return interaction.reply({
-        embeds: [embeds.error('You do not have permission to manage AI usage.', interaction.guild)],
-        flags: MessageFlags.Ephemeral,
-      });
-    }
-    await interaction.deferUpdate().catch(() => null);
-    const action = interaction.values[0];
-    if (aiManageCommand.USER_ACTIONS.has(action)) {
-      return interaction.editReply({
-        embeds: [aiManageCommand.buildAiManagePanel(interaction.guild, actorId)],
-        components: [
-          new ActionRowBuilder().addComponents(
-            new UserSelectMenuBuilder()
-              .setCustomId(`aimanage_user_select:${actorId}:${action}`)
-              .setPlaceholder('Select a user…')
-              .setMinValues(1)
-              .setMaxValues(1),
-          ),
-          buildAimanageActionRow(actorId),
-        ],
-      });
-    }
-    if (aiManageCommand.ROLE_ACTIONS.has(action)) {
-      return interaction.editReply({
-        embeds: [aiManageCommand.buildAiManagePanel(interaction.guild, actorId)],
-        components: [
-          new ActionRowBuilder().addComponents(
-            new RoleSelectMenuBuilder()
-              .setCustomId(`aimanage_role_select:${actorId}:${action}`)
-              .setPlaceholder('Select a role…')
-              .setMinValues(1)
-              .setMaxValues(1),
-          ),
-          buildAimanageActionRow(actorId),
-        ],
-      });
-    }
-    return interaction.editReply({
-      embeds: [embeds.error('Unknown action selected.', interaction.guild)],
-      components: [buildAimanageActionRow(actorId)],
-    });
-  }
-
-  if (interaction.customId.startsWith('aimanage_user_select:')) {
+      if (interaction.customId.startsWith('aimanage_user_select:')) {
         const [, actorId, action] = interaction.customId.split(':');
-        if (actorId !== interaction.user.id) {
-          return interaction.reply({
-            embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)],
-            flags: MessageFlags.Ephemeral,
-          });
-        }
-        if (!aiManageCommand.canManageAiUsage(interaction.member)) {
-          return interaction.reply({
-            embeds: [embeds.error('You do not have permission to manage AI usage.', interaction.guild)],
-            flags: MessageFlags.Ephemeral,
-          });
-        }
-        await interaction.deferUpdate().catch(() => null);
-        const targetId = interaction.values[0];
-        if (action === 'view-user') {
-          const member = await interaction.guild.members.fetch(targetId).catch(() => null);
-          return interaction.editReply({
-            embeds: [aiManageCommand.buildUserInfoEmbed(interaction.guild, member, targetId)],
-            components: [buildAimanageActionRow(interaction.user.id)],
-          });
-        }
-        if (action === 'view-role') {
-          const role = await interaction.guild.roles.fetch(targetId).catch(() => null);
-          if (!role) {
-            return interaction.editReply({
-              embeds: [embeds.error('Role not found.', interaction.guild)],
-              components: [buildAimanageActionRow(interaction.user.id)],
+        let result = null;
+        if (action === 'sell') result = economy.sellInventoryItem(interaction.guild.id, interaction.user.id, itemId, false);
+        if (action === 'sellall') result = economy.sellInventoryItem(interaction.guild.id, interaction.user.id, itemId, true);
+        if (action === 'consume') result = economy.consumeInventoryItem(interaction.guild.id, interaction.user.id, itemId);
+        if (action === 'inspect') {
+          const details = economy.inspectItem(interaction.guild.id, interaction.user.id, itemId);
+          if (!details) {
+            return interaction.reply({
+              embeds: [embeds.error('Could not inspect that item.', interaction.guild)],
+              flags: MessageFlags.Ephemeral,
             });
           }
-          return interaction.editReply({
-            embeds: [aiManageCommand.buildRoleInfoEmbed(interaction.guild, role)],
-            components: [buildAimanageActionRow(interaction.user.id)],
+          return interaction.reply({
+            embeds: [economy.buildItemInspectEmbed(interaction.guild, details)],
+            flags: MessageFlags.Ephemeral,
           });
         }
-        if (aiManageCommand.VALUE_ACTIONS.has(action)) {
-          const isSet = action === 'set-user';
-          return interaction.showModal(
-            new ModalBuilder()
-              .setCustomId(`aimanage_value_modal:${actorId}:${action}:${targetId}`)
-              .setTitle(isSet ? 'Set User AI Limit' : 'Grant User Adjustment')
-              .addComponents(
-                new ActionRowBuilder().addComponents(
-                  new TextInputBuilder()
-                    .setCustomId('value')
-                    .setLabel(isSet ? 'Limit per 6h (use -1 for unlimited)' : 'Adjustment amount (positive = grant)')
-                    .setStyle(TextInputStyle.Short)
-                    .setRequired(true)
-                    .setMaxLength(10)
-                    .setPlaceholder(isSet ? 'e.g. 30 or -1' : 'e.g. 5'),
-                ),
-              ),
-          );
-        }
-        // Non-value user actions
-        if (action === 'clear-user') {
-          aiManageCommand.writeUsage((data) => { delete data.userOverrides[targetId]; });
-          return interaction.editReply({
-            embeds: [embeds.success(`Cleared AI usage override for <@${targetId}>.`, interaction.guild)],
-            components: [buildAimanageActionRow(interaction.user.id)],
+        if (!result?.ok) {
+          return interaction.reply({
+            embeds: [embeds.warning(result?.reason ?? 'Could not process item action.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
           });
         }
-        if (action === 'allow-safety-user') {
-          aiManageCommand.writeUsage((data) => { data.safetyToggleUsers[targetId] = true; });
-          return interaction.editReply({
-            embeds: [embeds.success(`Allowed <@${targetId}> to disable AI safety in /ai.`, interaction.guild)],
-            components: [buildAimanageActionRow(interaction.user.id)],
-          });
-        }
-        if (action === 'disallow-safety-user') {
-          aiManageCommand.writeUsage((data) => { delete data.safetyToggleUsers[targetId]; });
-          return interaction.editReply({
-            embeds: [embeds.success(`Removed <@${targetId}>'s permission to disable AI safety.`, interaction.guild)],
-            components: [buildAimanageActionRow(interaction.user.id)],
-          });
-        }
-        if (action === 'allow-deep-research-user') {
-          aiManageCommand.writeUsage((data) => { data.deepResearchUsers[targetId] = true; });
-          return interaction.editReply({
-            embeds: [embeds.success(`Allowed <@${targetId}> to enable Deep Research in /ai.`, interaction.guild)],
-            components: [buildAimanageActionRow(interaction.user.id)],
-          });
-        }
-        if (action === 'disallow-deep-research-user') {
-          aiManageCommand.writeUsage((data) => { delete data.deepResearchUsers[targetId]; });
-          return interaction.editReply({
-            embeds: [embeds.success(`Removed <@${targetId}>'s Deep Research access.`, interaction.guild)],
-            components: [buildAimanageActionRow(interaction.user.id)],
-          });
-        }
-        return interaction.editReply({
-          embeds: [embeds.error('Unknown action.', interaction.guild)],
-          components: [buildAimanageActionRow(interaction.user.id)],
-        });
+        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+        const dashboard = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'inventory');
+        const components = economy.buildDashboardComponents(snapshot.user, 'inventory', { guild: interaction.guild });
+        return interaction.update({ embeds: [dashboard], components });
       }
     }
 
@@ -2244,7 +2178,7 @@ module.exports = {
                 new ActionRowBuilder().addComponents(
                   new TextInputBuilder()
                     .setCustomId('value')
-                    .setLabel(isSet ? 'Limit per 6h (use -1 for unlimited)' : 'Adjustment amount')
+                    .setLabel(isSet ? 'Limit per 6h (use -1 for unlimited)' : 'Adjustment amount (positive = grant)')
                     .setStyle(TextInputStyle.Short)
                     .setRequired(true)
                     .setMaxLength(10)
@@ -2260,9 +2194,17 @@ module.exports = {
             components: [buildAimanageActionRow(interaction.user.id)],
           });
         }
-        if (action === 'grant-role') {
+        if (action === 'allow-deep-research-role') {
+          aiManageCommand.writeUsage((data) => { data.deepResearchRoles[roleId] = true; });
           return interaction.editReply({
-            embeds: [embeds.warning('Role adjustments require a value — please use the modal.', interaction.guild)],
+            embeds: [embeds.success(`Allowed <@&${roleId}> to enable Deep Research in /ai.`, interaction.guild)],
+            components: [buildAimanageActionRow(interaction.user.id)],
+          });
+        }
+        if (action === 'disallow-deep-research-role') {
+          aiManageCommand.writeUsage((data) => { delete data.deepResearchRoles[roleId]; });
+          return interaction.editReply({
+            embeds: [embeds.success(`Removed <@&${roleId}>'s Deep Research access.`, interaction.guild)],
             components: [buildAimanageActionRow(interaction.user.id)],
           });
         }
@@ -2586,7 +2528,7 @@ module.exports = {
           embeds: [embeds.success('Report dismissed with a recorded reason.', interaction.guild)],
         });
         if (reporterId) {
-          queueReportInboxUpdate(interaction.guild.id, reporterId, 'dismissed', `Dismissal reason: ${dismissReason.slice(0, 300)}`);
+          queueReportInboxUpdate(interaction.guild.id, reporterId, 'dismissed');
         }
         return;
       }
