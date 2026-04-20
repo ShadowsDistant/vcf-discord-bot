@@ -26,7 +26,7 @@ const BOOST_CHANGE_EPSILON = 1e-9;
 const MARKET_LISTING_LIFETIME_MS = 24 * 60 * 60 * 1000;
 const MARKET_FEE_RATE = 0.05;
 const BASE_GOLDEN_CHANCE = 0.02;
-const BURNT_BAKE_CHANCE = 0.08;
+const BURNT_BAKE_CHANCE = 0.05;
 const BUILDING_SELL_REFUND_RATE = 0.5;
 const BUILDING_COST_GROWTH = 1.18;
 const VCF_PROFILE_TAG_CPS_BOOST = 0.05;
@@ -1620,7 +1620,7 @@ function bake(guildId, userId) {
     const burntChance = activeEvent?.id === BAKE_EVENT_STEADY_HEAT ? BURNT_BAKE_CHANCE * 0.4 : BURNT_BAKE_CHANCE;
     const burnt = Math.random() < burntChance;
     const boostedYield = activeEvent?.id === BAKE_EVENT_SUGAR_RUSH
-      ? Math.floor(getManualBakeYield(user, nowTs) * 1.2)
+      ? Math.floor(getManualBakeYield(user, nowTs) * 1.4)
       : getManualBakeYield(user, nowTs);
     const yieldAmount = burnt ? 0 : boostedYield;
     user.cookies += yieldAmount;
@@ -3326,12 +3326,12 @@ function buildMessagesEmbed(guild, user, page) {
       const box = REWARD_BOX_MAP.get(msg.rewardBoxId);
       icon = msg.claimed ? '✅' : '🎁';
       category = 'Gift Box';
-      const msgText = msg.message ? `: *${msg.message.slice(0, 80)}${msg.message.length > 80 ? '…' : ''}*` : '';
+      const msgText = msg.message ? `: *${msg.message.slice(0, 60)}${msg.message.length > 60 ? '…' : ''}*` : '';
       summary = `×${msg.quantity} **${box?.name ?? msg.rewardBoxId}** from **${msg.from}**${msgText}${msg.claimed ? ' *(claimed)*' : ''}`;
     } else if (msg.type === 'gift_cookies') {
       icon = msg.claimed ? '✅' : '🍪';
       category = 'Cookie Gift';
-      const msgText = msg.message ? `: *${msg.message.slice(0, 80)}${msg.message.length > 80 ? '…' : ''}*` : '';
+      const msgText = msg.message ? `: *${msg.message.slice(0, 60)}${msg.message.length > 60 ? '…' : ''}*` : '';
       summary = `**${toCookieNumber(msg.cookieAmount)}** cookies from **${msg.from}**${msgText}${msg.claimed ? ' *(claimed)*' : ''}`;
     } else if (msg.type === 'rank_reward') {
       const rank = RANKS.find((entry) => entry.id === msg.rankId) ?? null;
@@ -3370,7 +3370,14 @@ function buildMessagesEmbed(guild, user, page) {
           ? 'Staff • Bakery'
           : 'Staff • Notification';
       const titlePart = msg.title ? `**${msg.title}**\n` : '';
-      summary = `${titlePart}${(msg.content ?? '').slice(0, 400)}\n*From ${msg.from ?? 'Staff'}*`;
+      summary = `${titlePart}${(msg.content ?? '').slice(0, 80)}${(msg.content ?? '').length > 80 ? '…' : ''}\n*From ${msg.from ?? 'Staff'}*`;
+    } else if (msg.type === 'broadcast') {
+      const isDev = msg.broadcastKind === 'dev';
+      icon = isDev ? '🛠️' : '📣';
+      category = isDev ? 'Dev Broadcast' : 'Broadcast';
+      const titlePart = msg.title ? `**${msg.title}**\n` : '';
+      const raw = String(msg.content ?? '');
+      summary = `${titlePart}${raw.slice(0, 80)}${raw.length > 80 ? '…' : ''}`;
     } else {
       icon = '📢';
       category = 'Notification';
@@ -3454,6 +3461,14 @@ function buildOpenedMessageEmbed(guild, user, messageId) {
         ? 'Staff • Bakery'
         : 'Staff • Notification';
     headline = msg.title ?? 'Staff message';
+    body = msg.content ?? '(no content)';
+    fromLine = `**From:** ${msg.from ?? 'Staff'}`;
+  } else if (msg.type === 'broadcast') {
+    const isDev = msg.broadcastKind === 'dev';
+    color = isDev ? 0x9b59b6 : 0x5865f2;
+    icon = isDev ? '🛠️' : '📣';
+    category = isDev ? 'Dev Broadcast' : 'Broadcast';
+    headline = msg.title ?? 'Broadcast';
     body = msg.content ?? '(no content)';
     fromLine = `**From:** ${msg.from ?? 'Staff'}`;
   } else {
