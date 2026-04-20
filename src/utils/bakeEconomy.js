@@ -3508,8 +3508,7 @@ function buildOpenedMessageComponents(user, messageId) {
       new ButtonBuilder()
         .setCustomId(`messages_open_claim:${msg.id}`)
         .setLabel('Claim')
-        .setEmoji(null)
-        .setStyle(ButtonStyle.Success),
+                .setStyle(ButtonStyle.Success),
     );
   }
   row.addComponents(

@@ -4539,16 +4539,14 @@ function buildFinalComponents(session) {
         .setCustomId(AI_REGEN_BUTTON_ID)
         .setStyle(ButtonStyle.Secondary)
         .setLabel('Regen')
-        .setEmoji(null),
-    );
+            );
     if (canUseDeepResearch(session.allowedUserId)) {
       actionRow.addComponents(
         new ButtonBuilder()
           .setCustomId(AI_DEEP_THINK_BUTTON_ID)
           .setStyle(ButtonStyle.Secondary)
           .setLabel('Deep Think')
-          .setEmoji(null),
-      );
+                );
     }
     actionRow.addComponents(
       new ButtonBuilder()
@@ -6003,11 +6001,6 @@ function buildErrorComponents(session) {
         .setLabel(session.customInstructions ? 'Edit Instructions' : 'Add Instructions'),
     ),
   );
-  rows.push(buildModelSelectRow(session.modelKey));
-  rows.push(buildPersonaSelectRow(session.personaKey));
-  if (canToggleAiSafety(session.allowedUserId)) {
-    rows.push(buildSafetySelectRow(session.safetyEnabled));
-  }
   return rows;
 }
 
