@@ -67,7 +67,7 @@ module.exports = {
       .addUserOption((opt) => opt.setName('user').setDescription('Target user').setRequired(true)))
     .addSubcommand((sub) => sub
       .setName('disallow-safety-user')
-      .setDescription('Remove a user permission to disable AI safety in /ai.')
+      .setDescription('Remove a user\'s permission to disable AI safety in /ai.')
       .addUserOption((opt) => opt.setName('user').setDescription('Target user').setRequired(true))),
 
   async execute(interaction) {
@@ -162,7 +162,7 @@ module.exports = {
       writeUsage((data) => {
         delete data.safetyToggleUsers[user.id];
       });
-      return interaction.reply({ embeds: [embeds.success(`Removed ${user} permission to disable AI safety in /ai.`, interaction.guild)], flags: MessageFlags.Ephemeral });
+      return interaction.reply({ embeds: [embeds.success(`Removed ${user}'s permission to disable AI safety in /ai.`, interaction.guild)], flags: MessageFlags.Ephemeral });
     }
 
     return interaction.reply({ embeds: [embeds.error('Unsupported subcommand.', interaction.guild)], flags: MessageFlags.Ephemeral });
