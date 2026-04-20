@@ -230,7 +230,8 @@ You may have access to Discord moderation and management tools depending on role
 
 Guidelines:
 - Use Discord tools only when the request explicitly requires Discord interaction (reading/modifying the server).
-- For dangerous actions (kick/ban/timeout members, delete channels or messages, create roles), clearly state what you intend to do — the system will ask the user to confirm before executing.
+- For dangerous actions (ban_member, kick_member, timeout_member, warn_member, delete_message, purge_messages, create_role, delete_role, delete_channel), the system will automatically pause and ask the user to confirm before executing. You do NOT need to ask the user for confirmation yourself — just call the tool.
+- For all other tools (send_message, set_channel_topic, lock_channel, unlock_channel, slowmode_channel, set_nickname, add_role, remove_role, pin_message, etc.) execute them immediately without asking permission first.
 - Never ask for, suggest, or attempt moderation against the same user you are currently talking to.
 - Avoid repetitive prompting; do not repeatedly ask the user to do the same action.
 - Do not output code snippets, code fences, or raw executable code in responses.
@@ -262,7 +263,7 @@ Guidelines:
 - Text limits: description <= 4096, field.name <= 256, field.value <= 1024, max 25 fields, footer <= 2048.
 - Use Discord markdown in description and field values (**bold**, *italic*, \`code\`, \\n for line breaks).
 - Use fields for structured/tabular data and set inline true/false intentionally; do not duplicate the same list both as fields and bullets in description.
-- Format Discord entities as mentions when relevant: <@user_id>, <#channel_id>, <@&role_id>.
+- ALWAYS format Discord entities as mentions: users as <@USER_ID>, channels as <#CHANNEL_ID>, roles as <@&ROLE_ID>. Never write raw IDs or plain names when you have the ID — always use the mention format so Discord renders them properly.
 - Keep responses very brief by default: 1–3 short sentences and no more than 5 bullets unless the user explicitly asks for detail.
 
 Tool Usage:
@@ -276,7 +277,8 @@ Tool Usage:
 - Use convince only when the user is explicitly asking to be granted cookies and is genuinely trying to convince you.
 - Never call convince for plain asks like "I want cookies". First collect a persuasive reason from the user, then pass that reason in convince.argument.
 - For moderation requests with incomplete names (e.g. "warn somoto"), use member search tools first; if multiple matches are plausible, present a select menu of candidates or ask the user to confirm the top match before taking action.
-- Always collect a clear reason before any moderation action (warn/kick/ban/timeout). If missing, ask for one before using tools.
+- Always collect a clear reason before any dangerous moderation action (warn/kick/ban/timeout/purge). If missing, ask for one before using tools.
+- For non-dangerous tool uses (lock, slowmode, set nickname, send message, etc.), proceed without asking for a reason unless context warrants one.
 
 Interactive Components:
 - Only add components when they provide clear interaction value (not decoration).
@@ -308,6 +310,7 @@ const DANGEROUS_TOOLS = new Set([
   'timeout_member',
   'warn_member',
   'delete_message',
+  'purge_messages',
   'create_role',
   'delete_role',
   'delete_channel',
@@ -329,9 +332,15 @@ const MODERATION_TOOL_NAMES = new Set([
   'set_voice_channel_status',
   // Message moderation
   'get_message_history',
+  'get_user_messages_in_channel',
   'pin_message',
   'unpin_message',
   'add_reaction',
+  'purge_messages',
+  // Channel controls
+  'lock_channel',
+  'unlock_channel',
+  'slowmode_channel',
   // Read-only channel lookups moderators need
   'get_channel_info',
   'get_current_channel_info',
@@ -343,10 +352,16 @@ const MANAGEMENT_TOOL_NAMES = new Set([
   'send_embed',
   'edit_message',
   'delete_message',
+  'purge_messages',
   // Channel & server configuration
   'set_channel_topic',
+  'lock_channel',
+  'unlock_channel',
+  'slowmode_channel',
   'create_channel',
   'delete_channel',
+  // Member management
+  'set_nickname',
   // Role management
   'list_roles',
   'create_role',
@@ -1253,6 +1268,85 @@ const TOOL_SCHEMAS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'lock_channel',
+      description: 'Lock a text channel so regular members cannot send messages.',
+      parameters: {
+        type: 'object',
+        properties: {
+          channel_id: { type: 'string', description: 'The ID of the channel to lock.' },
+          reason: { type: 'string', description: 'Reason for locking the channel.' },
+        },
+        required: ['channel_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'unlock_channel',
+      description: 'Unlock a previously locked text channel, restoring member messaging permissions.',
+      parameters: {
+        type: 'object',
+        properties: {
+          channel_id: { type: 'string', description: 'The ID of the channel to unlock.' },
+          reason: { type: 'string', description: 'Reason for unlocking the channel.' },
+        },
+        required: ['channel_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'slowmode_channel',
+      description: 'Set the slowmode (rate limit) for a text channel.',
+      parameters: {
+        type: 'object',
+        properties: {
+          channel_id: { type: 'string', description: 'The ID of the channel.' },
+          seconds: { type: 'number', description: 'Slowmode delay in seconds (0 to disable, max 21600).' },
+          reason: { type: 'string', description: 'Reason for changing the slowmode.' },
+        },
+        required: ['channel_id', 'seconds'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'purge_messages',
+      description: 'Bulk delete recent messages from a channel (up to 100). DANGEROUS — requires confirmation.',
+      parameters: {
+        type: 'object',
+        properties: {
+          channel_id: { type: 'string', description: 'The ID of the channel.' },
+          count: { type: 'number', description: 'Number of messages to delete (1–100).' },
+          user_id: { type: 'string', description: 'Optional: only delete messages from this user.' },
+          reason: { type: 'string', description: 'Reason for purging messages.' },
+        },
+        required: ['channel_id', 'count'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'set_nickname',
+      description: "Set or clear a member's server nickname.",
+      parameters: {
+        type: 'object',
+        properties: {
+          user_id: { type: 'string', description: 'The Discord user ID of the member.' },
+          nickname: { type: 'string', description: 'The new nickname (empty string to reset to username).' },
+          reason: { type: 'string', description: 'Reason for the nickname change.' },
+        },
+        required: ['user_id'],
+      },
+    },
+  },
 ];
 
 // ── Channel type mapping ─────────────────────────────────────────────────────────
@@ -1718,7 +1812,10 @@ function buildUsageLimitReachedEmbed(usageSnapshot, usagePolicy) {
 
 function upsertUsageField(reviewEmbed, usageSnapshot, usagePolicy) {
   if (!reviewEmbed || typeof reviewEmbed.toJSON !== 'function') return;
-  const usageValue = renderUsageBar(usageSnapshot.used, usagePolicy.limit);
+  const bar = renderUsageBar(usageSnapshot.used, usagePolicy.limit);
+  const resetTs = Math.floor((usageSnapshot.bucketStart + AI_USAGE_WINDOW_MS) / 1000);
+  const resetStr = usagePolicy.limit != null ? ` · resets <t:${resetTs}:R>` : '';
+  const usageValue = `${bar}${resetStr}`;
   const fields = reviewEmbed.toJSON()?.fields;
   if (!Array.isArray(fields)) return;
   const usageField = { name: 'Usage', value: usageValue, inline: false };
@@ -1755,6 +1852,18 @@ function consumeUsageAndDecorateReview(reviewEmbed, usagePolicy, userId) {
   const usageAfter = getUsageForUser(userId, Date.now());
   upsertUsageField(reviewEmbed, usageAfter, usagePolicy);
   return usageAfter;
+}
+
+function sendUsageLowWarning(interaction, usageAfter, usagePolicy) {
+  if (!usagePolicy?.limit) return;
+  const remaining = usagePolicy.limit - usageAfter.used;
+  if (remaining <= 0 || remaining > 3) return;
+  const resetTs = Math.floor((usageAfter.bucketStart + AI_USAGE_WINDOW_MS) / 1000);
+  const embed = new EmbedBuilder()
+    .setColor(0xff8800)
+    .setTitle('⚠️ AI Usage Running Low')
+    .setDescription(`You have **${remaining}** request${remaining === 1 ? '' : 's'} remaining this 6-hour window.\nResets <t:${resetTs}:R>.`);
+  interaction.followUp({ embeds: [embed], flags: MessageFlags.Ephemeral }).catch(() => null);
 }
 
 function getModelConfig(modelKey) {
@@ -3297,6 +3406,55 @@ if (!args.title || !String(args.title).trim()) throw new Error('Embed title is r
       }));
     }
 
+    case 'lock_channel': {
+      const ch = await guild.channels.fetch(args.channel_id);
+      if (!ch?.isTextBased()) throw new Error('Channel not found or not text-based.');
+      const everyoneRole = guild.roles.everyone;
+      await ch.permissionOverwrites.edit(everyoneRole, { SendMessages: false }, {
+        reason: buildAuditLogReason(interaction, `AI locked channel: ${args.reason ?? 'no reason'}`),
+      });
+      return { success: true, channel_id: ch.id, locked: true };
+    }
+
+    case 'unlock_channel': {
+      const ch = await guild.channels.fetch(args.channel_id);
+      if (!ch?.isTextBased()) throw new Error('Channel not found or not text-based.');
+      const everyoneRole = guild.roles.everyone;
+      await ch.permissionOverwrites.edit(everyoneRole, { SendMessages: null }, {
+        reason: buildAuditLogReason(interaction, `AI unlocked channel: ${args.reason ?? 'no reason'}`),
+      });
+      return { success: true, channel_id: ch.id, locked: false };
+    }
+
+    case 'slowmode_channel': {
+      const ch = await guild.channels.fetch(args.channel_id);
+      if (!ch?.isTextBased()) throw new Error('Channel not found or not text-based.');
+      const seconds = Math.min(21600, Math.max(0, Math.round(args.seconds ?? 0)));
+      await ch.setRateLimitPerUser(seconds, buildAuditLogReason(interaction, `AI set slowmode: ${args.reason ?? 'no reason'}`));
+      return { success: true, channel_id: ch.id, slowmode_seconds: seconds };
+    }
+
+    case 'purge_messages': {
+      const ch = await guild.channels.fetch(args.channel_id);
+      if (!ch?.isTextBased()) throw new Error('Channel not found or not text-based.');
+      const count = Math.min(100, Math.max(1, Math.round(args.count ?? 1)));
+      const fetched = await ch.messages.fetch({ limit: count });
+      let toDelete = [...fetched.values()];
+      if (args.user_id) toDelete = toDelete.filter((m) => m.author.id === String(args.user_id));
+      const twoWeeksAgo = Date.now() - 14 * 24 * 60 * 60 * 1000;
+      const purgeable = toDelete.filter((m) => m.createdTimestamp >= twoWeeksAgo);
+      await ch.bulkDelete(purgeable, true);
+      return { success: true, deleted: purgeable.length, skipped: toDelete.length - purgeable.length };
+    }
+
+    case 'set_nickname': {
+      const member = await guild.members.fetch(args.user_id);
+      if (!member) throw new Error('Member not found.');
+      const nick = args.nickname ?? null;
+      await member.setNickname(nick || null, buildAuditLogReason(interaction, `AI set nickname: ${args.reason ?? 'no reason'}`));
+      return { success: true, user_id: args.user_id, nickname: nick || null };
+    }
+
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }
@@ -4577,7 +4735,8 @@ function attachReviewHandler(replyMsg, interaction, session) {
         pageIndex: 0,
         viewMode: 'output',
       });
-      consumeUsageAndDecorateReview(result.reviewEmbed, validatedUsagePolicy, interaction.user.id);
+      const _usageAfter1 = consumeUsageAndDecorateReview(result.reviewEmbed, validatedUsagePolicy, interaction.user.id);
+      sendUsageLowWarning(interaction, _usageAfter1, validatedUsagePolicy);
       session.turnIndex = session.turns.length - 1;
       // Log follow-up AI interaction if safety is enabled
       if (session.safetyEnabled !== false) {
@@ -4887,7 +5046,8 @@ function attachReviewHandler(replyMsg, interaction, session) {
           pageIndex: 0,
           viewMode: 'output',
         });
-        consumeUsageAndDecorateReview(result.reviewEmbed, usagePolicy, interaction.user.id);
+        const _usageAfter2 = consumeUsageAndDecorateReview(result.reviewEmbed, usagePolicy, interaction.user.id);
+        sendUsageLowWarning(interaction, _usageAfter2, usagePolicy);
         session.turnIndex = session.turns.length - 1;
         // Log follow-up AI interaction if safety is enabled
         if (session.safetyEnabled !== false) {
@@ -5135,9 +5295,9 @@ async function sendAiInteractionLog(
  */
 function buildProcessingEmbed(status = 'Thinking…') {
   return new EmbedBuilder()
-    .setColor(DEFAULT_COLOR)
-    .setTitle(`${LOADING_EMOJI} Processing`)
-    .setDescription(`${LOADING_EMOJI} ${status}`)
+    .setColor(0x5865f2)
+    .setAuthor({ name: 'AI — Processing Request' })
+    .setDescription(`${LOADING_EMOJI}  **${status}**\n\n-# This may take a few seconds.`)
     .setTimestamp();
 }
 
@@ -5271,7 +5431,8 @@ module.exports = {
       });
     }
 
-    consumeUsageAndDecorateReview(result.reviewEmbed, usagePolicy, interaction.user.id);
+    const usageAfterConsume = consumeUsageAndDecorateReview(result.reviewEmbed, usagePolicy, interaction.user.id);
+    sendUsageLowWarning(interaction, usageAfterConsume, usagePolicy);
 
     // Log AI interaction if safety is enabled
     if (userSettings.safetyEnabled !== false) {

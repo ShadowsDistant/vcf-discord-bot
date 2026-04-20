@@ -279,14 +279,14 @@ async function runStart(interaction) {
   const startedTs = Math.floor(new Date(result.startedAt).getTime() / 1000);
   const shiftEmbed = embeds
     .shift(
-      '  Shift Started',
+      '🟢 Shift Started',
       `Welcome back, ${interaction.user}! Your shift has begun.`,
       interaction.guild,
     )
     .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
     .addFields(
-      { name: '  Staff Member', value: `${interaction.user}`, inline: true },
-      { name: '  Started At', value: `<t:${startedTs}:T> (<t:${startedTs}:R>)`, inline: true },
+      { name: '👤 Staff Member', value: `${interaction.user}`, inline: true },
+      { name: '🕐 Started At', value: `<t:${startedTs}:T> (<t:${startedTs}:R>)`, inline: true },
     );
 
   await interaction.reply({ embeds: [shiftEmbed], flags: MessageFlags.Ephemeral });
@@ -298,12 +298,12 @@ async function runStart(interaction) {
   if (config.shiftDmsEnabled !== false) {
     const dmEmbed = new EmbedBuilder()
       .setColor(PALETTE.shift)
-      .setTitle('  You Are Now On Shift')
+      .setTitle('🟢 You Are Now On Shift')
       .setDescription(`You clocked in at **${interaction.guild.name}**.`)
       .setThumbnail(interaction.guild.iconURL({ dynamic: true }) ?? null)
       .addFields(
-        { name: '  Server', value: interaction.guild.name, inline: true },
-        { name: '  Started At', value: `<t:${startedTs}:T>`, inline: true },
+        { name: '🏛️ Server', value: interaction.guild.name, inline: true },
+        { name: '🕐 Started At', value: `<t:${startedTs}:T>`, inline: true },
       );
 
     await interaction.user.send({ embeds: [dmEmbed] }).catch(() => null);
@@ -327,20 +327,20 @@ async function runEnd(interaction) {
   const wave = db.getCurrentWave(interaction.guild.id);
 
   const shiftEmbed = embeds
-    .shift('  Shift Ended', `Thanks for your work, ${interaction.user}! Great job today.`, interaction.guild)
+    .shift('🔴 Shift Ended', `Thanks for your work, ${interaction.user}! Great job today.`, interaction.guild)
     .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
     .addFields(
-      { name: '  Staff Member', value: `${interaction.user}`, inline: true },
-      { name: '  Duration', value: formatDuration(record.durationMs), inline: true },
-      { name: '  Started', value: `<t:${startedTs}:T>`, inline: true },
-      { name: '  Ended', value: `<t:${endedTs}:T>`, inline: true },
-      { name: 'Total Time on Record', value: formatDuration(totalMs), inline: true },
-      { name: '  Total Shifts', value: `${history.length}`, inline: true },
+      { name: '👤 Staff Member', value: `${interaction.user}`, inline: true },
+      { name: '⏱️ Duration', value: formatDuration(record.durationMs), inline: true },
+      { name: '🕐 Started', value: `<t:${startedTs}:T>`, inline: true },
+      { name: '🕐 Ended', value: `<t:${endedTs}:T>`, inline: true },
+      { name: '📊 Total Time', value: formatDuration(totalMs), inline: true },
+      { name: '📋 Total Shifts', value: `${history.length}`, inline: true },
     );
 
   if (wave) {
     shiftEmbed.addFields({
-      name: `  Wave #${wave.waveNumber} Time`,
+      name: `🌊 Wave #${wave.waveNumber} Time`,
       value: formatDuration(waveTimeMs),
       inline: true,
     });
@@ -359,7 +359,7 @@ async function runStatus(interaction, target) {
 
   if (!active) {
     return interaction.reply({
-      embeds: [embeds.info('  Shift Status', `${target} is currently **off shift**.`, interaction.guild)],
+      embeds: [embeds.info('📍 Shift Status', `${target} is currently **off shift**.`, interaction.guild)],
       flags: MessageFlags.Ephemeral,
     });
   }
@@ -370,11 +370,11 @@ async function runStatus(interaction, target) {
   return interaction.reply({
     embeds: [
       embeds
-        .shift('  Shift Status', `${target} is currently **on shift**.`, interaction.guild)
+        .shift('📍 Shift Status', `${target} is currently **🟢 on shift**.`, interaction.guild)
         .setThumbnail(target.displayAvatarURL({ dynamic: true }))
         .addFields(
-          { name: '  Started', value: `<t:${startedTs}:F>`, inline: true },
-          { name: 'Elapsed', value: formatDuration(elapsedMs), inline: true },
+          { name: '🕐 Started', value: `<t:${startedTs}:F>`, inline: true },
+          { name: '⏱️ Elapsed', value: formatDuration(elapsedMs), inline: true },
         ),
     ],
     flags: MessageFlags.Ephemeral,
@@ -385,25 +385,26 @@ async function runLogActive(interaction) {
   const active = db.getAllActiveShifts(interaction.guild.id);
   if (active.length === 0) {
     return interaction.reply({
-      embeds: [embeds.info('  Active Shifts', 'There are no active shifts right now.', interaction.guild)],
+      embeds: [embeds.info('🧾 Active Shifts', 'There are no active shifts right now.', interaction.guild)],
       flags: MessageFlags.Ephemeral,
     });
   }
 
   const embed = new EmbedBuilder()
     .setColor(PALETTE.shift)
-    .setTitle(`  Active Shifts (${active.length})`)
+    .setTitle(`🧾 Active Shifts (${active.length})`)
     .setFooter({
       text: interaction.guild.name,
       iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined,
-    });
+    })
+    .setTimestamp();
 
   for (const s of active) {
     const startedTs = Math.floor(new Date(s.startedAt).getTime() / 1000);
     const elapsedMs = Date.now() - new Date(s.startedAt).getTime();
     embed.addFields({
-      name: s.username,
-      value: `Started <t:${startedTs}:R> · Elapsed: **${formatDuration(elapsedMs)}**`,
+      name: `🟢 ${s.username}`,
+      value: `Started <t:${startedTs}:R> · ⏱️ **${formatDuration(elapsedMs)}**`,
     });
   }
 
@@ -433,16 +434,17 @@ async function runLogUser(interaction, target) {
 
   const embed = new EmbedBuilder()
     .setColor(PALETTE.shift)
-    .setTitle(`  Shift Log — ${target.tag}`)
+    .setTitle(`📒 Shift Log — ${target.tag}`)
     .setThumbnail(target.displayAvatarURL({ dynamic: true }))
     .addFields({
-      name: '  Statistics',
+      name: '📊 Statistics',
       value: [
         `Completed Shifts: **${history.length}**`,
         `Total Time: **${formatDuration(totalMs)}**`,
-        `Status: ${activeShift ? ' **On Shift**' : ' **Off Shift**'}`,
+        `Status: ${activeShift ? '🟢 **On Shift**' : '🔴 **Off Shift**'}`,
       ].join('\n'),
     })
+    .setTimestamp()
     .setFooter({
       text: interaction.guild.name,
       iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined,
@@ -450,15 +452,14 @@ async function runLogUser(interaction, target) {
 
   if (activeShift) {
     const startedTs = Math.floor(new Date(activeShift.startedAt).getTime() / 1000);
-    embed.addFields({ name: '  Current Shift', value: `Started <t:${startedTs}:R> (<t:${startedTs}:T>)` });
+    embed.addFields({ name: '🟢 Current Shift', value: `Started <t:${startedTs}:R> (<t:${startedTs}:T>)` });
   }
 
   if (isModerationMember) {
     embed.addFields({
-      name: '  Monthly Quota Progress (Moderation)',
+      name: '📋 Monthly Quota Progress',
       value: [
-        `Completed: **${formatDuration(monthTimeMs)}**`,
-        `Required: **${formatDuration(monthlyQuotaMs)}**`,
+        `Completed: **${formatDuration(monthTimeMs)}** / Required: **${formatDuration(monthlyQuotaMs)}**`,
         makeProgressBar(progressPct, 12),
       ].join('\n'),
     });
@@ -470,7 +471,7 @@ async function runLogUser(interaction, target) {
       const ts = Math.floor(new Date(s.startedAt).getTime() / 1000);
       return `<t:${ts}:D> — **${formatDuration(s.durationMs)}**`;
     });
-    embed.addFields({ name: '  Recent Shifts (last 5)', value: historyLines.join('\n') });
+    embed.addFields({ name: '📚 Recent Shifts (last 5)', value: historyLines.join('\n') });
   }
 
   return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
@@ -486,19 +487,18 @@ async function runHistory(interaction, target) {
   const progressPct = quotaMs > 0 ? Math.min(100, (waveTimeMs / quotaMs) * 100) : null;
 
   const embed = embeds
-    .shift(`  Shift History — ${target.tag}`, 'Shift history overview.', interaction.guild)
+    .shift(`📚 Shift History — ${target.tag}`, 'Shift history overview.', interaction.guild)
     .setThumbnail(target.displayAvatarURL({ dynamic: true }))
     .addFields(
-      { name: '  Completed Shifts', value: `${history.length}`, inline: true },
-      { name: 'Total Time', value: formatDuration(totalMs), inline: true },
+      { name: '📋 Completed Shifts', value: `${history.length}`, inline: true },
+      { name: '⏱️ Total Time', value: formatDuration(totalMs), inline: true },
     );
 
   if (wave && quotaMs > 0) {
     embed.addFields({
-      name: `  Quota Progress (Wave #${wave.waveNumber})`,
+      name: `🌊 Quota Progress (Wave #${wave.waveNumber})`,
       value: [
-        `Completed: **${formatDuration(waveTimeMs)}**`,
-        `Required: **${formatDuration(quotaMs)}**`,
+        `Completed: **${formatDuration(waveTimeMs)}** / Required: **${formatDuration(quotaMs)}**`,
         makeProgressBar(progressPct, 12),
       ].join('\n'),
     });
@@ -512,7 +512,7 @@ async function runHistory(interaction, target) {
         const ts = Math.floor(new Date(s.startedAt).getTime() / 1000);
         return `ID \`${s.id}\` · <t:${ts}:D> — **${formatDuration(s.durationMs)}**`;
       });
-    embed.addFields({ name: '  Recent Shifts (last 10)', value: lines.join('\n') });
+    embed.addFields({ name: '📚 Recent Shifts (last 10)', value: lines.join('\n') });
   }
 
   return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
@@ -522,7 +522,7 @@ async function runLeaderboard(interaction) {
   const leaderboard = db.getShiftLeaderboard(interaction.guild.id);
   if (leaderboard.length === 0) {
     return interaction.reply({
-      embeds: [embeds.info('  Shift Leaderboard', 'No completed shifts yet. Start a shift to begin!', interaction.guild)],
+      embeds: [embeds.info('🏆 Shift Leaderboard', 'No completed shifts yet. Start a shift to begin!', interaction.guild)],
       flags: MessageFlags.Ephemeral,
     });
   }
@@ -535,8 +535,9 @@ async function runLeaderboard(interaction) {
 
   const embed = new EmbedBuilder()
     .setColor(PALETTE.shift)
-    .setTitle('  Shift Leaderboard')
+    .setTitle('🏆 Shift Leaderboard')
     .setDescription(rows.join('\n'))
+    .setTimestamp()
     .setFooter({
       text: `${leaderboard.length} staff member${leaderboard.length !== 1 ? 's' : ''} on record · ${interaction.guild.name}`,
       iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined,
@@ -546,7 +547,7 @@ async function runLeaderboard(interaction) {
   if (callerRank >= 10) {
     const callerEntry = leaderboard[callerRank];
     embed.addFields({
-      name: '  Your Rank',
+      name: '📍 Your Rank',
       value: `#${callerRank + 1} — **${formatDuration(callerEntry.totalMs)}** (${callerEntry.shiftCount} shift${callerEntry.shiftCount !== 1 ? 's' : ''})`,
     });
   }
@@ -565,7 +566,7 @@ async function runRoles(interaction) {
   return interaction.reply({
     embeds: [
       embeds
-        .shift('  Shift Roles', 'These roles are currently allowed to use shift commands:', interaction.guild)
+        .shift('👥 Shift Roles', 'These roles are currently allowed to use shift commands:', interaction.guild)
         .addFields({
           name: 'Shift Access',
           value: accessRoleLines.join('\n'),
@@ -587,7 +588,7 @@ async function runManageList(interaction, targetUser) {
 
   if (!rows.length) {
     return interaction.reply({
-      embeds: [embeds.info('  Shift Records', 'No completed shift records found.', interaction.guild)],
+      embeds: [embeds.info('🛠️ Shift Records', 'No completed shift records found.', interaction.guild)],
       flags: MessageFlags.Ephemeral,
     });
   }
@@ -595,9 +596,9 @@ async function runManageList(interaction, targetUser) {
   return interaction.reply({
     embeds: [
       embeds
-        .shift('  Shift Records', 'Recent shift records. Use IDs with manage edit/delete actions.', interaction.guild)
+        .shift('🛠️ Shift Records', 'Recent shift records. Use IDs with manage edit/delete actions.', interaction.guild)
         .addFields({
-          name: '  Records',
+          name: '📋 Records',
           value: rows
             .map((s) => `\`${s.id}\` · <@${s.userId}> · ${formatDuration(s.durationMs)} · <t:${Math.floor(new Date(s.startedAt).getTime() / 1000)}:D>`)
             .join('\n'),
@@ -782,7 +783,7 @@ module.exports = {
     return interaction.reply({
       embeds: [
         embeds
-          .shift('  Shift Control Panel', 'Select an action below to manage shifts.', interaction.guild),
+          .shift('🕐 Shift Control Panel', 'Select an action below to manage shifts.', interaction.guild),
       ],
       components: [buildPanelMenu()],
       flags: MessageFlags.Ephemeral,

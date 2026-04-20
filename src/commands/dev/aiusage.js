@@ -1,6 +1,12 @@
 'use strict';
 
-const { SlashCommandBuilder, MessageFlags } = require('discord.js');
+const {
+  SlashCommandBuilder,
+  MessageFlags,
+  ActionRowBuilder,
+  StringSelectMenuBuilder,
+  EmbedBuilder,
+} = require('discord.js');
 const embeds = require('../../utils/embeds');
 const db = require('../../utils/database');
 
@@ -12,7 +18,7 @@ function canManageAiUsage(member) {
 }
 
 function readUsage() {
-  return db.read(AI_USAGE_FILE, { usage: {}, userOverrides: {}, roleOverrides: {} });
+  return db.read(AI_USAGE_FILE, { usage: {}, userOverrides: {}, roleOverrides: {}, safetyToggleUsers: {} });
 }
 
 function writeUsage(mutator) {
@@ -29,142 +35,82 @@ function getBucketStart(now = Date.now()) {
   return Math.floor(now / AI_USAGE_WINDOW_MS) * AI_USAGE_WINDOW_MS;
 }
 
+function buildAiManagePanel(guild, actorId) {
+  const data = readUsage();
+  const bucketStart = getBucketStart();
+  const resetTs = Math.floor((bucketStart + AI_USAGE_WINDOW_MS) / 1000);
+  const userOverrideCount = Object.keys(data.userOverrides ?? {}).length;
+  const roleOverrideCount = Object.keys(data.roleOverrides ?? {}).length;
+  const safetyToggleCount = Object.keys(data.safetyToggleUsers ?? {}).length;
+  const activeUsageCount = Object.values(data.usage ?? {})
+    .filter((rec) => Number(rec.bucketStart) === bucketStart && Number(rec.used) > 0)
+    .length;
+
+  return new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle('🤖 AI Usage Management')
+    .setDescription('Manage user limits, role overrides, adjustments, and safety toggle access.\nSelect an action from the menu below.')
+    .addFields(
+      { name: '⏱️ Window Reset', value: `<t:${resetTs}:R>`, inline: true },
+      { name: '📊 Active Users', value: `${activeUsageCount}`, inline: true },
+      { name: '👤 User Overrides', value: `${userOverrideCount}`, inline: true },
+      { name: '🎭 Role Overrides', value: `${roleOverrideCount}`, inline: true },
+      { name: '🔓 Safety Toggle', value: `${safetyToggleCount} user(s)`, inline: true },
+    )
+    .setTimestamp()
+    .setFooter({ text: guild.name, icon_url: guild.iconURL() ?? undefined });
+}
+
+const ACTION_OPTIONS = [
+  { label: '🎯 Set User Limit', value: 'set-user', description: 'Set a custom per-6h limit for a specific user.' },
+  { label: '🎭 Set Role Limit', value: 'set-role', description: 'Set a custom per-6h limit for a role.' },
+  { label: '🗑️ Clear User Limit', value: 'clear-user', description: "Remove a user's custom limit override." },
+  { label: '🗑️ Clear Role Limit', value: 'clear-role', description: "Remove a role's custom limit override." },
+  { label: '✨ Grant User Adjustment', value: 'grant-user', description: "Adjust a user's usage count this window." },
+  { label: '✨ Grant Role Adjustment', value: 'grant-role', description: "Adjust usage count for all members in a role." },
+  { label: '🔓 Allow Safety Toggle', value: 'allow-safety-user', description: 'Allow a user to disable AI safety in /ai.' },
+  { label: '🔒 Disallow Safety Toggle', value: 'disallow-safety-user', description: "Remove a user's safety toggle permission." },
+];
+
+const USER_ACTIONS = new Set(['set-user', 'clear-user', 'grant-user', 'allow-safety-user', 'disallow-safety-user']);
+const ROLE_ACTIONS = new Set(['set-role', 'clear-role', 'grant-role']);
+const VALUE_ACTIONS = new Set(['set-user', 'set-role', 'grant-user', 'grant-role']);
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('aimanage')
-    .setDescription('Manage AI usage allowances and safety toggle access.')
-    .addStringOption((opt) => opt
-      .setName('action')
-      .setDescription('AI management action to perform.')
-      .setRequired(true)
-      .addChoices(
-        { name: 'Set user limit override', value: 'set-user' },
-        { name: 'Set role limit override', value: 'set-role' },
-        { name: 'Clear user limit override', value: 'clear-user' },
-        { name: 'Clear role limit override', value: 'clear-role' },
-        { name: 'Grant one-time user adjustment', value: 'grant-user' },
-        { name: 'Grant one-time role adjustment', value: 'grant-role' },
-        { name: 'Allow user to disable safety', value: 'allow-safety-user' },
-        { name: 'Disallow user safety toggle', value: 'disallow-safety-user' },
-      ))
-    .addUserOption((opt) => opt.setName('user').setDescription('Target user (for user actions).'))
-    .addRoleOption((opt) => opt.setName('role').setDescription('Target role (for role actions).'))
-    .addIntegerOption((opt) => opt.setName('value').setDescription('Limit or adjustment amount (required for set/grant actions).')),
+    .setDescription('Open the AI usage management panel.')
+    .setDMPermission(false),
 
   async execute(interaction) {
     if (!canManageAiUsage(interaction.member)) {
-      return interaction.reply({ embeds: [embeds.error('You do not have permission to manage AI usage.', interaction.guild)], flags: MessageFlags.Ephemeral });
-    }
-
-    const action = interaction.options.getString('action', true);
-    const user = interaction.options.getUser('user');
-    const role = interaction.options.getRole('role');
-    const value = interaction.options.getInteger('value');
-
-    if (action === 'set-user') {
-      if (!user || value == null) {
-        return interaction.reply({ embeds: [embeds.error('Set user override requires `user` and `value`.', interaction.guild)], flags: MessageFlags.Ephemeral });
-      }
-      const limit = value;
-      writeUsage((data) => {
-        data.userOverrides[user.id] = limit < 0 ? { unlimited: true } : { limit: Math.max(0, limit), unlimited: false };
+      return interaction.reply({
+        embeds: [embeds.error('You do not have permission to manage AI usage.', interaction.guild)],
+        flags: MessageFlags.Ephemeral,
       });
-      return interaction.reply({ embeds: [embeds.success(`Set user override for ${user} to **${limit < 0 ? 'unlimited' : `${limit}/6h`}**.`, interaction.guild)], flags: MessageFlags.Ephemeral });
     }
-
-    if (action === 'set-role') {
-      if (!role || value == null) {
-        return interaction.reply({ embeds: [embeds.error('Set role override requires `role` and `value`.', interaction.guild)], flags: MessageFlags.Ephemeral });
-      }
-      const limit = value;
-      writeUsage((data) => {
-        data.roleOverrides[role.id] = limit < 0 ? { unlimited: true } : { limit: Math.max(0, limit), unlimited: false };
-      });
-      return interaction.reply({ embeds: [embeds.success(`Set role override for ${role} to **${limit < 0 ? 'unlimited' : `${limit}/6h`}**.`, interaction.guild)], flags: MessageFlags.Ephemeral });
-    }
-
-    if (action === 'clear-user') {
-      if (!user) {
-        return interaction.reply({ embeds: [embeds.error('Clear user override requires `user`.', interaction.guild)], flags: MessageFlags.Ephemeral });
-      }
-      writeUsage((data) => {
-        delete data.userOverrides[user.id];
-      });
-      return interaction.reply({ embeds: [embeds.success(`Cleared AI usage override for ${user}.`, interaction.guild)], flags: MessageFlags.Ephemeral });
-    }
-
-    if (action === 'clear-role') {
-      if (!role) {
-        return interaction.reply({ embeds: [embeds.error('Clear role override requires `role`.', interaction.guild)], flags: MessageFlags.Ephemeral });
-      }
-      writeUsage((data) => {
-        delete data.roleOverrides[role.id];
-      });
-      return interaction.reply({ embeds: [embeds.success(`Cleared AI usage override for ${role}.`, interaction.guild)], flags: MessageFlags.Ephemeral });
-    }
-
-    if (action === 'grant-user') {
-      if (!user || value == null) {
-        return interaction.reply({ embeds: [embeds.error('Grant user adjustment requires `user` and `value`.', interaction.guild)], flags: MessageFlags.Ephemeral });
-      }
-      const amount = value;
-      const bucketStart = getBucketStart(Date.now());
-      writeUsage((data) => {
-        const rec = data.usage[user.id] ?? { bucketStart, used: 0 };
-        if (Number(rec.bucketStart) !== bucketStart) {
-          rec.bucketStart = bucketStart;
-          rec.used = 0;
-        }
-        rec.used = Math.max(0, Number(rec.used ?? 0) - amount);
-        data.usage[user.id] = rec;
-      });
-      const direction = amount >= 0 ? `+${amount}` : String(amount);
-      return interaction.reply({ embeds: [embeds.success(`Applied one-time adjustment ${direction} to ${user} this window.`, interaction.guild)], flags: MessageFlags.Ephemeral });
-    }
-
-    if (action === 'grant-role') {
-      if (!role || value == null) {
-        return interaction.reply({ embeds: [embeds.error('Grant role adjustment requires `role` and `value`.', interaction.guild)], flags: MessageFlags.Ephemeral });
-      }
-      const amount = value;
-      const members = await interaction.guild.members.fetch();
-      const targets = [...members.values()].filter((m) => m.roles.cache.has(role.id));
-      const bucketStart = getBucketStart(Date.now());
-      writeUsage((data) => {
-        for (const m of targets) {
-          const rec = data.usage[m.id] ?? { bucketStart, used: 0 };
-          if (Number(rec.bucketStart) !== bucketStart) {
-            rec.bucketStart = bucketStart;
-            rec.used = 0;
-          }
-          rec.used = Math.max(0, Number(rec.used ?? 0) - amount);
-          data.usage[m.id] = rec;
-        }
-      });
-      const direction = amount >= 0 ? `+${amount}` : String(amount);
-      return interaction.reply({ embeds: [embeds.success(`Applied one-time adjustment ${direction} for **${targets.length}** member(s) in ${role}.`, interaction.guild)], flags: MessageFlags.Ephemeral });
-    }
-
-    if (action === 'allow-safety-user') {
-      if (!user) {
-        return interaction.reply({ embeds: [embeds.error('Allow safety toggle requires `user`.', interaction.guild)], flags: MessageFlags.Ephemeral });
-      }
-      writeUsage((data) => {
-        data.safetyToggleUsers[user.id] = true;
-      });
-      return interaction.reply({ embeds: [embeds.success(`Allowed ${user} to disable AI safety in /ai.`, interaction.guild)], flags: MessageFlags.Ephemeral });
-    }
-
-    if (action === 'disallow-safety-user') {
-      if (!user) {
-        return interaction.reply({ embeds: [embeds.error('Disallow safety toggle requires `user`.', interaction.guild)], flags: MessageFlags.Ephemeral });
-      }
-      writeUsage((data) => {
-        delete data.safetyToggleUsers[user.id];
-      });
-      return interaction.reply({ embeds: [embeds.success(`Removed ${user}'s permission to disable AI safety in /ai.`, interaction.guild)], flags: MessageFlags.Ephemeral });
-    }
-
-    return interaction.reply({ embeds: [embeds.error('Unsupported subcommand.', interaction.guild)], flags: MessageFlags.Ephemeral });
+    return interaction.reply({
+      embeds: [buildAiManagePanel(interaction.guild, interaction.user.id)],
+      components: [
+        new ActionRowBuilder().addComponents(
+          new StringSelectMenuBuilder()
+            .setCustomId(`aimanage_action_select:${interaction.user.id}`)
+            .setPlaceholder('Select an action...')
+            .addOptions(ACTION_OPTIONS),
+        ),
+      ],
+      flags: MessageFlags.Ephemeral,
+    });
   },
+
+  canManageAiUsage,
+  buildAiManagePanel,
+  ACTION_OPTIONS,
+  USER_ACTIONS,
+  ROLE_ACTIONS,
+  VALUE_ACTIONS,
+  readUsage,
+  writeUsage,
+  getBucketStart,
+  AI_USAGE_WINDOW_MS,
 };
