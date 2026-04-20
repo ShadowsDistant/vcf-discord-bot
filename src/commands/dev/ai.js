@@ -5524,7 +5524,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
       refreshSessionSystemPrompt(session);
       session.messages.push({ role: 'user', content: prompt });
       // Preserve the loading message only when there is actual progress to show
-      if (processMsgId !== undefined) {
+      if (typeof processMsgId !== "undefined") {
         await replyMsg.edit({ embeds: [buildProcessingEmbed()], components: [] }).catch(() => null);
       }
 

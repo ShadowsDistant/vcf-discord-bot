@@ -388,6 +388,7 @@ function getComponentExpiryMs(customId) {
     || customId === 'updates_log_select'
     || customId?.startsWith('updates_nav:')
     || customId?.startsWith('help_category_select:')
+    || customId?.startsWith('aimanage_')
   ) {
     return COMPONENT_EXPIRY_LONG_MS;
   }
@@ -2060,9 +2061,10 @@ module.exports = {
         flags: MessageFlags.Ephemeral,
       });
     }
+    await interaction.deferUpdate().catch(() => null);
     const action = interaction.values[0];
     if (aiManageCommand.USER_ACTIONS.has(action)) {
-      return interaction.update({
+      return interaction.editReply({
         embeds: [aiManageCommand.buildAiManagePanel(interaction.guild, actorId)],
         components: [
           new ActionRowBuilder().addComponents(
@@ -2072,12 +2074,12 @@ module.exports = {
               .setMinValues(1)
               .setMaxValues(1),
           ),
+          buildAimanageActionRow(actorId),
         ],
-        flags: MessageFlags.Ephemeral,
       });
     }
     if (aiManageCommand.ROLE_ACTIONS.has(action)) {
-      return interaction.update({
+      return interaction.editReply({
         embeds: [aiManageCommand.buildAiManagePanel(interaction.guild, actorId)],
         components: [
           new ActionRowBuilder().addComponents(
@@ -2087,13 +2089,13 @@ module.exports = {
               .setMinValues(1)
               .setMaxValues(1),
           ),
+          buildAimanageActionRow(actorId),
         ],
-        flags: MessageFlags.Ephemeral,
       });
     }
-    return interaction.reply({
+    return interaction.editReply({
       embeds: [embeds.error('Unknown action selected.', interaction.guild)],
-      flags: MessageFlags.Ephemeral,
+      components: [buildAimanageActionRow(actorId)],
     });
   }
 
