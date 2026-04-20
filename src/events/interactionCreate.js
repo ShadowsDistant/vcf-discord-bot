@@ -905,10 +905,8 @@ module.exports = {
         const messageCreatedAtMs = Number.parseInt(parts[3], 10);
         economy.deletePendingMessage(interaction.guild.id, interaction.user.id, messageId, messageCreatedAtMs);
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
-        const totalPages = Math.max(1, Math.ceil(snapshot.user.pendingMessages.length / 8));
-        const safePage = Math.max(0, Math.min(currentPage, totalPages - 1));
-        const embed = economy.buildMessagesEmbed(interaction.guild, snapshot.user, safePage);
-        const components = economy.buildMessagesComponents(snapshot.user, safePage);
+        const embed = economy.buildMessagesEmbed(interaction.guild, snapshot.user, currentPage);
+        const components = economy.buildMessagesComponents(snapshot.user, currentPage);
         return interaction.update({ embeds: [embed], components });
       }
 
@@ -1856,6 +1854,7 @@ module.exports = {
         }
         const audience = interaction.values[0];
         const audienceLabel = getBroadcastAudienceLabel(audience);
+        const broadcastKind = audience === 'role:vai_access' ? 'dev' : 'standard';
         const modal = new ModalBuilder()
           .setCustomId(`broadcastmsg_compose:${actorId}:${audience}`)
           .setTitle('📢 Compose Broadcast')
@@ -2100,6 +2099,20 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+        if (action === 'allow-deep-research-user') {
+          aiManageCommand.writeUsage((data) => { data.deepResearchUsers[targetId] = true; });
+          return interaction.reply({
+            embeds: [embeds.success(`Allowed <@${targetId}> to enable Deep Research in /ai.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'disallow-deep-research-user') {
+          aiManageCommand.writeUsage((data) => { delete data.deepResearchUsers[targetId]; });
+          return interaction.reply({
+            embeds: [embeds.success(`Removed <@${targetId}>'s Deep Research access.`, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
         return interaction.reply({ embeds: [embeds.error('Unknown action.', interaction.guild)], flags: MessageFlags.Ephemeral });
       }
     }
@@ -2310,9 +2323,11 @@ module.exports = {
           }
         }
         const audienceLabel = broadcastMessageCommand.AUDIENCE_OPTIONS.find((o) => o.value === audience)?.label ?? audience;
+        const broadcastKind = audience === 'role:vai_access' ? 'dev' : 'standard';
         for (const memberId of targetIds) {
           economy.addPendingMessage(interaction.guild.id, memberId, {
             type: 'broadcast',
+            broadcastKind,
             from: `${interaction.user.tag}`,
             title,
             content: message,

@@ -18,15 +18,16 @@ function canManageAiUsage(member) {
 }
 
 function readUsage() {
-  return db.read(AI_USAGE_FILE, { usage: {}, userOverrides: {}, roleOverrides: {}, safetyToggleUsers: {} });
+  return db.read(AI_USAGE_FILE, { usage: {}, userOverrides: {}, roleOverrides: {}, safetyToggleUsers: {}, deepResearchUsers: {} });
 }
 
 function writeUsage(mutator) {
-  db.update(AI_USAGE_FILE, { usage: {}, userOverrides: {}, roleOverrides: {}, safetyToggleUsers: {} }, (data) => {
+  db.update(AI_USAGE_FILE, { usage: {}, userOverrides: {}, roleOverrides: {}, safetyToggleUsers: {}, deepResearchUsers: {} }, (data) => {
     if (!data.usage || typeof data.usage !== 'object') data.usage = {};
     if (!data.userOverrides || typeof data.userOverrides !== 'object') data.userOverrides = {};
     if (!data.roleOverrides || typeof data.roleOverrides !== 'object') data.roleOverrides = {};
     if (!data.safetyToggleUsers || typeof data.safetyToggleUsers !== 'object') data.safetyToggleUsers = {};
+    if (!data.deepResearchUsers || typeof data.deepResearchUsers !== 'object') data.deepResearchUsers = {};
     mutator(data);
   });
 }
@@ -42,6 +43,7 @@ function buildAiManagePanel(guild, actorId) {
   const userOverrideCount = Object.keys(data.userOverrides ?? {}).length;
   const roleOverrideCount = Object.keys(data.roleOverrides ?? {}).length;
   const safetyToggleCount = Object.keys(data.safetyToggleUsers ?? {}).length;
+  const deepResearchCount = Object.keys(data.deepResearchUsers ?? {}).length;
   const activeUsageCount = Object.values(data.usage ?? {})
     .filter((rec) => Number(rec.bucketStart) === bucketStart && Number(rec.used) > 0)
     .length;
@@ -56,6 +58,7 @@ function buildAiManagePanel(guild, actorId) {
       { name: '👤 User Overrides', value: `${userOverrideCount}`, inline: true },
       { name: '🎭 Role Overrides', value: `${roleOverrideCount}`, inline: true },
       { name: '🔓 Safety Toggle', value: `${safetyToggleCount} user(s)`, inline: true },
+      { name: '🔬 Deep Research', value: `${deepResearchCount} user(s)`, inline: true },
     )
     .setTimestamp()
     .setFooter({ text: guild.name, icon_url: guild.iconURL() ?? undefined });
@@ -72,9 +75,11 @@ const ACTION_OPTIONS = [
   { label: '✨ Grant Role Adjustment', value: 'grant-role', description: "Adjust usage count for all members in a role." },
   { label: '🔓 Allow Safety Toggle', value: 'allow-safety-user', description: 'Allow a user to disable AI safety in /ai.' },
   { label: '🔒 Disallow Safety Toggle', value: 'disallow-safety-user', description: "Remove a user's safety toggle permission." },
+  { label: '🔬 Allow Deep Research', value: 'allow-deep-research-user', description: 'Allow a user to enable Deep Research in /ai.' },
+  { label: '🧪 Disallow Deep Research', value: 'disallow-deep-research-user', description: "Remove a user's Deep Research access." },
 ];
 
-const USER_ACTIONS = new Set(['view-user', 'set-user', 'clear-user', 'grant-user', 'allow-safety-user', 'disallow-safety-user']);
+const USER_ACTIONS = new Set(['view-user', 'set-user', 'clear-user', 'grant-user', 'allow-safety-user', 'disallow-safety-user', 'allow-deep-research-user', 'disallow-deep-research-user']);
 const ROLE_ACTIONS = new Set(['view-role', 'set-role', 'clear-role', 'grant-role']);
 const VALUE_ACTIONS = new Set(['set-user', 'set-role', 'grant-user', 'grant-role']);
 const INFO_ACTIONS = new Set(['view-user', 'view-role']);

@@ -110,6 +110,8 @@ const AI_TOGGLE_PROMPT_BUTTON_ID = 'ai_toggle_prompt';
 const AI_MODEL_SELECT_ID = 'ai_model_select';
 const AI_SAFETY_SELECT_ID = 'ai_safety_select';
 const AI_PERSONA_SELECT_ID = 'ai_persona_select';
+const AI_DEEP_RESEARCH_SELECT_ID = 'ai_deep_research_select';
+const AI_DEEP_RESEARCH_VARIANT_COUNT = 5;
 const AI_CONTINUE_MODAL_ID = 'ai_continue_modal';
 const AI_CONTINUE_PROMPT_INPUT_ID = 'ai_continue_prompt';
 const AI_CUSTOM_INSTRUCTIONS_BUTTON_ID = 'ai_custom_instructions';
@@ -1451,6 +1453,57 @@ const TOOL_SCHEMAS = [
       },
     },
   },
+  {
+    type: 'function',
+    function: {
+      name: 'view_channel_messages',
+      description: 'Fetch up to 100 recent messages from any text channel the bot can read. Use to inspect recent conversation context.',
+      parameters: {
+        type: 'object',
+        properties: {
+          channel_id: { type: 'string', description: 'The target text channel ID.' },
+          limit: { type: 'number', description: 'Number of messages (1–100). Defaults to 50.' },
+          before_message_id: { type: 'string', description: 'Optional message ID — page older history (exclusive).' },
+        },
+        required: ['channel_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'view_user_messages',
+      description: 'Fetch up to 100 recent messages authored by a specific user from one channel by scanning through channel history.',
+      parameters: {
+        type: 'object',
+        properties: {
+          channel_id: { type: 'string', description: 'The channel to scan.' },
+          user_id: { type: 'string', description: "Target user's Discord ID." },
+          limit: { type: 'number', description: 'Max matching messages (1–100). Defaults to 50.' },
+          scan_limit: { type: 'number', description: 'Max channel messages to scan (100–500). Defaults to 300.' },
+        },
+        required: ['channel_id', 'user_id'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'send_file',
+      description: 'Send a text/markdown file attachment (up to ~1MB) to a channel, with an optional embed summary alongside. Use for responses too long to fit in an embed.',
+      parameters: {
+        type: 'object',
+        properties: {
+          channel_id: { type: 'string', description: 'Target channel ID.' },
+          filename: { type: 'string', description: "File name (e.g. 'report.md')." },
+          content: { type: 'string', description: 'Full file contents (plain text/markdown, up to ~1MB).' },
+          summary_title: { type: 'string', description: 'Optional embed title to send alongside the file.' },
+          summary_description: { type: 'string', description: 'Optional embed description to send alongside the file.' },
+        },
+        required: ['channel_id', 'filename', 'content'],
+      },
+    },
+  },
 ];
 
 // ── Channel type mapping ─────────────────────────────────────────────────────────
@@ -2032,6 +2085,7 @@ function normalizeAiSettings(input) {
   return {
     modelKey: getModelConfig(input?.modelKey).key,
     personaKey: getPersonaConfig(input?.personaKey).key,
+    deepResearch: Boolean(input?.deepResearch),
     customInstructions: normalizeCustomInstructions(input?.customInstructions),
     showThinking: Boolean(input?.showThinking),
     safetyEnabled: input?.safetyEnabled !== false,
@@ -2070,6 +2124,7 @@ function getUserAiSettings(userId) {
     customInstructions: '',
     showThinking: false,
     safetyEnabled: true,
+    deepResearch: false,
   });
 }
 
@@ -2094,6 +2149,7 @@ function setUserAiSettings(userId, settings) {
       customInstructions: normalized.customInstructions,
       showThinking: normalized.showThinking,
       safetyEnabled: normalized.safetyEnabled,
+      deepResearch: Boolean(normalized.deepResearch),
       updatedAt: new Date().toISOString(),
     };
   });
@@ -2134,6 +2190,15 @@ function buildSystemPrompt(safetyEnabled, toolAccessPromptSuffix = '', runtimeCo
  * @param {string} userId
  * @returns {boolean}
  */
+function canUseDeepResearch(userId) {
+  const id = String(userId);
+  if (!id) return false;
+  try {
+    const data = db.read('ai_usage_limits.json', {});
+    return Boolean(data?.deepResearchUsers?.[id]);
+  } catch { return false; }
+}
+
 function canToggleAiSafety(userId) {
   const id = String(userId);
   if (id === AI_SAFETY_TOGGLE_USER_ID) return true;
@@ -2672,6 +2737,103 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
       const msg = await ch.messages.fetch(args.message_id);
       await msg.delete();
       return { success: true };
+    }
+
+    case 'view_channel_messages': {
+      const ch = await guild.channels.fetch(args.channel_id);
+      if (!ch?.isTextBased()) throw new Error('Channel not found or not text-based.');
+      const limit = Math.max(1, Math.min(100, Number.parseInt(args.limit, 10) || 50));
+      const fetchOpts = { limit };
+      if (args.before_message_id) fetchOpts.before = String(args.before_message_id);
+      const messages = await ch.messages.fetch(fetchOpts);
+      const arr = [...messages.values()]
+        .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+        .map((m) => ({
+          id: m.id,
+          author_id: m.author?.id ?? null,
+          author_tag: m.author?.tag ?? null,
+          author_bot: Boolean(m.author?.bot),
+          created_at: m.createdAt?.toISOString() ?? null,
+          edited_at: m.editedAt?.toISOString() ?? null,
+          content: String(m.content ?? '').slice(0, 2000),
+          attachments: [...m.attachments.values()].map((a) => ({ id: a.id, name: a.name, url: a.url, size: a.size, content_type: a.contentType ?? null })),
+          embed_count: m.embeds?.length ?? 0,
+          reference: m.reference?.messageId ?? null,
+          link: `https://discord.com/channels/${guild.id}/${ch.id}/${m.id}`,
+        }));
+      return {
+        channel_id: ch.id,
+        channel_name: ch.name,
+        fetched: arr.length,
+        messages: arr,
+      };
+    }
+
+    case 'view_user_messages': {
+      const ch = await guild.channels.fetch(args.channel_id);
+      if (!ch?.isTextBased()) throw new Error('Channel not found or not text-based.');
+      const targetUserId = String(args.user_id);
+      const limit = Math.max(1, Math.min(100, Number.parseInt(args.limit, 10) || 50));
+      const scanLimit = Math.max(100, Math.min(500, Number.parseInt(args.scan_limit, 10) || 300));
+      const results = [];
+      let beforeId = undefined;
+      let scanned = 0;
+      while (scanned < scanLimit && results.length < limit) {
+        const batchSize = Math.min(100, scanLimit - scanned);
+        const batch = await ch.messages.fetch(beforeId ? { limit: batchSize, before: beforeId } : { limit: batchSize });
+        if (!batch.size) break;
+        const arr = [...batch.values()];
+        scanned += arr.length;
+        for (const m of arr) {
+          if (m.author?.id === targetUserId) {
+            results.push({
+              id: m.id,
+              created_at: m.createdAt?.toISOString() ?? null,
+              edited_at: m.editedAt?.toISOString() ?? null,
+              content: String(m.content ?? '').slice(0, 2000),
+              attachments: [...m.attachments.values()].map((a) => ({ id: a.id, name: a.name, url: a.url })),
+              embed_count: m.embeds?.length ?? 0,
+              link: `https://discord.com/channels/${guild.id}/${ch.id}/${m.id}`,
+            });
+            if (results.length >= limit) break;
+          }
+        }
+        beforeId = arr[arr.length - 1]?.id;
+        if (!beforeId) break;
+      }
+      results.sort((a, b) => new Date(a.created_at || 0) - new Date(b.created_at || 0));
+      return {
+        channel_id: ch.id,
+        channel_name: ch.name,
+        user_id: targetUserId,
+        scanned,
+        found: results.length,
+        messages: results,
+      };
+    }
+
+    case 'send_file': {
+      const ch = await guild.channels.fetch(args.channel_id);
+      if (!ch?.isTextBased()) throw new Error('Channel not found or not text-based.');
+      const filename = String(args.filename || 'response.txt').trim().slice(0, 80) || 'response.txt';
+      const safeName = /^[\w.\-]+$/.test(filename) ? filename : 'response.txt';
+      const fileContent = String(args.content ?? '');
+      const bytes = Buffer.from(fileContent, 'utf8');
+      if (bytes.length > 1024 * 1024) throw new Error('File content exceeds 1MB limit.');
+      const { AttachmentBuilder } = require('discord.js');
+      const attachment = new AttachmentBuilder(bytes, { name: safeName });
+      const payload = { files: [attachment] };
+      if (args.summary_title || args.summary_description) {
+        const embed = new EmbedBuilder()
+          .setColor(0x5865f2)
+          .setTimestamp();
+        if (args.summary_title) embed.setTitle(String(args.summary_title).slice(0, 256));
+        if (args.summary_description) embed.setDescription(String(args.summary_description).slice(0, 4000));
+        embed.addFields({ name: '📎 Attachment', value: `\`${safeName}\` — ${bytes.length.toLocaleString()} bytes`, inline: false });
+        payload.embeds = [embed];
+      }
+      const msg = await ch.send(payload);
+      return { success: true, message_id: msg.id, channel_id: ch.id, filename: safeName, bytes: bytes.length };
     }
 
     case 'get_channel_info': {
@@ -4126,26 +4288,64 @@ function buildReviewEmbed(stats, toolsUsed, settings, usageInfo = null) {
   const modelConfig = getModelConfig(settings?.modelKey);
   const personaConfig = getPersonaConfig(settings?.personaKey);
   const toolLines = formatToolsUsedLines(toolsUsed);
+  const tp = settings?.toolPermissions ?? {};
+  const safetyLabel = settings?.safetyEnabled === false ? 'Off 🔓' : 'On 🔒';
+  const personaEmoji = personaConfig.emoji ?? '🤖';
+
+  const runtimeValue = [
+    `**Endpoint model:** \`${modelConfig.model}\``,
+    `**Preset:** ${modelConfig.label}`,
+    settings?.customInstructions ? '**Custom instructions:** Configured' : '**Custom instructions:** Not set',
+  ].join('\n');
+
+  const personaValue = [
+    `${personaEmoji} **${personaConfig.label}**`,
+    `*${personaConfig.description}*`,
+    `**Show thinking:** ${settings?.showThinking ? 'Visible' : 'Hidden (ephemeral)'}`,
+  ].join('\n');
+
+  const perfValue = [
+    `**TTFT:** ${stats.ttftMs != null ? `${(stats.ttftMs / 1000).toFixed(2)} s` : 'N/A'}`,
+    `**Total:** ${(stats.totalMs / 1000).toFixed(2)} s`,
+    `**Iterations:** ${stats.iterations}`,
+  ].join('\n');
+
+  const tokensValue = [
+    `**Prompt:** ${stats.promptTokens != null ? stats.promptTokens : 'N/A'}`,
+    `**Completion:** ${stats.completionTokens != null ? stats.completionTokens : 'N/A'}`,
+    stats.promptTokens != null && stats.completionTokens != null
+      ? `**Total:** ${stats.promptTokens + stats.completionTokens}`
+      : '**Total:** N/A',
+  ].join('\n');
+
+  const accessValue = [
+    `Moderation: ${tp.canUseModerationTools ? '✅' : '❌'}`,
+    `Management: ${tp.canUseManagementTools ? '✅' : '❌'}`,
+    `Dev: ${tp.canUseDevTools ? '✅' : '❌'}`,
+  ].join(' • ');
+
   const fields = [
-    { name: 'Runtime Model', value: modelConfig.model, inline: false },
-    { name: 'Model Preset', value: modelConfig.label, inline: true },
-    { name: 'Persona', value: personaConfig.label, inline: true },
-    { name: 'Thinking Delivery', value: 'Hidden (ephemeral)', inline: true },
-    { name: 'Custom Instructions', value: settings?.customInstructions ? 'Configured' : 'Not set', inline: true },
-    { name: 'Safety Guardrails', value: settings?.safetyEnabled === false ? 'Disabled' : 'Enabled', inline: true },
-    { name: 'Can Use Moderation Tools', value: settings?.toolPermissions?.canUseModerationTools ? 'Yes' : 'No', inline: true },
-    { name: 'Can Use Management Tools', value: settings?.toolPermissions?.canUseManagementTools ? 'Yes' : 'No', inline: true },
-    { name: 'Can Use Dev Tools', value: settings?.toolPermissions?.canUseDevTools ? 'Yes' : 'No', inline: true },
-    { name: 'TTFT', value: stats.ttftMs != null ? `${(stats.ttftMs / 1000).toFixed(2)} s` : 'N/A', inline: true },
-    { name: 'Total Time', value: `${(stats.totalMs / 1000).toFixed(2)} s`, inline: true },
-    { name: 'Iterations', value: String(stats.iterations), inline: true },
-    { name: 'Prompt Tokens', value: stats.promptTokens != null ? String(stats.promptTokens) : 'N/A', inline: true },
-    { name: 'Completion Tokens', value: stats.completionTokens != null ? String(stats.completionTokens) : 'N/A', inline: true },
-    { name: 'Tools Used', value: truncate(toolLines, FIELD_VALUE_MAX), inline: false },
+    { name: '⚙️ Model / Runtime', value: runtimeValue, inline: false },
+    { name: '🧠 Persona', value: personaValue, inline: false },
+    { name: '⚡ Performance', value: perfValue, inline: true },
+    { name: '🎯 Tokens', value: tokensValue, inline: true },
+    { name: '🔒 Safety', value: safetyLabel, inline: true },
+    { name: '🔧 Tool Access', value: accessValue, inline: false },
   ];
+
+  if (settings?.deepResearch) {
+    fields.push({
+      name: '🔬 Deep Research',
+      value: 'Enabled — 5 response variants synthesized into one final answer.',
+      inline: false,
+    });
+  }
+
+  fields.push({ name: '🛠️ Tools Used', value: truncate(toolLines, FIELD_VALUE_MAX), inline: false });
+
   if (usageInfo?.usageSnapshot && usageInfo?.usagePolicy) {
     fields.push({
-      name: 'Usage',
+      name: '📊 Usage',
       value: renderUsageBar(usageInfo.usageSnapshot.used, usageInfo.usagePolicy.limit),
       inline: false,
     });
@@ -4153,12 +4353,11 @@ function buildReviewEmbed(stats, toolsUsed, settings, usageInfo = null) {
 
   return new EmbedBuilder()
     .setColor(0x5865f2)
-    .setTitle('🧾 AI Review')
-    .setDescription('Diagnostics for this AI response.')
+    .setTitle('🧾 AI Review • Diagnostics')
+    .setDescription(`**${modelConfig.label}** • ${personaEmoji} **${personaConfig.label}** • Safety: ${safetyLabel}`)
     .addFields(fields)
     .setTimestamp();
 }
-
 /**
  * Get the active turn object from a session.
  * @param {object} session
@@ -4262,6 +4461,36 @@ function buildPersonaSelectRow(selectedPersonaKey) {
         emoji: persona.emoji,
         default: persona.key === selected.key,
       })),
+    );
+  return new ActionRowBuilder().addComponents(menu);
+}
+
+/**
+ * Build the persistent Deep Research mode selector row.
+ * @param {boolean} enabled
+ * @returns {ActionRowBuilder}
+ */
+function buildDeepResearchSelectRow(enabled) {
+  const menu = new StringSelectMenuBuilder()
+    .setCustomId(AI_DEEP_RESEARCH_SELECT_ID)
+    .setPlaceholder(`Deep Research: ${enabled ? 'Enabled 🔬' : 'Disabled'}`)
+    .setMinValues(1)
+    .setMaxValues(1)
+    .addOptions(
+      {
+        label: 'Deep Research — Off',
+        value: 'off',
+        description: 'Single response (default, fastest).',
+        emoji: '⚡',
+        default: !enabled,
+      },
+      {
+        label: 'Deep Research — On',
+        value: 'on',
+        description: `Generate ${AI_DEEP_RESEARCH_VARIANT_COUNT} variants, then synthesize the best answer.`,
+        emoji: '🔬',
+        default: Boolean(enabled),
+      },
     );
   return new ActionRowBuilder().addComponents(menu);
 }
@@ -4381,8 +4610,14 @@ function buildFinalComponents(session) {
     }
     rows.push(instructionsRow);
   }
+  if (mode === 'review' && rows.length < 5) {
+    if (canUseDeepResearch(session.allowedUserId)) rows.push(buildDeepResearchSelectRow(Boolean(session.deepResearch)));
+  }
   if (mode === 'review' && rows.length < 5 && canToggleAiSafety(session.allowedUserId)) {
     rows.push(buildSafetySelectRow(session.safetyEnabled));
+  }
+  if (mode === 'review' && rows.length < 5) {
+    if (canUseDeepResearch(session.allowedUserId)) rows.push(buildDeepResearchSelectRow(Boolean(session.deepResearch)));
   }
 
   if (mode === 'output' && Array.isArray(turn.uiRows)) {
@@ -4419,6 +4654,124 @@ function buildFinalComponents(session) {
  * @param {{modelKey:string,personaKey?:string,customInstructions?:string,showThinking:boolean,safetyEnabled:boolean}} settings
  * @returns {Promise<{outputEmbeds:EmbedBuilder[],reviewEmbed:EmbedBuilder,linkButtons:Array,uiRows:Array<ActionRowBuilder>,uiState:object,rawContent:string,thinkingText:string,promptText:string,blocked:boolean,blockReason:string|null,safetyRating:string|null,safetyDetails?:{prompt?:{harm:string,rule:string,severity:string,reason:string},response?:{harm:string,rule:string,severity:string,reason:string}},toolsUsed?:Array<object>}>}
  */
+
+/**
+ * Run Deep Research flow: generate 5 parallel drafts then synthesize one final response.
+ * Updates the loading embed as each draft completes and during synthesis.
+ * Returns a plain string of the final synthesized response (no tools).
+ * @param {import('discord.js').ChatInputCommandInteraction} interaction
+ * @param {import('discord.js').Message} replyMsg
+ * @param {string} prompt
+ * @param {object} settings - AI user settings (modelKey, personaKey, customInstructions, safetyEnabled)
+ * @returns {Promise<{finalText:string,totalMs:number}>}
+ */
+async function runDeepResearch(interaction, replyMsg, prompt, settings) {
+  const startedAt = Date.now();
+  const modelConfig = getModelConfig(settings?.modelKey);
+  const personaConfig = getPersonaConfig(settings?.personaKey);
+
+  const draftCount = 5;
+  const statuses = Array.from({ length: draftCount }, () => 'pending');
+  let synthStatus = 'waiting';
+
+  function renderDeepResearchEmbed() {
+    const rows = statuses.map((s, i) => {
+      const icon = s === 'done' ? '✅' : s === 'running' ? LOADING_EMOJI : '⏳';
+      const label = s === 'done' ? 'Complete' : s === 'running' ? 'Thinking…' : 'Queued';
+      return `${icon}  Draft ${i + 1}/5 — ${label}`;
+    }).join('\n');
+    const synthIcon = synthStatus === 'done' ? '✅' : synthStatus === 'running' ? LOADING_EMOJI : '⏳';
+    const synthLabel = synthStatus === 'done' ? 'Complete' : synthStatus === 'running' ? 'Synthesizing…' : 'Waiting';
+    return new EmbedBuilder()
+      .setColor(0x5865f2)
+      .setAuthor({ name: 'AI — Deep Research' })
+      .setDescription(`**${modelConfig.label}** • ${personaConfig.emoji || ''} **${personaConfig.label}**\n\n${rows}\n\n${synthIcon}  Final Synthesis — ${synthLabel}`)
+      .setFooter({ text: '5 parallel drafts, then synthesis into one final response.' })
+      .setTimestamp();
+  }
+
+  async function updateLoading() {
+    try {
+      await interaction.editReply({ embeds: [renderDeepResearchEmbed()], components: [] });
+    } catch { /* rate limited or deleted - ignore */ }
+  }
+
+  await updateLoading();
+
+  const systemPromptBase = buildSystemPrompt(settings?.safetyEnabled !== false, '', {
+    personaKey: settings?.personaKey,
+    customInstructions: settings?.customInstructions,
+    speaker: {
+      id: interaction.user.id,
+      tag: interaction.user.tag,
+      displayName: interaction.member?.displayName ?? interaction.user.username,
+    },
+  });
+
+  const draftPromises = Array.from({ length: draftCount }, (_, idx) => (async () => {
+    statuses[idx] = 'running';
+    await updateLoading();
+    try {
+      const completion = await aiClient.chat.completions.create({
+        model: modelConfig.model,
+        max_tokens: Math.min(modelConfig.maxTokens, 2048),
+        temperature: 1.05,
+        top_p: 0.95,
+        messages: [
+          { role: 'system', content: systemPromptBase + `\n\nYou are draft #${idx + 1} of 5 in a Deep Research pass. Respond with your best standalone answer to the user's prompt. Do not call tools. Keep it focused and substantive.` },
+          { role: 'user', content: prompt },
+        ],
+      });
+      const content = completion?.choices?.[0]?.message?.content ?? '';
+      statuses[idx] = 'done';
+      await updateLoading();
+      return stripThinkBlocks(String(content));
+    } catch (err) {
+      statuses[idx] = 'done';
+      await updateLoading();
+      return `(draft ${idx + 1} failed: ${err.message})`;
+    }
+  })());
+
+  const drafts = await Promise.all(draftPromises);
+  synthStatus = 'running';
+  await updateLoading();
+
+  const synthesisInstruction = (settings?.deepResearchPrompt || '').trim() || [
+    'You are the synthesizer in a Deep Research pass.',
+    'You were given a user prompt, then 5 independent drafts from other sessions attempting to answer it.',
+    'Produce ONE final response that:',
+    '- Keeps the strongest ideas, corrections, and evidence from all 5 drafts.',
+    '- Resolves contradictions explicitly by choosing the most accurate/likely answer.',
+    '- Removes redundancy and filler.',
+    '- Matches the persona and formatting rules already in the system prompt.',
+    '- Does not mention that it came from drafts; speak as the final answer to the user.',
+  ].join('\n');
+
+  const synthMessages = [
+    { role: 'system', content: systemPromptBase + '\n\n' + synthesisInstruction },
+    { role: 'user', content: `User prompt:\n${prompt}\n\n---\n\nDrafts:\n\n` + drafts.map((d, i) => `Draft ${i + 1}:\n${d}`).join('\n\n---\n\n') },
+  ];
+
+  let finalText = '';
+  try {
+    const completion = await aiClient.chat.completions.create({
+      model: modelConfig.model,
+      max_tokens: modelConfig.maxTokens,
+      temperature: 0.7,
+      top_p: 1.0,
+      messages: synthMessages,
+    });
+    finalText = stripThinkBlocks(String(completion?.choices?.[0]?.message?.content ?? ''));
+  } catch (err) {
+    finalText = `Deep Research synthesis failed: ${err.message}\n\nDraft 1:\n${drafts[0] || ''}`;
+  }
+  synthStatus = 'done';
+  await updateLoading();
+
+  return { finalText, totalMs: Date.now() - startedAt, drafts };
+}
+
 async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
   const turnToolsUsed = [];
   const requestStartMs = Date.now();
@@ -4486,7 +4839,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
 
     if (iteration > 0) {
       await interaction.editReply({
-        embeds: [buildProcessingEmbed(`Processing results… (iteration ${iteration + 1}/${MAX_ITERATIONS})`)],
+        embeds: [buildProcessingEmbed(`${pickLoadingVerb()}… (iteration ${iteration + 1}/${MAX_ITERATIONS})`)],
         components: [],
       });
     }
@@ -4944,6 +5297,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
         customInstructions: session.customInstructions,
         showThinking: session.showThinking,
         safetyEnabled: session.safetyEnabled,
+        deepResearch: Boolean(session.deepResearch),
       });
       rerenderTurnsForDisplay(session);
       await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
@@ -4963,6 +5317,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
         customInstructions: session.customInstructions,
         showThinking: session.showThinking,
         safetyEnabled: session.safetyEnabled,
+        deepResearch: Boolean(session.deepResearch),
       });
       await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
       await i.followUp({
@@ -4984,11 +5339,34 @@ function attachReviewHandler(replyMsg, interaction, session) {
         customInstructions: session.customInstructions,
         showThinking: session.showThinking,
         safetyEnabled: session.safetyEnabled,
+        deepResearch: Boolean(session.deepResearch),
       });
       rerenderTurnsForDisplay(session);
       await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
       await i.followUp({
         content: `Safety guardrails are now **${session.safetyEnabled ? 'enabled' : 'disabled'}** for your /ai sessions.`,
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => null);
+      return;
+    }
+    if (i.customId === AI_DEEP_RESEARCH_SELECT_ID) {
+      if (!canUseDeepResearch(session.allowedUserId)) {
+        await i.reply({ content: 'Deep Research is not enabled for your account. Ask an administrator via /aimanage.', flags: MessageFlags.Ephemeral }).catch(() => null);
+        return;
+      }
+      const enabled = i.values?.[0] === 'on';
+      session.deepResearch = enabled;
+      setUserAiSettings(session.allowedUserId, {
+        modelKey: session.modelKey,
+        personaKey: session.personaKey,
+        customInstructions: session.customInstructions,
+        showThinking: session.showThinking,
+        safetyEnabled: session.safetyEnabled,
+        deepResearch: Boolean(session.deepResearch),
+      });
+      await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
+      await i.followUp({
+        content: `Deep Research is now **${enabled ? 'ON' : 'OFF'}**.`,
         flags: MessageFlags.Ephemeral,
       }).catch(() => null);
       return;
@@ -5063,6 +5441,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
         customInstructions: session.customInstructions,
         showThinking: session.showThinking,
         safetyEnabled: session.safetyEnabled,
+        deepResearch: Boolean(session.deepResearch),
       });
       rerenderTurnsForDisplay(session);
       await modalSubmit.reply({
@@ -5086,6 +5465,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
         customInstructions: session.customInstructions,
         showThinking: session.showThinking,
         safetyEnabled: session.safetyEnabled,
+        deepResearch: Boolean(session.deepResearch),
       });
       rerenderTurnsForDisplay(session);
       await i.update({
@@ -5137,7 +5517,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
       await modalSubmit.deferUpdate().catch(() => null);
       refreshSessionSystemPrompt(session);
       session.messages.push({ role: 'user', content: prompt });
-      await replyMsg.edit({ embeds: [buildProcessingEmbed('Sending follow-up prompt to AI…')], components: [] }).catch(() => null);
+      await replyMsg.edit({ embeds: [buildProcessingEmbed()], components: [] }).catch(() => null);
 
       try {
         const result = await runAiTurn(interaction, replyMsg, session.messages, session.toolsUsed, {
@@ -5404,16 +5784,30 @@ async function sendAiInteractionLog(
   await logChannel.send({ embeds: [embed] }).catch(() => null);
 }
 
+const AI_LOADING_VERBS = Object.freeze([
+  'Pondering', 'Cogitating', 'Ruminating', 'Contemplating', 'Reasoning',
+  'Synthesizing', 'Deliberating', 'Analyzing', 'Reflecting', 'Mulling',
+  'Thinking', 'Processing', 'Computing', 'Brewing', 'Parsing',
+  'Considering', 'Investigating', 'Unfurling', 'Stitching', 'Percolating',
+  'Crunching', 'Weighing', 'Surveying', 'Tracing', 'Gathering',
+]);
+
+function pickLoadingVerb() {
+  return AI_LOADING_VERBS[Math.floor(Math.random() * AI_LOADING_VERBS.length)];
+}
+
 /**
  * Build a simple "processing" embed shown while the AI is working.
+ * Shows a randomly-selected Claude-style verb when no explicit status is given.
  * @param {string} [status]
  * @returns {EmbedBuilder}
  */
-function buildProcessingEmbed(status = 'Thinking…') {
+function buildProcessingEmbed(status) {
+  const finalStatus = status ? String(status) : `${pickLoadingVerb()}…`;
   return new EmbedBuilder()
     .setColor(0x5865f2)
     .setAuthor({ name: 'AI — Processing Request' })
-    .setDescription(`${LOADING_EMOJI}  **${status}**\n\n-# This may take a few seconds.`)
+    .setDescription(`${LOADING_EMOJI}  **${finalStatus}**\n\n-# This may take a few seconds.`)
     .setTimestamp();
 }
 
@@ -5507,7 +5901,7 @@ module.exports = {
     const replyMsg = await interaction.fetchReply();
 
     await interaction.editReply({
-      embeds: [buildProcessingEmbed('Sending prompt to AI…')],
+      embeds: [buildProcessingEmbed()],
       components: [],
     });
 
@@ -5535,11 +5929,33 @@ module.exports = {
     const toolsUsed = [];
     let result;
     try {
-      result = await runAiTurn(interaction, replyMsg, messages, toolsUsed, {
-        ...userSettings,
-        toolSchemas,
-        toolPermissions,
-      });
+      if (userSettings.deepResearch && canUseDeepResearch(interaction.user.id)) {
+        const dr = await runDeepResearch(interaction, replyMsg, prompt, userSettings);
+        // Reconstruct a result object compatible with the downstream flow by doing a
+        // single tool-less runAiTurn that receives the synthesized answer as an
+        // assistant-seed, so existing embed/review/page plumbing just works.
+        const syntheticMessages = [
+          { role: 'system', content: buildSystemPrompt(userSettings.safetyEnabled, toolAccessPromptSuffix, {
+            personaKey: userSettings.personaKey,
+            customInstructions: userSettings.customInstructions,
+            speaker: speakingUser,
+          }) + '\n\nThe following response was produced by a Deep Research synthesis pass. Return it verbatim as your final answer; do not modify the content.' },
+          { role: 'user', content: prompt },
+          { role: 'assistant', content: dr.finalText },
+          { role: 'user', content: 'Please output the above synthesized answer verbatim as your final response (no tools).' },
+        ];
+        result = await runAiTurn(interaction, replyMsg, syntheticMessages, toolsUsed, {
+          ...userSettings,
+          toolSchemas: [],
+          toolPermissions,
+        });
+      } else {
+        result = await runAiTurn(interaction, replyMsg, messages, toolsUsed, {
+          ...userSettings,
+          toolSchemas,
+          toolPermissions,
+        });
+      }
     } catch (err) {
       return interaction.editReply({
         embeds: [buildErrorEmbed(err.message, err.status)],
@@ -5575,6 +5991,7 @@ module.exports = {
       customInstructions: userSettings.customInstructions,
       showThinking: userSettings.showThinking,
       safetyEnabled: userSettings.safetyEnabled,
+      deepResearch: Boolean(userSettings.deepResearch),
       showPrompt: false,
       toolSchemas,
       toolPermissions,

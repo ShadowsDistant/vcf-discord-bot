@@ -10,7 +10,6 @@ const {
 const { version: botVersion } = require('../../../package.json');
 const { UPDATE_LOGS, createUpdateEmbed } = require('../../utils/updateLogs');
 
-const REPO_URL = 'https://github.com/ShadowsDistant/vcf-discord-bot';
 const MAX_SELECT = 25;
 
 function buildNavRow(currentIndex) {
@@ -36,10 +35,6 @@ function buildNavRow(currentIndex) {
       .setLabel('Oldest ⏭')
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(clamped === UPDATE_LOGS.length - 1),
-    new ButtonBuilder()
-      .setStyle(ButtonStyle.Link)
-      .setLabel('GitHub')
-      .setURL(`${REPO_URL}/releases`),
   );
 }
 
