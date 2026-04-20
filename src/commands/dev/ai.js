@@ -139,9 +139,14 @@ const AI_UNLIMITED_ROLE_IDS = new Set(['1470915374441693376', '13791994818868020
 const AI_LOG_CHANNEL_KEY = 'aiLog';
 const AI_LOG_DEDUPE_WINDOW_MS = 30_000;
 const AI_LOG_DEDUPE_CACHE_MAX = 500;
+const AI_SAFETY_TOGGLE_CACHE_TTL_MS = 15_000;
 const MODEL_NVIDIA_EMOJI_ID = '1493406682666231900';
 let AI_USER_SETTINGS_LOADED = false;
 const RECENT_AI_LOG_KEYS = new Map();
+let AI_SAFETY_TOGGLE_CACHE = {
+  expiresAt: 0,
+  userIds: new Set(),
+};
 const ESCAPED_CODE_FENCE = '``\\`';
 const AI_MODELS = Object.freeze([
   {
@@ -1840,7 +1845,11 @@ function getUserAiSettings(userId) {
   ensureUserAiSettingsLoaded();
   const id = String(userId);
   const current = AI_USER_SETTINGS.get(id);
-  if (current) return normalizeAiSettings(current);
+  if (current) {
+    const settings = normalizeAiSettings(current);
+    if (!canToggleAiSafety(id)) settings.safetyEnabled = true;
+    return settings;
+  }
   return normalizeAiSettings({
     modelKey: DEFAULT_MODEL_KEY,
     personaKey: DEFAULT_PERSONA_KEY,
@@ -1912,7 +1921,24 @@ function buildSystemPrompt(safetyEnabled, toolAccessPromptSuffix = '', runtimeCo
  * @returns {boolean}
  */
 function canToggleAiSafety(userId) {
-  return String(userId) === AI_SAFETY_TOGGLE_USER_ID;
+  const id = String(userId);
+  if (id === AI_SAFETY_TOGGLE_USER_ID) return true;
+  const now = Date.now();
+  if (AI_SAFETY_TOGGLE_CACHE.expiresAt <= now) {
+    const usageStore = db.read(AI_USAGE_FILE, { usage: {}, userOverrides: {}, roleOverrides: {}, safetyToggleUsers: {} });
+    const safetyToggleUsers = usageStore?.safetyToggleUsers;
+    const userIds = new Set();
+    if (safetyToggleUsers && typeof safetyToggleUsers === 'object') {
+      for (const [candidateId, enabled] of Object.entries(safetyToggleUsers)) {
+        if (enabled === true) userIds.add(String(candidateId));
+      }
+    }
+    AI_SAFETY_TOGGLE_CACHE = {
+      expiresAt: now + AI_SAFETY_TOGGLE_CACHE_TTL_MS,
+      userIds,
+    };
+  }
+  return AI_SAFETY_TOGGLE_CACHE.userIds.has(id);
 }
 
 /**

@@ -3401,17 +3401,18 @@ function buildMessagesComponents(user, page) {
       const isClaimable = (msg.type === 'gift_box' || msg.type === 'gift_cookies' || msg.type === 'rank_reward') && !msg.claimed;
       const msgCreatedAtMs = new Date(msg.createdAt ?? 0).getTime();
       const msgUniqueSuffix = Number.isFinite(msgCreatedAtMs) && msgCreatedAtMs > 0 ? msgCreatedAtMs : `${msg.id}_${safePage}_${j}`;
+      const msgButtonIndex = `${safePage}_${j}`;
       if (isClaimable) {
         btns.push(
           new ButtonBuilder()
-            .setCustomId(`messages_claim:${safePage}:${msg.id}:${msgUniqueSuffix}`)
+            .setCustomId(`messages_claim:${safePage}:${msg.id}:${msgUniqueSuffix}:${msgButtonIndex}`)
             .setLabel(`Claim ${label}`)
             .setStyle(ButtonStyle.Success),
         );
       }
       btns.push(
         new ButtonBuilder()
-          .setCustomId(`messages_delete:${safePage}:${msg.id}:${msgUniqueSuffix}`)
+          .setCustomId(`messages_delete:${safePage}:${msg.id}:${msgUniqueSuffix}:${msgButtonIndex}`)
           .setLabel(isClaimable ? `Dismiss ${label}` : `Delete ${label}`)
           .setStyle(ButtonStyle.Danger),
       );
