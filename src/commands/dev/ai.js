@@ -388,7 +388,7 @@ Attribution (required when the AI posts into a channel on the user's behalf):
 
 Interactive Components:
 Tools:
-- send_file: reserved exclusively for responses exceeding 4000 characters that cannot be shortened. Always attempt to compress, summarize, or split the response before resorting to this.
+- send_file: when used, ALWAYS sends as an ephemeral (hidden) DM — never in any public/shared channel. Reserved for responses exceeding 4000 characters that cannot be shortened. Compress, summarize, or split before using.
 - Only add components when they provide clear interaction value (not decoration).
 - Prefer select_menus for choosing from 3+ defined options.
 - Whenever you ask the user to choose from defined actions/options, you MUST provide a select_menus entry for that choice and use it to collect the response.
@@ -1492,7 +1492,7 @@ const TOOL_SCHEMAS = [
     type: 'function',
     function: {
       name: 'send_file',
-      description: '[LAST RESORT] Send a text/markdown file attachment (up to ~1MB) to a channel. Only use this when the response exceeds 4000 characters AND no other tool can send the data. Prefer shorter summaries over full file dumps.',
+      description: '[LAST RESORT] Send a text/markdown file attachment (up to ~1MB) ONLY as an ephemeral (hidden) DM to the user — never in public channels. Only use when response exceeds 4000 characters AND no other tool can send the data. Prefer shorter summaries over full file dumps.',
       parameters: {
         type: 'object',
         properties: {
@@ -2815,27 +2815,31 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
     }
 
     case 'send_file': {
-      const ch = await guild.channels.fetch(args.channel_id);
-      if (!ch?.isTextBased()) throw new Error('Channel not found or not text-based.');
-      const filename = String(args.filename || 'response.txt').trim().slice(0, 80) || 'response.txt';
-      const safeName = /^[\w.\-]+$/.test(filename) ? filename : 'response.txt';
+      // ALWAYS send as a hidden (ephemeral) DM to the requesting user.
+      // The AI must NEVER post file content in public or shared channels.
+      const member = await guild.members.fetch(allowedUserId).catch(() => null);
+      if (!member) throw new Error('Could not locate user to send hidden message.');
+      const dm = await member.user.createDM().catch(() => null);
+      if (!dm) throw new Error('Could not open a DM channel with the user.');
       const fileContent = String(args.content ?? '');
       const bytes = Buffer.from(fileContent, 'utf8');
       if (bytes.length > 1024 * 1024) throw new Error('File content exceeds 1MB limit.');
+      const filename = String(args.filename || 'response.txt').trim().slice(0, 80) || 'response.txt';
+      const safeName = /^[\w.\-]+$/.test(filename) ? filename : 'response.txt';
       const { AttachmentBuilder } = require('discord.js');
       const attachment = new AttachmentBuilder(bytes, { name: safeName });
-      const payload = { files: [attachment] };
+      const payload = { files: [attachment], flags: MessageFlags.Ephemeral };
       if (args.summary_title || args.summary_description) {
         const embed = new EmbedBuilder()
           .setColor(0x5865f2)
           .setTimestamp();
         if (args.summary_title) embed.setTitle(String(args.summary_title).slice(0, 256));
         if (args.summary_description) embed.setDescription(String(args.summary_description).slice(0, 4000));
-        embed.addFields({ name: '📎 Attachment', value: `\`${safeName}\` — ${bytes.length.toLocaleString()} bytes`, inline: false });
+        embed.addFields({ name: '📎 File', value: `\`${safeName}\` — ${bytes.length.toLocaleString()} bytes (only visible to you)`, inline: false });
         payload.embeds = [embed];
       }
-      const msg = await ch.send(payload);
-      return { success: true, message_id: msg.id, channel_id: ch.id, filename: safeName, bytes: bytes.length };
+      const msg = await dm.send(payload);
+      return { success: true, message_id: msg.id, channel_id: dm.id, filename: safeName, bytes: bytes.length, note: 'Sent as hidden DM.' };
     }
 
     case 'get_channel_info': {
