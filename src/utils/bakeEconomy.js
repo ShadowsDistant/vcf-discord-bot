@@ -3508,7 +3508,7 @@ function buildOpenedMessageComponents(user, messageId) {
       new ButtonBuilder()
         .setCustomId(`messages_open_claim:${msg.id}`)
         .setLabel('Claim')
-        .setEmoji('-')
+        .setEmoji(null)
         .setStyle(ButtonStyle.Success),
     );
   }
@@ -3541,25 +3541,28 @@ function buildMessagesComponents(user, page) {
     const options = pageMsgs.map((msg, j) => {
       const globalIndex = pending.length - (safePage * MESSAGES_PER_PAGE + j);
       const iconMap = {
-        gift_box: '-', gift_cookies: '-', rank_reward: '-',
-        alliance_notification: '🤝', boost_notification: '-', staff_message: '-',
+        gift_box: null, gift_cookies: null, rank_reward: null,
+        alliance_notification: '🤝', boost_notification: null, staff_message: null,
+        broadcast: '📣',
       };
       const categoryMap = {
         gift_box: 'Gift Box', gift_cookies: 'Cookie Gift', rank_reward: 'Rank Reward',
         alliance_notification: 'Alliance', boost_notification: 'Boost', staff_message: 'Staff',
+        broadcast: 'Broadcast',
       };
       const label = `#${globalIndex} • ${categoryMap[msg.type] ?? 'Notification'}`.slice(0, 100);
       const descBits = [];
       if (msg.from) descBits.push(`From ${msg.from}`);
       if (!msg.claimed && (msg.type === 'gift_box' || msg.type === 'gift_cookies' || msg.type === 'rank_reward')) descBits.push('Unclaimed');
       const description = (descBits.join(' • ') || 'Open to view details').slice(0, 100);
-      return {
+      const option = {
         label,
-        // globalIndex is unique per message across all pages — avoids Discord duplicate-value constraint
         value: String(msg.id),
         description,
-        emoji: iconMap[msg.type] ?? '-',
       };
+      const emoji = iconMap[msg.type] ?? null;
+      if (emoji) option.emoji = emoji;
+      return option;
     });
     rows.push(new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()

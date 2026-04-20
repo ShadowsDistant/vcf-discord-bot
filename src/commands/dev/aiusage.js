@@ -243,7 +243,7 @@ function buildUserCardComponents(actorId, targetId, info) {
   const clearBtn = new ButtonBuilder()
     .setCustomId(`aimanage_u_btn:${actorId}:${targetId}:clear`)
     .setLabel('Clear Limit')
-    .setEmoji('-')
+    .setEmoji(null)
     .setStyle(ButtonStyle.Secondary)
     .setDisabled(!info.hasUserOverride);
 
@@ -251,12 +251,12 @@ function buildUserCardComponents(actorId, targetId, info) {
     ? new ButtonBuilder()
       .setCustomId(`aimanage_u_btn:${actorId}:${targetId}:safety_off`)
       .setLabel('Revoke Safety Toggle')
-      .setEmoji('-')
+      .setEmoji(null)
       .setStyle(ButtonStyle.Secondary)
     : new ButtonBuilder()
       .setCustomId(`aimanage_u_btn:${actorId}:${targetId}:safety_on`)
       .setLabel('Allow Safety Toggle')
-      .setEmoji('-')
+      .setEmoji(null)
       .setStyle(ButtonStyle.Success);
 
   const drBtn = info.deepResearchAllowed
@@ -268,7 +268,7 @@ function buildUserCardComponents(actorId, targetId, info) {
     : new ButtonBuilder()
       .setCustomId(`aimanage_u_btn:${actorId}:${targetId}:dr_on`)
       .setLabel('Allow Deep Research')
-      .setEmoji('-')
+      .setEmoji(null)
       .setStyle(ButtonStyle.Success);
 
   return [
@@ -282,7 +282,7 @@ function buildUserCardComponents(actorId, targetId, info) {
       new ButtonBuilder()
         .setCustomId(`aimanage_u_btn:${actorId}:${targetId}:grant`)
         .setLabel('Grant Credits')
-        .setEmoji('-')
+        .setEmoji(null)
         .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
         .setCustomId(`aimanage_u_btn:${actorId}:${targetId}:reset_usage`)
@@ -367,13 +367,13 @@ function buildRoleCardComponents(actorId, roleId, info) {
       new ButtonBuilder()
         .setCustomId(`aimanage_r_btn:${actorId}:${roleId}:clear`)
         .setLabel('Clear Limit')
-        .setEmoji('-')
+        .setEmoji(null)
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(!info.hasOverride),
       new ButtonBuilder()
         .setCustomId(`aimanage_r_btn:${actorId}:${roleId}:grant`)
         .setLabel('Grant Credits')
-        .setEmoji('-')
+        .setEmoji(null)
         .setStyle(ButtonStyle.Primary),
     ),
     new ActionRowBuilder().addComponents(

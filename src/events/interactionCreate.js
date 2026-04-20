@@ -983,7 +983,7 @@ module.exports = {
       }
 
       if (interaction.customId === 'messages_open_select') {
-        const messageId = Number.parseInt(interaction.values?.[0], 10);
+        const messageId = String(interaction.values?.[0] ?? '');
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildOpenedMessageEmbed(interaction.guild, snapshot.user, messageId);
         const components = economy.buildOpenedMessageComponents(snapshot.user, messageId);
@@ -991,7 +991,7 @@ module.exports = {
       }
 
       if (interaction.customId.startsWith('messages_open:')) {
-        const messageId = Number.parseInt(interaction.customId.split(':')[1], 10);
+        const messageId = String(interaction.customId.split(':')[1] ?? '');
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildOpenedMessageEmbed(interaction.guild, snapshot.user, messageId);
         const components = economy.buildOpenedMessageComponents(snapshot.user, messageId);

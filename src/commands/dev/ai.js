@@ -4539,7 +4539,7 @@ function buildFinalComponents(session) {
         .setCustomId(AI_REGEN_BUTTON_ID)
         .setStyle(ButtonStyle.Secondary)
         .setLabel('Regen')
-        .setEmoji('-'),
+        .setEmoji(null),
     );
     if (canUseDeepResearch(session.allowedUserId)) {
       actionRow.addComponents(
@@ -4547,7 +4547,7 @@ function buildFinalComponents(session) {
           .setCustomId(AI_DEEP_THINK_BUTTON_ID)
           .setStyle(ButtonStyle.Secondary)
           .setLabel('Deep Think')
-          .setEmoji('-'),
+          .setEmoji(null),
       );
     }
     actionRow.addComponents(
