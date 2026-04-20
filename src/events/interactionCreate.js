@@ -2,16 +2,6 @@
 
 const { randomUUID } = require('node:crypto');
 
-/** Reusable action-select row reused across aimanage views. */
-function buildAimanageActionRow(actorId) {
-  const aiManageCommand = require('../commands/dev/aiusage');
-  return new ActionRowBuilder().addComponents(
-    new StringSelectMenuBuilder()
-      .setCustomId(`aimanage_action_select:${actorId}`)
-      .setPlaceholder('Select an action…')
-      .addOptions(aiManageCommand.ACTION_OPTIONS),
-  );
-}
 const {
   ActionRowBuilder,
   ButtonBuilder,
@@ -592,6 +582,172 @@ module.exports = {
         else if (action === 'next') newIndex = Math.min(UPDATE_LOGS.length - 1, current + 1);
         const updatesCommand = require('../commands/utility/updates');
         return interaction.update(updatesCommand.buildUpdatesResponse(interaction.guild, newIndex));
+      }
+
+      if (
+        interaction.isButton()
+        && (
+          interaction.customId.startsWith('aimanage_back:')
+          || interaction.customId.startsWith('aimanage_refresh:')
+          || interaction.customId.startsWith('aimanage_close:')
+          || interaction.customId.startsWith('aimanage_refresh_user:')
+          || interaction.customId.startsWith('aimanage_refresh_role:')
+          || interaction.customId.startsWith('aimanage_u_btn:')
+          || interaction.customId.startsWith('aimanage_r_btn:')
+        )
+      ) {
+        const parts = interaction.customId.split(':');
+        const kind = parts[0];
+        const actorId = parts[1];
+        if (actorId !== interaction.user.id) {
+          return interaction.reply({
+            embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (!aiManageCommand.canManageAiUsage(interaction.member)) {
+          return interaction.reply({
+            embeds: [embeds.error('You do not have permission to manage AI usage.', interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+
+        // Back / Refresh / Close
+        if (kind === 'aimanage_back' || kind === 'aimanage_refresh') {
+          await interaction.deferUpdate().catch(() => null);
+          return interaction.editReply({
+            embeds: [aiManageCommand.buildPanelEmbed(interaction.guild)],
+            components: aiManageCommand.buildPanelComponents(actorId),
+          });
+        }
+        if (kind === 'aimanage_close') {
+          await interaction.deferUpdate().catch(() => null);
+          return interaction.deleteReply().catch(() => null);
+        }
+        if (kind === 'aimanage_refresh_user') {
+          const targetId = parts[2];
+          await interaction.deferUpdate().catch(() => null);
+          const member = await interaction.guild.members.fetch(targetId).catch(() => null);
+          const data = aiManageCommand.readUsage();
+          const info = aiManageCommand.resolveUserEffective(data, member, targetId);
+          return interaction.editReply({
+            embeds: [aiManageCommand.buildUserCardEmbed(interaction.guild, member, targetId)],
+            components: aiManageCommand.buildUserCardComponents(actorId, targetId, info),
+          });
+        }
+        if (kind === 'aimanage_refresh_role') {
+          const roleId = parts[2];
+          await interaction.deferUpdate().catch(() => null);
+          const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
+          if (!role) {
+            return interaction.editReply({
+              embeds: [embeds.error('Role not found.', interaction.guild)],
+              components: aiManageCommand.buildPanelComponents(actorId),
+            });
+          }
+          const data = aiManageCommand.readUsage();
+          const info = aiManageCommand.resolveRoleEffective(data, role);
+          return interaction.editReply({
+            embeds: [aiManageCommand.buildRoleCardEmbed(interaction.guild, role)],
+            components: aiManageCommand.buildRoleCardComponents(actorId, roleId, info),
+          });
+        }
+
+        // User card buttons
+        if (kind === 'aimanage_u_btn') {
+          const targetId = parts[2];
+          const action = parts[3];
+          if (action === 'set' || action === 'grant') {
+            const isSet = action === 'set';
+            return interaction.showModal(
+              new ModalBuilder()
+                .setCustomId(`aimanage_value_modal:${actorId}:${isSet ? 'set-user' : 'grant-user'}:${targetId}`)
+                .setTitle(isSet ? 'Set User AI Limit' : 'Grant User Adjustment')
+                .addComponents(
+                  new ActionRowBuilder().addComponents(
+                    new TextInputBuilder()
+                      .setCustomId('value')
+                      .setLabel(isSet ? 'Limit per 6h (use -1 for unlimited)' : 'Adjustment (positive = grant)')
+                      .setStyle(TextInputStyle.Short)
+                      .setRequired(true)
+                      .setMaxLength(10)
+                      .setPlaceholder(isSet ? 'e.g. 30 or -1' : 'e.g. 5'),
+                  ),
+                ),
+            );
+          }
+          await interaction.deferUpdate().catch(() => null);
+          if (action === 'clear') {
+            aiManageCommand.writeUsage((data) => { delete data.userOverrides[targetId]; });
+          } else if (action === 'reset_usage') {
+            aiManageCommand.writeUsage((data) => { delete data.usage[targetId]; });
+          } else if (action === 'safety_on') {
+            aiManageCommand.writeUsage((data) => { data.safetyToggleUsers[targetId] = true; });
+          } else if (action === 'safety_off') {
+            aiManageCommand.writeUsage((data) => { delete data.safetyToggleUsers[targetId]; });
+          } else if (action === 'dr_on') {
+            aiManageCommand.writeUsage((data) => { data.deepResearchUsers[targetId] = true; });
+          } else if (action === 'dr_off') {
+            aiManageCommand.writeUsage((data) => { delete data.deepResearchUsers[targetId]; });
+          } else {
+            return interaction.editReply({
+              embeds: [embeds.error('Unknown user action.', interaction.guild)],
+            });
+          }
+          const member = await interaction.guild.members.fetch(targetId).catch(() => null);
+          const data = aiManageCommand.readUsage();
+          const info = aiManageCommand.resolveUserEffective(data, member, targetId);
+          return interaction.editReply({
+            embeds: [aiManageCommand.buildUserCardEmbed(interaction.guild, member, targetId)],
+            components: aiManageCommand.buildUserCardComponents(actorId, targetId, info),
+          });
+        }
+
+        // Role card buttons
+        if (kind === 'aimanage_r_btn') {
+          const roleId = parts[2];
+          const action = parts[3];
+          if (action === 'set' || action === 'grant') {
+            const isSet = action === 'set';
+            return interaction.showModal(
+              new ModalBuilder()
+                .setCustomId(`aimanage_value_modal:${actorId}:${isSet ? 'set-role' : 'grant-role'}:${roleId}`)
+                .setTitle(isSet ? 'Set Role AI Limit' : 'Grant Role Adjustment')
+                .addComponents(
+                  new ActionRowBuilder().addComponents(
+                    new TextInputBuilder()
+                      .setCustomId('value')
+                      .setLabel(isSet ? 'Limit per 6h (use -1 for unlimited)' : 'Adjustment (positive = grant)')
+                      .setStyle(TextInputStyle.Short)
+                      .setRequired(true)
+                      .setMaxLength(10)
+                      .setPlaceholder(isSet ? 'e.g. 30 or -1' : 'e.g. 5'),
+                  ),
+                ),
+            );
+          }
+          await interaction.deferUpdate().catch(() => null);
+          if (action === 'clear') {
+            aiManageCommand.writeUsage((data) => { delete data.roleOverrides[roleId]; });
+          } else {
+            return interaction.editReply({
+              embeds: [embeds.error('Unknown role action.', interaction.guild)],
+            });
+          }
+          const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
+          if (!role) {
+            return interaction.editReply({
+              embeds: [embeds.error('Role not found.', interaction.guild)],
+              components: aiManageCommand.buildPanelComponents(actorId),
+            });
+          }
+          const data = aiManageCommand.readUsage();
+          const info = aiManageCommand.resolveRoleEffective(data, role);
+          return interaction.editReply({
+            embeds: [aiManageCommand.buildRoleCardEmbed(interaction.guild, role)],
+            components: aiManageCommand.buildRoleCardComponents(actorId, roleId, info),
+          });
+        }
       }
 
       if (interaction.customId.startsWith('ctx_mod_')) {
@@ -1928,58 +2084,6 @@ module.exports = {
         return shiftCommand.handleShiftPanelSelect(interaction);
       }
 
-      if (interaction.isStringSelectMenu() && interaction.customId.startsWith('aimanage_action_select:')) {
-        const [, actorId] = interaction.customId.split(':');
-        if (actorId !== interaction.user.id) {
-          return interaction.reply({
-            embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)],
-            flags: MessageFlags.Ephemeral,
-          });
-        }
-        if (!aiManageCommand.canManageAiUsage(interaction.member)) {
-          return interaction.reply({
-            embeds: [embeds.error('You do not have permission to manage AI usage.', interaction.guild)],
-            flags: MessageFlags.Ephemeral,
-          });
-        }
-        await interaction.deferUpdate().catch(() => null);
-        const action = interaction.values[0];
-        if (aiManageCommand.USER_ACTIONS.has(action)) {
-          return interaction.editReply({
-            embeds: [aiManageCommand.buildAiManagePanel(interaction.guild, actorId)],
-            components: [
-              new ActionRowBuilder().addComponents(
-                new UserSelectMenuBuilder()
-                  .setCustomId(`aimanage_user_select:${actorId}:${action}`)
-                  .setPlaceholder('Select a user…')
-                  .setMinValues(1)
-                  .setMaxValues(1),
-              ),
-              buildAimanageActionRow(actorId),
-            ],
-          });
-        }
-        if (aiManageCommand.ROLE_ACTIONS.has(action)) {
-          return interaction.editReply({
-            embeds: [aiManageCommand.buildAiManagePanel(interaction.guild, actorId)],
-            components: [
-              new ActionRowBuilder().addComponents(
-                new RoleSelectMenuBuilder()
-                  .setCustomId(`aimanage_role_select:${actorId}:${action}`)
-                  .setPlaceholder('Select a role…')
-                  .setMinValues(1)
-                  .setMaxValues(1),
-              ),
-              buildAimanageActionRow(actorId),
-            ],
-          });
-        }
-        return interaction.editReply({
-          embeds: [embeds.error('Unknown action selected.', interaction.guild)],
-          components: [buildAimanageActionRow(actorId)],
-        });
-      }
-
       if (helpCommand.isHelpCategorySelect(interaction.customId)) {
         return helpCommand.handleHelpCategorySelect(interaction);
       }
@@ -2100,34 +2204,28 @@ module.exports = {
         return shiftCommand.handleShiftPanelSelect(interaction);
       }
       if (interaction.customId.startsWith('aimanage_user_select:')) {
-        const [, actorId, action] = interaction.customId.split(':');
-        let result = null;
-        if (action === 'sell') result = economy.sellInventoryItem(interaction.guild.id, interaction.user.id, itemId, false);
-        if (action === 'sellall') result = economy.sellInventoryItem(interaction.guild.id, interaction.user.id, itemId, true);
-        if (action === 'consume') result = economy.consumeInventoryItem(interaction.guild.id, interaction.user.id, itemId);
-        if (action === 'inspect') {
-          const details = economy.inspectItem(interaction.guild.id, interaction.user.id, itemId);
-          if (!details) {
-            return interaction.reply({
-              embeds: [embeds.error('Could not inspect that item.', interaction.guild)],
-              flags: MessageFlags.Ephemeral,
-            });
-          }
+        const [, actorId] = interaction.customId.split(':');
+        if (actorId !== interaction.user.id) {
           return interaction.reply({
-            embeds: [economy.buildItemInspectEmbed(interaction.guild, details)],
+            embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
-        if (!result?.ok) {
+        if (!aiManageCommand.canManageAiUsage(interaction.member)) {
           return interaction.reply({
-            embeds: [embeds.warning(result?.reason ?? 'Could not process item action.', interaction.guild)],
+            embeds: [embeds.error('You do not have permission to manage AI usage.', interaction.guild)],
             flags: MessageFlags.Ephemeral,
           });
         }
-        const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
-        const dashboard = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'inventory');
-        const components = economy.buildDashboardComponents(snapshot.user, 'inventory', { guild: interaction.guild });
-        return interaction.update({ embeds: [dashboard], components });
+        await interaction.deferUpdate().catch(() => null);
+        const targetId = interaction.values[0];
+        const member = await interaction.guild.members.fetch(targetId).catch(() => null);
+        const data = aiManageCommand.readUsage();
+        const info = aiManageCommand.resolveUserEffective(data, member, targetId);
+        return interaction.editReply({
+          embeds: [aiManageCommand.buildUserCardEmbed(interaction.guild, member, targetId)],
+          components: aiManageCommand.buildUserCardComponents(actorId, targetId, info),
+        });
       }
     }
 
@@ -2140,7 +2238,7 @@ module.exports = {
         });
       }
       if (interaction.customId.startsWith('aimanage_role_select:')) {
-        const [, actorId, action] = interaction.customId.split(':');
+        const [, actorId] = interaction.customId.split(':');
         if (actorId !== interaction.user.id) {
           return interaction.reply({
             embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)],
@@ -2155,62 +2253,18 @@ module.exports = {
         }
         await interaction.deferUpdate().catch(() => null);
         const roleId = interaction.values[0];
-        if (action === 'view-role') {
-          const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
-          if (!role) {
-            return interaction.editReply({
-              embeds: [embeds.error('Role not found.', interaction.guild)],
-              components: [buildAimanageActionRow(interaction.user.id)],
-            });
-          }
+        const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
+        if (!role) {
           return interaction.editReply({
-            embeds: [aiManageCommand.buildRoleInfoEmbed(interaction.guild, role)],
-            components: [buildAimanageActionRow(interaction.user.id)],
+            embeds: [embeds.error('Role not found.', interaction.guild)],
+            components: aiManageCommand.buildPanelComponents(actorId),
           });
         }
-        if (aiManageCommand.VALUE_ACTIONS.has(action)) {
-          const isSet = action === 'set-role';
-          return interaction.showModal(
-            new ModalBuilder()
-              .setCustomId(`aimanage_value_modal:${actorId}:${action}:${roleId}`)
-              .setTitle(isSet ? 'Set Role AI Limit' : 'Grant Role Adjustment')
-              .addComponents(
-                new ActionRowBuilder().addComponents(
-                  new TextInputBuilder()
-                    .setCustomId('value')
-                    .setLabel(isSet ? 'Limit per 6h (use -1 for unlimited)' : 'Adjustment amount (positive = grant)')
-                    .setStyle(TextInputStyle.Short)
-                    .setRequired(true)
-                    .setMaxLength(10)
-                    .setPlaceholder(isSet ? 'e.g. 30 or -1' : 'e.g. 5'),
-                ),
-              ),
-          );
-        }
-        if (action === 'clear-role') {
-          aiManageCommand.writeUsage((data) => { delete data.roleOverrides[roleId]; });
-          return interaction.editReply({
-            embeds: [embeds.success(`Cleared AI usage override for <@&${roleId}>.`, interaction.guild)],
-            components: [buildAimanageActionRow(interaction.user.id)],
-          });
-        }
-        if (action === 'allow-deep-research-role') {
-          aiManageCommand.writeUsage((data) => { data.deepResearchRoles[roleId] = true; });
-          return interaction.editReply({
-            embeds: [embeds.success(`Allowed <@&${roleId}> to enable Deep Research in /ai.`, interaction.guild)],
-            components: [buildAimanageActionRow(interaction.user.id)],
-          });
-        }
-        if (action === 'disallow-deep-research-role') {
-          aiManageCommand.writeUsage((data) => { delete data.deepResearchRoles[roleId]; });
-          return interaction.editReply({
-            embeds: [embeds.success(`Removed <@&${roleId}>'s Deep Research access.`, interaction.guild)],
-            components: [buildAimanageActionRow(interaction.user.id)],
-          });
-        }
+        const data = aiManageCommand.readUsage();
+        const info = aiManageCommand.resolveRoleEffective(data, role);
         return interaction.editReply({
-          embeds: [embeds.error('Unknown action.', interaction.guild)],
-          components: [buildAimanageActionRow(interaction.user.id)],
+          embeds: [aiManageCommand.buildRoleCardEmbed(interaction.guild, role)],
+          components: aiManageCommand.buildRoleCardComponents(actorId, roleId, info),
         });
       }
     }
@@ -2251,27 +2305,21 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+
+        let summary = '';
         if (action === 'set-user') {
           aiManageCommand.writeUsage((data) => {
             if (!data.userOverrides) data.userOverrides = {};
             data.userOverrides[targetId] = value < 0 ? { unlimited: true } : { limit: Math.max(0, value), unlimited: false };
           });
-          return interaction.reply({
-            embeds: [embeds.success(`Set user override for <@${targetId}> to **${value < 0 ? 'unlimited' : `${value}/6h`}**.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
-          });
-        }
-        if (action === 'set-role') {
+          summary = `Set user override for <@${targetId}> to **${value < 0 ? 'unlimited' : `${value}/6h`}**.`;
+        } else if (action === 'set-role') {
           aiManageCommand.writeUsage((data) => {
             if (!data.roleOverrides) data.roleOverrides = {};
             data.roleOverrides[targetId] = value < 0 ? { unlimited: true } : { limit: Math.max(0, value), unlimited: false };
           });
-          return interaction.reply({
-            embeds: [embeds.success(`Set role override for <@&${targetId}> to **${value < 0 ? 'unlimited' : `${value}/6h`}**.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
-          });
-        }
-        if (action === 'grant-user') {
+          summary = `Set role override for <@&${targetId}> to **${value < 0 ? 'unlimited' : `${value}/6h`}**.`;
+        } else if (action === 'grant-user') {
           const bucketStart = aiManageCommand.getBucketStart(Date.now());
           aiManageCommand.writeUsage((data) => {
             const rec = data.usage[targetId] ?? { bucketStart, used: 0 };
@@ -2280,12 +2328,8 @@ module.exports = {
             data.usage[targetId] = rec;
           });
           const direction = value >= 0 ? `+${value}` : String(value);
-          return interaction.reply({
-            embeds: [embeds.success(`Applied one-time adjustment **${direction}** to <@${targetId}> this window.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
-          });
-        }
-        if (action === 'grant-role') {
+          summary = `Applied one-time adjustment **${direction}** to <@${targetId}>.`;
+        } else if (action === 'grant-role') {
           const members = await interaction.guild.members.fetch();
           const targets = [...members.values()].filter((m) => m.roles.cache.has(targetId));
           const bucketStart = aiManageCommand.getBucketStart(Date.now());
@@ -2298,12 +2342,43 @@ module.exports = {
             }
           });
           const direction = value >= 0 ? `+${value}` : String(value);
-          return interaction.reply({
-            embeds: [embeds.success(`Applied adjustment **${direction}** for **${targets.length}** member(s) in <@&${targetId}>.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
-          });
+          summary = `Applied adjustment **${direction}** for **${targets.length}** member(s) in <@&${targetId}>.`;
+        } else {
+          return interaction.reply({ embeds: [embeds.error('Unknown action.', interaction.guild)], flags: MessageFlags.Ephemeral });
         }
-        return interaction.reply({ embeds: [embeds.error('Unknown action.', interaction.guild)], flags: MessageFlags.Ephemeral });
+
+        // If modal came from a component, refresh the card in place.
+        const fromMessage = typeof interaction.isFromMessage === 'function' ? interaction.isFromMessage() : Boolean(interaction.message);
+        if (fromMessage) {
+          await interaction.deferUpdate().catch(() => null);
+          const data = aiManageCommand.readUsage();
+          if (action === 'set-user' || action === 'grant-user') {
+            const member = await interaction.guild.members.fetch(targetId).catch(() => null);
+            const info = aiManageCommand.resolveUserEffective(data, member, targetId);
+            await interaction.editReply({
+              embeds: [aiManageCommand.buildUserCardEmbed(interaction.guild, member, targetId)],
+              components: aiManageCommand.buildUserCardComponents(actorId, targetId, info),
+            }).catch(() => null);
+          } else {
+            const role = await interaction.guild.roles.fetch(targetId).catch(() => null);
+            if (role) {
+              const info = aiManageCommand.resolveRoleEffective(data, role);
+              await interaction.editReply({
+                embeds: [aiManageCommand.buildRoleCardEmbed(interaction.guild, role)],
+                components: aiManageCommand.buildRoleCardComponents(actorId, targetId, info),
+              }).catch(() => null);
+            }
+          }
+          return interaction.followUp({
+            embeds: [embeds.success(summary, interaction.guild)],
+            flags: MessageFlags.Ephemeral,
+          }).catch(() => null);
+        }
+
+        return interaction.reply({
+          embeds: [embeds.success(summary, interaction.guild)],
+          flags: MessageFlags.Ephemeral,
+        });
       }
 
       if (interaction.customId.startsWith('broadcastmsg_compose:')) {
