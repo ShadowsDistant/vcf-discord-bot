@@ -2309,6 +2309,7 @@ module.exports = {
         }
         if (action === 'set-user') {
           aiManageCommand.writeUsage((data) => {
+            if (!data.userOverrides) data.userOverrides = {};
             data.userOverrides[targetId] = value < 0 ? { unlimited: true } : { limit: Math.max(0, value), unlimited: false };
           });
           return interaction.reply({
@@ -2318,6 +2319,7 @@ module.exports = {
         }
         if (action === 'set-role') {
           aiManageCommand.writeUsage((data) => {
+            if (!data.roleOverrides) data.roleOverrides = {};
             data.roleOverrides[targetId] = value < 0 ? { unlimited: true } : { limit: Math.max(0, value), unlimited: false };
           });
           return interaction.reply({
