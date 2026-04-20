@@ -2254,6 +2254,35 @@ async function searchGuildMembers(guild, query, limit = 10) {
 }
 
 /**
+ * Pick the best member search match when confidence is high enough.
+ * Returns null when ambiguity is too high and explicit user selection is safer.
+ * @param {Array<{id:string,score:number,username:string,display_name:string,global_name:string|null}>} matches
+ * @param {string} query
+ * @returns {{selectedId:string,autoSelected:boolean}|null}
+ */
+function pickBestMemberMatch(matches, query) {
+  if (!Array.isArray(matches) || matches.length === 0) return null;
+  if (matches.length === 1) return { selectedId: matches[0].id, autoSelected: false };
+  const [top, second] = matches;
+  const needle = String(query ?? '').trim().toLowerCase();
+  const topNames = [
+    String(top?.username ?? '').toLowerCase(),
+    String(top?.display_name ?? '').toLowerCase(),
+    String(top?.global_name ?? '').toLowerCase(),
+  ];
+  const topScore = Number(top?.score ?? 0);
+  const secondScore = Number(second?.score ?? 0);
+  const scoreGap = topScore - secondScore;
+  const exactNameMatch = needle.length > 0 && topNames.some((name) => name === needle);
+  const clearPrefixWinner = topScore >= 90 && scoreGap >= 15;
+  const clearContainsWinner = topScore >= 75 && scoreGap >= 20;
+  if (exactNameMatch || clearPrefixWinner || clearContainsWinner) {
+    return { selectedId: top.id, autoSelected: true };
+  }
+  return null;
+}
+
+/**
  * Resolve a member from explicit user_id or partial user_query args.
  * @param {import('discord.js').Guild} guild
  * @param {object} args
@@ -2274,7 +2303,8 @@ async function resolveMemberFromToolArgs(guild, args, options = {}) {
   if (!query) throw new Error('Provide user_id or user_query.');
   const matches = await searchGuildMembers(guild, query, 10);
   if (matches.length === 0) throw new Error(`No members matched "${query}".`);
-  if (matches.length > 1 && allowAmbiguous) {
+  const picked = pickBestMemberMatch(matches, query);
+  if (!picked && matches.length > 1 && allowAmbiguous) {
     return {
       member: null,
       resolution: null,
@@ -2287,13 +2317,17 @@ async function resolveMemberFromToolArgs(guild, args, options = {}) {
       },
     };
   }
-  targetId = matches[0].id;
+  targetId = picked?.selectedId ?? matches[0].id;
   if (forbidUserId && targetId === forbidUserId) throw new Error('You cannot target yourself.');
   const member = await guild.members.fetch(targetId).catch(() => null);
   if (!member) throw new Error('Member not found.');
   return {
     member,
-    resolution: { matched_query: query, selected_from_search: true },
+    resolution: {
+      matched_query: query,
+      selected_from_search: true,
+      auto_selected: Boolean(picked?.autoSelected),
+    },
     pending: null,
   };
 }
@@ -2343,6 +2377,13 @@ function assertRoleManagementAllowed(interaction, roleId) {
   if (!targetRole) throw new Error('Role not found.');
   const highest = getHighestRolePosition(invoker, guild);
   if (targetRole.position >= highest) throw new Error('You can only manage roles lower than your highest role.');
+}
+
+function buildAuditLogReason(interaction, detail) {
+  const by = `Requested by ${interaction.user.tag} (${interaction.user.id})`;
+  const extra = String(detail ?? '').trim();
+  if (!extra) return by.slice(0, 512);
+  return `${by} — ${extra}`.slice(0, 512);
 }
 
 async function executeTool(toolName, args, interaction, toolPermissions) {
@@ -2445,7 +2486,7 @@ if (!args.title || !String(args.title).trim()) throw new Error('Embed title is r
     case 'set_channel_topic': {
       const ch = await guild.channels.fetch(args.channel_id);
       if (!ch?.isTextBased()) throw new Error('Channel not found or not text-based.');
-      await ch.setTopic(args.topic);
+      await ch.setTopic(args.topic, buildAuditLogReason(interaction, `AI set channel topic (${ch.id})`));
       return { success: true, topic: args.topic };
     }
 
@@ -2521,6 +2562,7 @@ if (!args.title || !String(args.title).trim()) throw new Error('Embed title is r
       if (args.color) options.color = hexToInt(args.color);
       if (typeof args.hoist === 'boolean') options.hoist = args.hoist;
       if (typeof args.mentionable === 'boolean') options.mentionable = args.mentionable;
+      options.reason = buildAuditLogReason(interaction, `AI create role (${args.name})`);
       const role = await guild.roles.create(options);
       return { success: true, role_id: role.id, name: role.name };
     }
@@ -2534,7 +2576,7 @@ if (!args.title || !String(args.title).trim()) throw new Error('Embed title is r
       if (typeof args.color === 'string' && args.color.trim()) options.color = hexToInt(args.color);
       if (typeof args.hoist === 'boolean') options.hoist = args.hoist;
       if (typeof args.mentionable === 'boolean') options.mentionable = args.mentionable;
-      await role.edit(options);
+      await role.edit(options, buildAuditLogReason(interaction, `AI edit role (${role.id})`));
       return { success: true, role_id: role.id, name: role.name };
     }
 
@@ -2542,7 +2584,7 @@ if (!args.title || !String(args.title).trim()) throw new Error('Embed title is r
       assertRoleManagementAllowed(interaction, args.role_id);
       const role = await guild.roles.fetch(args.role_id);
       if (!role) throw new Error('Role not found.');
-      await role.delete();
+      await role.delete(buildAuditLogReason(interaction, `AI delete role (${role.id})`));
       return { success: true, role_id: args.role_id };
     }
 
@@ -2550,7 +2592,7 @@ if (!args.title || !String(args.title).trim()) throw new Error('Embed title is r
       assertRoleManagementAllowed(interaction, args.role_id);
       const member = await guild.members.fetch(args.user_id);
       if (!member) throw new Error('Member not found.');
-      await member.roles.add(args.role_id);
+      await member.roles.add(args.role_id, buildAuditLogReason(interaction, `AI add role ${args.role_id} to ${member.id}`));
       return { success: true };
     }
 
@@ -2558,7 +2600,7 @@ if (!args.title || !String(args.title).trim()) throw new Error('Embed title is r
       assertRoleManagementAllowed(interaction, args.role_id);
       const member = await guild.members.fetch(args.user_id);
       if (!member) throw new Error('Member not found.');
-      await member.roles.remove(args.role_id);
+      await member.roles.remove(args.role_id, buildAuditLogReason(interaction, `AI remove role ${args.role_id} from ${member.id}`));
       return { success: true };
     }
 
@@ -2880,7 +2922,7 @@ if (!args.title || !String(args.title).trim()) throw new Error('Embed title is r
       if (!member) throw new Error('Member not found.');
       const target = await guild.channels.fetch(args.channel_id).catch(() => null);
       if (!target || !target.isVoiceBased()) throw new Error('Target channel not found or not voice-based.');
-      await member.voice.setChannel(target, args.reason ?? undefined);
+      await member.voice.setChannel(target, buildAuditLogReason(interaction, args.reason ?? `AI move member ${member.id} to voice ${target.id}`));
       return {
         success: true,
         user_id: member.id,
@@ -2893,7 +2935,7 @@ if (!args.title || !String(args.title).trim()) throw new Error('Embed title is r
       const member = await guild.members.fetch(args.user_id).catch(() => null);
       if (!member) throw new Error('Member not found.');
       if (!member.voice?.channelId) throw new Error('Member is not connected to voice.');
-      await member.voice.disconnect(args.reason ?? undefined);
+      await member.voice.disconnect(buildAuditLogReason(interaction, args.reason ?? `AI disconnect member ${member.id} from voice`));
       return { success: true, user_id: member.id };
     }
 
@@ -2903,8 +2945,8 @@ if (!args.title || !String(args.title).trim()) throw new Error('Embed title is r
       const hasMute = typeof args.mute === 'boolean';
       const hasDeaf = typeof args.deaf === 'boolean';
       if (!hasMute && !hasDeaf) throw new Error('Provide at least one of mute or deaf.');
-      if (hasMute) await member.voice.setMute(Boolean(args.mute), args.reason ?? undefined);
-      if (hasDeaf) await member.voice.setDeaf(Boolean(args.deaf), args.reason ?? undefined);
+      if (hasMute) await member.voice.setMute(Boolean(args.mute), buildAuditLogReason(interaction, args.reason ?? `AI set mute=${Boolean(args.mute)} for ${member.id}`));
+      if (hasDeaf) await member.voice.setDeaf(Boolean(args.deaf), buildAuditLogReason(interaction, args.reason ?? `AI set deaf=${Boolean(args.deaf)} for ${member.id}`));
       return {
         success: true,
         user_id: member.id,
@@ -2918,6 +2960,7 @@ if (!args.title || !String(args.title).trim()) throw new Error('Embed title is r
       const options = { name: args.name, type };
       if (args.topic) options.topic = args.topic;
       if (args.parent_id) options.parent = args.parent_id;
+      options.reason = buildAuditLogReason(interaction, `AI create channel (${args.name})`);
       const ch = await guild.channels.create(options);
       return { success: true, channel_id: ch.id, name: ch.name };
     }
@@ -2925,7 +2968,7 @@ if (!args.title || !String(args.title).trim()) throw new Error('Embed title is r
     case 'delete_channel': {
       const ch = await guild.channels.fetch(args.channel_id);
       if (!ch) throw new Error('Channel not found.');
-      await ch.delete();
+      await ch.delete(buildAuditLogReason(interaction, `AI delete channel (${ch.id})`));
       return { success: true };
     }
 
@@ -2933,7 +2976,7 @@ if (!args.title || !String(args.title).trim()) throw new Error('Embed title is r
       const ch = await guild.channels.fetch(args.channel_id);
       if (!ch?.isTextBased()) throw new Error('Channel not found or not text-based.');
       const msg = await ch.messages.fetch(args.message_id);
-      await msg.pin();
+      await msg.pin(buildAuditLogReason(interaction, `AI pin message (${msg.id})`));
       return { success: true };
     }
 
@@ -2941,7 +2984,7 @@ if (!args.title || !String(args.title).trim()) throw new Error('Embed title is r
       const ch = await guild.channels.fetch(args.channel_id);
       if (!ch?.isTextBased()) throw new Error('Channel not found or not text-based.');
       const msg = await ch.messages.fetch(args.message_id);
-      await msg.unpin();
+      await msg.unpin(buildAuditLogReason(interaction, `AI unpin message (${msg.id})`));
       return { success: true };
     }
 
