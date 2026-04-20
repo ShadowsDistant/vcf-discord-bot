@@ -2046,7 +2046,58 @@ module.exports = {
       if (shiftCommand.isShiftPanelSelect(interaction.customId)) {
         return shiftCommand.handleShiftPanelSelect(interaction);
       }
-      if (interaction.customId.startsWith('aimanage_user_select:')) {
+      if (interaction.customId.startsWith('aimanage_action_select:')) {
+    const [, actorId] = interaction.customId.split(':');
+    if (actorId !== interaction.user.id) {
+      return interaction.reply({
+        embeds: [embeds.error('This panel is not assigned to you.', interaction.guild)],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+    if (!aiManageCommand.canManageAiUsage(interaction.member)) {
+      return interaction.reply({
+        embeds: [embeds.error('You do not have permission to manage AI usage.', interaction.guild)],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+    const action = interaction.values[0];
+    if (aiManageCommand.USER_ACTIONS.has(action)) {
+      return interaction.update({
+        embeds: [aiManageCommand.buildAiManagePanel(interaction.guild, actorId)],
+        components: [
+          new ActionRowBuilder().addComponents(
+            new UserSelectMenuBuilder()
+              .setCustomId(`aimanage_user_select:${actorId}:${action}`)
+              .setPlaceholder('Select a user…')
+              .setMinValues(1)
+              .setMaxValues(1),
+          ),
+        ],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+    if (aiManageCommand.ROLE_ACTIONS.has(action)) {
+      return interaction.update({
+        embeds: [aiManageCommand.buildAiManagePanel(interaction.guild, actorId)],
+        components: [
+          new ActionRowBuilder().addComponents(
+            new RoleSelectMenuBuilder()
+              .setCustomId(`aimanage_role_select:${actorId}:${action}`)
+              .setPlaceholder('Select a role…')
+              .setMinValues(1)
+              .setMaxValues(1),
+          ),
+        ],
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+    return interaction.reply({
+      embeds: [embeds.error('Unknown action selected.', interaction.guild)],
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+
+  if (interaction.customId.startsWith('aimanage_user_select:')) {
         const [, actorId, action] = interaction.customId.split(':');
         if (actorId !== interaction.user.id) {
           return interaction.reply({
