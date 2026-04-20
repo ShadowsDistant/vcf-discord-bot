@@ -140,6 +140,7 @@ const AI_LOG_CHANNEL_KEY = 'aiLog';
 const AI_LOG_DEDUPE_WINDOW_MS = 30_000;
 const AI_LOG_DEDUPE_CACHE_MAX = 500;
 const AI_SAFETY_TOGGLE_CACHE_TTL_MS = 15_000;
+const AUDIT_LOG_REASON_MAX_LENGTH = 512;
 const MODEL_NVIDIA_EMOJI_ID = '1493406682666231900';
 let AI_USER_SETTINGS_LOADED = false;
 const RECENT_AI_LOG_KEYS = new Map();
@@ -2271,7 +2272,7 @@ function pickBestMemberMatch(matches, query) {
     String(top?.global_name ?? '').toLowerCase(),
   ];
   const topScore = Number(top?.score ?? 0);
-  const secondScore = Number(second?.score ?? 0);
+  const secondScore = second ? Number(second.score ?? 0) : 0;
   const scoreGap = topScore - secondScore;
   const exactNameMatch = needle.length > 0 && topNames.some((name) => name === needle);
   const clearPrefixWinner = topScore >= 90 && scoreGap >= 15;
@@ -2388,8 +2389,8 @@ function assertRoleManagementAllowed(interaction, roleId) {
 function buildAuditLogReason(interaction, detail) {
   const by = `Requested by ${interaction.user.tag} (${interaction.user.id})`;
   const extra = String(detail ?? '').trim();
-  if (!extra) return by.slice(0, 512);
-  return `${by} — ${extra}`.slice(0, 512);
+  if (!extra) return by.slice(0, AUDIT_LOG_REASON_MAX_LENGTH);
+  return `${by} — ${extra}`.slice(0, AUDIT_LOG_REASON_MAX_LENGTH);
 }
 
 async function executeTool(toolName, args, interaction, toolPermissions) {
