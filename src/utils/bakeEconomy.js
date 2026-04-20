@@ -3302,7 +3302,7 @@ function buildMessagesEmbed(guild, user, page) {
   const pageMsgs = newestFirst.slice(safePage * MESSAGES_PER_PAGE, safePage * MESSAGES_PER_PAGE + MESSAGES_PER_PAGE);
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
-    .setTitle('📬 Inbox')
+    .setTitle(`${EMAIL_EMOJI} Inbox`)
     .setDescription([
       `**Unread:** ${unreadCount}`,
       `**Unclaimed Rewards:** ${unclaimedRewards}`,
@@ -3385,6 +3385,9 @@ function buildMessagesEmbed(guild, user, page) {
 }
 
 const TRASH_EMOJI = '<:trash:1495704354332606464>';
+const EMAIL_EMOJI = '<:email:1495703840723570749>';
+const EMAIL_EMOJI_DATA = { id: '1495703840723570749', name: 'email' };
+const TRASH_EMOJI_DATA = { id: '1495704354332606464', name: 'trash' };
 
 function buildOpenedMessageEmbed(guild, user, messageId) {
   const pending = user.pendingMessages ?? [];
@@ -3501,7 +3504,7 @@ function buildOpenedMessageComponents(user, messageId) {
     new ButtonBuilder()
       .setCustomId('messages_open_back')
       .setLabel('Back to Inbox')
-      .setEmoji('📬')
+      .setEmoji(EMAIL_EMOJI_DATA)
       .setStyle(ButtonStyle.Secondary),
   );
   return [row];
