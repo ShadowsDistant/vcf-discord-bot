@@ -2060,85 +2060,87 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+        await interaction.deferUpdate().catch(() => null);
         const targetId = interaction.values[0];
         if (action === 'view-user') {
           const member = await interaction.guild.members.fetch(targetId).catch(() => null);
-          return interaction.update({
+          return interaction.editReply({
             embeds: [aiManageCommand.buildUserInfoEmbed(interaction.guild, member, targetId)],
-            components: buildAimanageActionRow(interaction.user.id),
-            flags: MessageFlags.Ephemeral,
+            components: [buildAimanageActionRow(interaction.user.id)],
           });
         }
         if (action === 'view-role') {
-          const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
+          const role = await interaction.guild.roles.fetch(targetId).catch(() => null);
           if (!role) {
-            return interaction.update({
+            return interaction.editReply({
               embeds: [embeds.error('Role not found.', interaction.guild)],
-              components: buildAimanageActionRow(interaction.user.id),
-              flags: MessageFlags.Ephemeral,
+              components: [buildAimanageActionRow(interaction.user.id)],
             });
           }
-          return interaction.update({
+          return interaction.editReply({
             embeds: [aiManageCommand.buildRoleInfoEmbed(interaction.guild, role)],
-            components: buildAimanageActionRow(interaction.user.id),
-            flags: MessageFlags.Ephemeral,
+            components: [buildAimanageActionRow(interaction.user.id)],
           });
         }
         if (aiManageCommand.VALUE_ACTIONS.has(action)) {
           const isSet = action === 'set-user';
-          const modal = new ModalBuilder()
-            .setCustomId(`aimanage_value_modal:${actorId}:${action}:${targetId}`)
-            .setTitle(isSet ? 'Set User AI Limit' : 'Grant User Adjustment')
-            .addComponents(
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId('value')
-                  .setLabel(isSet ? 'Limit per 6h (use -1 for unlimited)' : 'Adjustment amount (positive = grant)')
-                  .setStyle(TextInputStyle.Short)
-                  .setRequired(true)
-                  .setMaxLength(10)
-                  .setPlaceholder(isSet ? 'e.g. 30 or -1' : 'e.g. 5'),
+          return interaction.showModal(
+            new ModalBuilder()
+              .setCustomId(`aimanage_value_modal:${actorId}:${action}:${targetId}`)
+              .setTitle(isSet ? 'Set User AI Limit' : 'Grant User Adjustment')
+              .addComponents(
+                new ActionRowBuilder().addComponents(
+                  new TextInputBuilder()
+                    .setCustomId('value')
+                    .setLabel(isSet ? 'Limit per 6h (use -1 for unlimited)' : 'Adjustment amount (positive = grant)')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true)
+                    .setMaxLength(10)
+                    .setPlaceholder(isSet ? 'e.g. 30 or -1' : 'e.g. 5'),
+                ),
               ),
-            );
-          return interaction.showModal(modal);
+          );
         }
-        // Non-value user actions: execute immediately
+        // Non-value user actions
         if (action === 'clear-user') {
           aiManageCommand.writeUsage((data) => { delete data.userOverrides[targetId]; });
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [embeds.success(`Cleared AI usage override for <@${targetId}>.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
+            components: [buildAimanageActionRow(interaction.user.id)],
           });
         }
         if (action === 'allow-safety-user') {
           aiManageCommand.writeUsage((data) => { data.safetyToggleUsers[targetId] = true; });
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [embeds.success(`Allowed <@${targetId}> to disable AI safety in /ai.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
+            components: [buildAimanageActionRow(interaction.user.id)],
           });
         }
         if (action === 'disallow-safety-user') {
           aiManageCommand.writeUsage((data) => { delete data.safetyToggleUsers[targetId]; });
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [embeds.success(`Removed <@${targetId}>'s permission to disable AI safety.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
+            components: [buildAimanageActionRow(interaction.user.id)],
           });
         }
         if (action === 'allow-deep-research-user') {
           aiManageCommand.writeUsage((data) => { data.deepResearchUsers[targetId] = true; });
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [embeds.success(`Allowed <@${targetId}> to enable Deep Research in /ai.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
+            components: [buildAimanageActionRow(interaction.user.id)],
           });
         }
         if (action === 'disallow-deep-research-user') {
           aiManageCommand.writeUsage((data) => { delete data.deepResearchUsers[targetId]; });
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [embeds.success(`Removed <@${targetId}>'s Deep Research access.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
+            components: [buildAimanageActionRow(interaction.user.id)],
           });
         }
-        return interaction.reply({ embeds: [embeds.error('Unknown action.', interaction.guild)], flags: MessageFlags.Ephemeral });
+        return interaction.editReply({
+          embeds: [embeds.error('Unknown action.', interaction.guild)],
+          components: [buildAimanageActionRow(interaction.user.id)],
+        });
       }
     }
 
@@ -2164,62 +2166,57 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
+        await interaction.deferUpdate().catch(() => null);
         const roleId = interaction.values[0];
         if (action === 'view-role') {
           const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
           if (!role) {
-            return interaction.reply({
+            return interaction.editReply({
               embeds: [embeds.error('Role not found.', interaction.guild)],
-              flags: MessageFlags.Ephemeral,
+              components: [buildAimanageActionRow(interaction.user.id)],
             });
           }
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [aiManageCommand.buildRoleInfoEmbed(interaction.guild, role)],
-            flags: MessageFlags.Ephemeral,
-          });
-        }
-        if (action === 'view-role') {
-          const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
-          if (!role) {
-            return interaction.update({
-              embeds: [embeds.error('Role not found.', interaction.guild)],
-              components: buildAimanageActionRow(interaction.user.id),
-              flags: MessageFlags.Ephemeral,
-            });
-          }
-          return interaction.update({
-            embeds: [aiManageCommand.buildRoleInfoEmbed(interaction.guild, role)],
-            components: buildAimanageActionRow(interaction.user.id),
-            flags: MessageFlags.Ephemeral,
+            components: [buildAimanageActionRow(interaction.user.id)],
           });
         }
         if (aiManageCommand.VALUE_ACTIONS.has(action)) {
           const isSet = action === 'set-role';
-          const modal = new ModalBuilder()
-            .setCustomId(`aimanage_value_modal:${actorId}:${action}:${roleId}`)
-            .setTitle(isSet ? 'Set Role AI Limit' : 'Grant Role Adjustment')
-            .addComponents(
-              new ActionRowBuilder().addComponents(
-                new TextInputBuilder()
-                  .setCustomId('value')
-                  .setLabel(isSet ? 'Limit per 6h (use -1 for unlimited)' : 'Adjustment amount (positive = grant)')
-                  .setStyle(TextInputStyle.Short)
-                  .setRequired(true)
-                  .setMaxLength(10)
-                  .setPlaceholder(isSet ? 'e.g. 30 or -1' : 'e.g. 5'),
+          return interaction.showModal(
+            new ModalBuilder()
+              .setCustomId(`aimanage_value_modal:${actorId}:${action}:${roleId}`)
+              .setTitle(isSet ? 'Set Role AI Limit' : 'Grant Role Adjustment')
+              .addComponents(
+                new ActionRowBuilder().addComponents(
+                  new TextInputBuilder()
+                    .setCustomId('value')
+                    .setLabel(isSet ? 'Limit per 6h (use -1 for unlimited)' : 'Adjustment amount')
+                    .setStyle(TextInputStyle.Short)
+                    .setRequired(true)
+                    .setMaxLength(10)
+                    .setPlaceholder(isSet ? 'e.g. 30 or -1' : 'e.g. 5'),
+                ),
               ),
-            );
-          return interaction.showModal(modal);
+          );
         }
-        // clear-role
         if (action === 'clear-role') {
           aiManageCommand.writeUsage((data) => { delete data.roleOverrides[roleId]; });
-          return interaction.reply({
+          return interaction.editReply({
             embeds: [embeds.success(`Cleared AI usage override for <@&${roleId}>.`, interaction.guild)],
-            flags: MessageFlags.Ephemeral,
+            components: [buildAimanageActionRow(interaction.user.id)],
           });
         }
-        return interaction.reply({ embeds: [embeds.error('Unknown action.', interaction.guild)], flags: MessageFlags.Ephemeral });
+        if (action === 'grant-role') {
+          return interaction.editReply({
+            embeds: [embeds.warning('Role adjustments require a value — please use the modal.', interaction.guild)],
+            components: [buildAimanageActionRow(interaction.user.id)],
+          });
+        }
+        return interaction.editReply({
+          embeds: [embeds.error('Unknown action.', interaction.guild)],
+          components: [buildAimanageActionRow(interaction.user.id)],
+        });
       }
     }
 
