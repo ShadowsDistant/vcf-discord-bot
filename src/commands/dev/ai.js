@@ -110,8 +110,10 @@ const AI_TOGGLE_PROMPT_BUTTON_ID = 'ai_toggle_prompt';
 const AI_MODEL_SELECT_ID = 'ai_model_select';
 const AI_SAFETY_SELECT_ID = 'ai_safety_select';
 const AI_PERSONA_SELECT_ID = 'ai_persona_select';
-const AI_DEEP_RESEARCH_SELECT_ID = 'ai_deep_research_select';
 const AI_DEEP_RESEARCH_VARIANT_COUNT = 5;
+const AI_DEEP_THINK_BUTTON_ID = 'ai_deep_think';
+const AI_REGEN_BUTTON_ID = 'ai_regen';
+const AI_FILE_AUTO_REMOVE_MS = 60_000;
 const AI_CONTINUE_MODAL_ID = 'ai_continue_modal';
 const AI_CONTINUE_PROMPT_INPUT_ID = 'ai_continue_prompt';
 const AI_CUSTOM_INSTRUCTIONS_BUTTON_ID = 'ai_custom_instructions';
@@ -388,7 +390,7 @@ Attribution (required when the AI posts into a channel on the user's behalf):
 
 Interactive Components:
 Tools:
-- send_file: when used, ALWAYS sends as an ephemeral (hidden) DM — never in any public/shared channel. Reserved for responses exceeding 4000 characters that cannot be shortened. Compress, summarize, or split before using.
+- send_file: attaches a text/markdown file (up to ~1MB) to the AI response embed; the file auto-removes after ~60 seconds. ALWAYS use send_file when the user asks you to create or write code, a script, a config/log/CSV/JSON/markdown document, or any artifact longer than ~40 lines — do not paste long code directly into the embed description. Use a matching extension (.py, .js, .ts, .md, .json, .sh, etc.) and provide a short summary_title/summary_description.
 - Only add components when they provide clear interaction value (not decoration).
 - Prefer select_menus for choosing from 3+ defined options.
 - Whenever you ask the user to choose from defined actions/options, you MUST provide a select_menus entry for that choice and use it to collect the response.
@@ -1492,7 +1494,7 @@ const TOOL_SCHEMAS = [
     type: 'function',
     function: {
       name: 'send_file',
-      description: '[LAST RESORT] Send a text/markdown file attachment (up to ~1MB) ONLY as an ephemeral (hidden) DM to the user — never in public channels. Only use when response exceeds 4000 characters AND no other tool can send the data. Prefer shorter summaries over full file dumps.',
+      description: 'Attach a text/markdown file (up to ~1MB) to the AI response embed. Auto-removes ~60 seconds after posting. USE THIS whenever the user asks for code, a script, a config/log/CSV/JSON/markdown document, or any artifact longer than ~40 lines instead of pasting it into the embed description.',
       parameters: {
         type: 'object',
         properties: {
@@ -2682,7 +2684,7 @@ function ensureRequestedByLine(text, userId) {
   return `${cleaned}\n${needle}`;
 }
 
-async function executeTool(toolName, args, interaction, toolPermissions) {
+async function executeTool(toolName, args, interaction, toolPermissions, turnContext = {}) {
   const guild = interaction.guild;
   assertToolAllowedForPermissions(toolName, toolPermissions);
 
@@ -2815,31 +2817,44 @@ async function executeTool(toolName, args, interaction, toolPermissions) {
     }
 
     case 'send_file': {
-      // ALWAYS send as a hidden (ephemeral) DM to the requesting user.
-      // The AI must NEVER post file content in public or shared channels.
-      const member = await guild.members.fetch(allowedUserId).catch(() => null);
-      if (!member) throw new Error('Could not locate user to send hidden message.');
-      const dm = await member.user.createDM().catch(() => null);
-      if (!dm) throw new Error('Could not open a DM channel with the user.');
       const fileContent = String(args.content ?? '');
       const bytes = Buffer.from(fileContent, 'utf8');
       if (bytes.length > 1024 * 1024) throw new Error('File content exceeds 1MB limit.');
-      const filename = String(args.filename || 'response.txt').trim().slice(0, 80) || 'response.txt';
-      const safeName = /^[\w.\-]+$/.test(filename) ? filename : 'response.txt';
+      const filenameRaw = String(args.filename || 'response.txt').trim().slice(0, 80) || 'response.txt';
+      const safeName = /^[\w.\-]+$/.test(filenameRaw) ? filenameRaw : 'response.txt';
+
+      if (Array.isArray(turnContext.pendingFiles)) {
+        turnContext.pendingFiles.push({
+          filename: safeName,
+          bytes,
+          summary_title: args.summary_title ? String(args.summary_title).slice(0, 256) : null,
+          summary_description: args.summary_description ? String(args.summary_description).slice(0, 4000) : null,
+        });
+        return {
+          success: true,
+          filename: safeName,
+          bytes: bytes.length,
+          note: `Attached to the AI response embed. The file will auto-remove ${Math.floor(AI_FILE_AUTO_REMOVE_MS / 1000)}s after the response is posted.`,
+          visible_to: 'everyone who can see the response (until auto-removal)',
+        };
+      }
+
+      const member = await guild.members.fetch(interaction.user.id).catch(() => null);
+      if (!member) throw new Error('Could not locate user to send file.');
+      const dm = await member.user.createDM().catch(() => null);
+      if (!dm) throw new Error('Could not open a DM channel with the user.');
       const { AttachmentBuilder } = require('discord.js');
       const attachment = new AttachmentBuilder(bytes, { name: safeName });
-      const payload = { files: [attachment], flags: MessageFlags.Ephemeral };
+      const payload = { files: [attachment] };
       if (args.summary_title || args.summary_description) {
-        const embed = new EmbedBuilder()
-          .setColor(0x5865f2)
-          .setTimestamp();
+        const embed = new EmbedBuilder().setColor(0x5865f2).setTimestamp();
         if (args.summary_title) embed.setTitle(String(args.summary_title).slice(0, 256));
         if (args.summary_description) embed.setDescription(String(args.summary_description).slice(0, 4000));
-        embed.addFields({ name: '📎 File', value: `\`${safeName}\` — ${bytes.length.toLocaleString()} bytes (only visible to you)`, inline: false });
+        embed.addFields({ name: '📎 File', value: `\`${safeName}\` — ${bytes.length.toLocaleString()} bytes`, inline: false });
         payload.embeds = [embed];
       }
       const msg = await dm.send(payload);
-      return { success: true, message_id: msg.id, channel_id: dm.id, filename: safeName, bytes: bytes.length, note: 'Sent as hidden DM.' };
+      return { success: true, message_id: msg.id, channel_id: dm.id, filename: safeName, bytes: bytes.length, note: 'Sent as DM fallback.' };
     }
 
     case 'get_channel_info': {
@@ -4341,8 +4356,8 @@ function buildReviewEmbed(stats, toolsUsed, settings, usageInfo = null) {
 
   if (settings?.deepResearch) {
     fields.push({
-      name: '🔬 Deep Research',
-      value: 'Enabled — 5 response variants synthesized into one final answer.',
+      name: '🔬 Deep Think',
+      value: 'Last response used Deep Think — 5 variants synthesized into one answer.',
       inline: false,
     });
   }
@@ -4472,36 +4487,6 @@ function buildPersonaSelectRow(selectedPersonaKey) {
 }
 
 /**
- * Build the persistent Deep Research mode selector row.
- * @param {boolean} enabled
- * @returns {ActionRowBuilder}
- */
-function buildDeepResearchSelectRow(enabled) {
-  const menu = new StringSelectMenuBuilder()
-    .setCustomId(AI_DEEP_RESEARCH_SELECT_ID)
-    .setPlaceholder(`Deep Research: ${enabled ? 'Enabled 🔬' : 'Disabled'}`)
-    .setMinValues(1)
-    .setMaxValues(1)
-    .addOptions(
-      {
-        label: 'Deep Research — Off',
-        value: 'off',
-        description: 'Single response (default, fastest).',
-        emoji: '⚡',
-        default: !enabled,
-      },
-      {
-        label: 'Deep Research — On',
-        value: 'on',
-        description: `Generate ${AI_DEEP_RESEARCH_VARIANT_COUNT} variants, then synthesize the best answer.`,
-        emoji: '🔬',
-        default: Boolean(enabled),
-      },
-    );
-  return new ActionRowBuilder().addComponents(menu);
-}
-
-/**
  * Re-render stored turns based on current view/settings state.
  * @param {object} session
  */
@@ -4539,29 +4524,48 @@ function buildFinalComponents(session) {
   const turnIndex = getSafeTurnIndex(session);
   const rows = [];
 
-  const controls = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId(mode === 'output' ? AI_REVIEW_BUTTON_ID : AI_OUTPUT_BUTTON_ID)
-      .setStyle(ButtonStyle.Secondary)
-      .setLabel(mode === 'output' ? 'Review' : 'Back to Output'),
-    new ButtonBuilder()
-      .setCustomId(AI_CONTINUE_BUTTON_ID)
-      .setStyle(ButtonStyle.Primary)
-      .setLabel('Continue'),
-    new ButtonBuilder()
-      .setCustomId(AI_TOGGLE_PROMPT_BUTTON_ID)
-      .setStyle(ButtonStyle.Secondary)
-      .setLabel('Show Prompt'),
-    new ButtonBuilder()
-      .setCustomId(AI_TOGGLE_THINKING_BUTTON_ID)
-      .setStyle(ButtonStyle.Secondary)
-      .setLabel('View Thinking'),
-  );
-  rows.push(controls);
+  if (mode === 'output') {
+    const actionRow = new ActionRowBuilder();
+    actionRow.addComponents(
+      new ButtonBuilder()
+        .setCustomId(AI_REVIEW_BUTTON_ID)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel('Review'),
+      new ButtonBuilder()
+        .setCustomId(AI_CONTINUE_BUTTON_ID)
+        .setStyle(ButtonStyle.Primary)
+        .setLabel('Continue'),
+      new ButtonBuilder()
+        .setCustomId(AI_REGEN_BUTTON_ID)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel('Regen')
+        .setEmoji('🔁'),
+    );
+    if (canUseDeepResearch(session.allowedUserId)) {
+      actionRow.addComponents(
+        new ButtonBuilder()
+          .setCustomId(AI_DEEP_THINK_BUTTON_ID)
+          .setStyle(ButtonStyle.Secondary)
+          .setLabel('Deep Think')
+          .setEmoji('🧠'),
+      );
+    }
+    actionRow.addComponents(
+      new ButtonBuilder()
+        .setCustomId(AI_TOGGLE_THINKING_BUTTON_ID)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel(session.showThinking ? 'Hide Thinking' : 'View Thinking'),
+    );
+    rows.push(actionRow);
 
-  if (turnCount > 1 && rows.length < 5) {
-    rows.push(
-      new ActionRowBuilder().addComponents(
+    const secondaryRow = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(AI_TOGGLE_PROMPT_BUTTON_ID)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel(session.showPrompt ? 'Hide Prompt' : 'Show Prompt'),
+    );
+    if (turnCount > 1) {
+      secondaryRow.addComponents(
         new ButtonBuilder()
           .setCustomId(AI_TURN_PREV_BUTTON_ID)
           .setStyle(ButtonStyle.Secondary)
@@ -4572,13 +4576,10 @@ function buildFinalComponents(session) {
           .setStyle(ButtonStyle.Secondary)
           .setLabel('Next Message')
           .setDisabled(turnIndex >= turnCount - 1),
-      ),
-    );
-  }
-
-  if (mode === 'output' && pageCount > 1) {
-    rows.push(
-      new ActionRowBuilder().addComponents(
+      );
+    }
+    if (pageCount > 1) {
+      secondaryRow.addComponents(
         new ButtonBuilder()
           .setCustomId(AI_PAGE_PREV_BUTTON_ID)
           .setStyle(ButtonStyle.Secondary)
@@ -4589,41 +4590,52 @@ function buildFinalComponents(session) {
           .setStyle(ButtonStyle.Secondary)
           .setLabel('Next Page')
           .setDisabled(pageIndex >= pageCount - 1),
-      ),
-    );
-  }
-
-  if (mode === 'review' && rows.length < 5) {
-    rows.push(buildModelSelectRow(session.modelKey));
-  }
-  if (mode === 'review' && rows.length < 5) {
-    rows.push(buildPersonaSelectRow(session.personaKey));
-  }
-  if (mode === 'review' && rows.length < 5) {
-    const instructionsRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(AI_CUSTOM_INSTRUCTIONS_BUTTON_ID)
-        .setStyle(ButtonStyle.Secondary)
-        .setLabel(session.customInstructions ? 'Edit Instructions' : 'Add Instructions'),
-    );
-    if (session.customInstructions) {
-      instructionsRow.addComponents(
-        new ButtonBuilder()
-          .setCustomId(AI_CLEAR_CUSTOM_INSTRUCTIONS_BUTTON_ID)
-          .setStyle(ButtonStyle.Danger)
-          .setLabel('Clear Instructions'),
       );
     }
-    rows.push(instructionsRow);
-  }
-  if (mode === 'review' && rows.length < 5) {
-    if (canUseDeepResearch(session.allowedUserId)) rows.push(buildDeepResearchSelectRow(Boolean(session.deepResearch)));
-  }
-  if (mode === 'review' && rows.length < 5 && canToggleAiSafety(session.allowedUserId)) {
-    rows.push(buildSafetySelectRow(session.safetyEnabled));
-  }
-  if (mode === 'review' && rows.length < 5) {
-    if (canUseDeepResearch(session.allowedUserId)) rows.push(buildDeepResearchSelectRow(Boolean(session.deepResearch)));
+    if (secondaryRow.components.length > 0) rows.push(secondaryRow);
+  } else {
+    const controls = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(AI_OUTPUT_BUTTON_ID)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel('Back to Output'),
+      new ButtonBuilder()
+        .setCustomId(AI_CONTINUE_BUTTON_ID)
+        .setStyle(ButtonStyle.Primary)
+        .setLabel('Continue'),
+      new ButtonBuilder()
+        .setCustomId(AI_TOGGLE_PROMPT_BUTTON_ID)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel(session.showPrompt ? 'Hide Prompt' : 'Show Prompt'),
+      new ButtonBuilder()
+        .setCustomId(AI_TOGGLE_THINKING_BUTTON_ID)
+        .setStyle(ButtonStyle.Secondary)
+        .setLabel(session.showThinking ? 'Hide Thinking' : 'View Thinking'),
+    );
+    rows.push(controls);
+
+    if (rows.length < 5) {
+      const instructionsRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(AI_CUSTOM_INSTRUCTIONS_BUTTON_ID)
+          .setStyle(ButtonStyle.Secondary)
+          .setLabel(session.customInstructions ? 'Edit Instructions' : 'Add Instructions'),
+      );
+      if (session.customInstructions) {
+        instructionsRow.addComponents(
+          new ButtonBuilder()
+            .setCustomId(AI_CLEAR_CUSTOM_INSTRUCTIONS_BUTTON_ID)
+            .setStyle(ButtonStyle.Danger)
+            .setLabel('Clear Instructions'),
+        );
+      }
+      rows.push(instructionsRow);
+    }
+    if (rows.length < 5) rows.push(buildModelSelectRow(session.modelKey));
+    if (rows.length < 5) rows.push(buildPersonaSelectRow(session.personaKey));
+    if (rows.length < 5 && canToggleAiSafety(session.allowedUserId)) {
+      rows.push(buildSafetySelectRow(session.safetyEnabled));
+    }
   }
 
   if (mode === 'output' && Array.isArray(turn.uiRows)) {
@@ -4690,7 +4702,7 @@ async function runDeepResearch(interaction, replyMsg, prompt, settings) {
     const synthLabel = synthStatus === 'done' ? 'Complete' : synthStatus === 'running' ? 'Synthesizing…' : 'Waiting';
     return new EmbedBuilder()
       .setColor(0x5865f2)
-      .setAuthor({ name: 'AI — Deep Research' })
+      .setAuthor({ name: 'AI — Deep Think' })
       .setDescription(`**${modelConfig.label}** • ${personaConfig.emoji || ''} **${personaConfig.label}**\n\n${rows}\n\n${synthIcon}  Final Synthesis — ${synthLabel}`)
       .setFooter({ text: '5 parallel drafts, then synthesis into one final response.' })
       .setTimestamp();
@@ -4724,7 +4736,7 @@ async function runDeepResearch(interaction, replyMsg, prompt, settings) {
         temperature: 1.05,
         top_p: 0.95,
         messages: [
-          { role: 'system', content: systemPromptBase + `\n\nYou are draft #${idx + 1} of 5 in a Deep Research pass. Respond with your best standalone answer to the user's prompt. Do not call tools. Keep it focused and substantive.` },
+          { role: 'system', content: systemPromptBase + `\n\nYou are draft #${idx + 1} of 5 in a Deep Think pass. Respond with your best standalone answer to the user's prompt. Do not call tools. Keep it focused and substantive.` },
           { role: 'user', content: prompt },
         ],
       });
@@ -4744,7 +4756,7 @@ async function runDeepResearch(interaction, replyMsg, prompt, settings) {
   await updateLoading();
 
   const synthesisInstruction = (settings?.deepResearchPrompt || '').trim() || [
-    'You are the synthesizer in a Deep Research pass.',
+    'You are the synthesizer in a Deep Think pass.',
     'You were given a user prompt, then 5 independent drafts from other sessions attempting to answer it.',
     'Produce ONE final response that:',
     '- Keeps the strongest ideas, corrections, and evidence from all 5 drafts.',
@@ -4770,7 +4782,7 @@ async function runDeepResearch(interaction, replyMsg, prompt, settings) {
     });
     finalText = stripThinkBlocks(String(completion?.choices?.[0]?.message?.content ?? ''));
   } catch (err) {
-    finalText = `Deep Research synthesis failed: ${err.message}\n\nDraft 1:\n${drafts[0] || ''}`;
+    finalText = `Deep Think synthesis failed: ${err.message}\n\nDraft 1:\n${drafts[0] || ''}`;
   }
   synthStatus = 'done';
   await updateLoading();
@@ -4780,6 +4792,7 @@ async function runDeepResearch(interaction, replyMsg, prompt, settings) {
 
 async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
   const turnToolsUsed = [];
+  const turnContext = { pendingFiles: [] };
   const requestStartMs = Date.now();
   let ttftMs = null;
   let promptTokens = null;
@@ -4836,6 +4849,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
           },
         },
         toolsUsed: [...turnToolsUsed],
+        pendingFiles: turnContext.pendingFiles,
       };
     }
   }
@@ -4925,6 +4939,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
               response: responseSafetyResult,
             },
             toolsUsed: [...turnToolsUsed],
+        pendingFiles: turnContext.pendingFiles,
           };
         }
         const promptDetails = promptSafetyResult ?? {
@@ -4975,6 +4990,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
             response: responseDetails,
           },
           toolsUsed: [...turnToolsUsed],
+        pendingFiles: turnContext.pendingFiles,
         };
       }
       messages.push({
@@ -5015,6 +5031,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
         safetyRating: safetyEnabled ? 'passed' : null,
         safetyDetails: null,
         toolsUsed: [...turnToolsUsed],
+        pendingFiles: turnContext.pendingFiles,
       };
     }
     messages.push({
@@ -5052,7 +5069,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
           });
         } else {
           try {
-            toolResult = await executeTool(toolName, toolArgs, interaction, settings?.toolPermissions);
+            toolResult = await executeTool(toolName, toolArgs, interaction, settings?.toolPermissions, turnContext);
             turnToolsUsed.push({ name: toolName, args: toolArgs, success: true });
           } catch (err) {
             toolResult = `Error executing ${toolName}: ${err.message}`;
@@ -5065,7 +5082,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
         }
       } else {
         try {
-          toolResult = await executeTool(toolName, toolArgs, interaction, settings?.toolPermissions);
+          toolResult = await executeTool(toolName, toolArgs, interaction, settings?.toolPermissions, turnContext);
           turnToolsUsed.push({ name: toolName, args: toolArgs, success: true });
         } catch (err) {
           toolResult = `Error executing ${toolName}: ${err.message}`;
@@ -5113,6 +5130,7 @@ async function runAiTurn(interaction, replyMsg, messages, toolsUsed, settings) {
     safetyRating: null,
     safetyDetails: null,
     toolsUsed: [...turnToolsUsed],
+        pendingFiles: turnContext.pendingFiles,
   };
 }
 
@@ -5166,6 +5184,54 @@ async function sendHiddenCodeEmbeds(i, title, text, emptyMessage) {
 }
 
 /**
+ * Render the active turn into the reply message. If the turn carries pendingFiles,
+ * attach them with a countdown footer and schedule auto-removal after AI_FILE_AUTO_REMOVE_MS.
+ * @param {import('discord.js').Message} replyMsg
+ * @param {object} session
+ */
+async function applyTurnToMessage(replyMsg, session) {
+  const turn = getActiveTurn(session);
+  const pendingFiles = Array.isArray(turn?.pendingFiles) ? turn.pendingFiles : [];
+  const baseEmbed = getActiveEmbed(session);
+  const baseComponents = buildFinalComponents(session);
+
+  if (!pendingFiles.length) {
+    await replyMsg.edit({ embeds: [baseEmbed], components: baseComponents, files: [] }).catch(() => null);
+    return;
+  }
+
+  const { AttachmentBuilder } = require('discord.js');
+  const attachments = pendingFiles.map((f) => new AttachmentBuilder(f.bytes, { name: f.filename }));
+  const expiresAt = Math.floor((Date.now() + AI_FILE_AUTO_REMOVE_MS) / 1000);
+  const fileEmbed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setAuthor({ name: '📎 Attached File(s)' })
+    .setDescription(pendingFiles.map((f) => {
+      const summary = f.summary_description ? `\n> ${String(f.summary_description).slice(0, 300)}` : '';
+      const title = f.summary_title ? `**${f.summary_title}**\n` : '';
+      return `${title}**\`${f.filename}\`** — ${Number(f.bytes?.length ?? f.bytes ?? 0).toLocaleString()} bytes${summary}`;
+    }).join('\n\n'))
+    .setFooter({ text: `File attachment auto-removes ${new Date(Date.now() + AI_FILE_AUTO_REMOVE_MS).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` })
+    .addFields({ name: 'Auto-removes', value: `<t:${expiresAt}:R>`, inline: true })
+    .setTimestamp();
+
+  await replyMsg.edit({
+    embeds: [baseEmbed, fileEmbed],
+    components: baseComponents,
+    files: attachments,
+  }).catch(() => null);
+
+  setTimeout(() => {
+    turn.pendingFiles = [];
+    replyMsg.edit({
+      embeds: [getActiveEmbed(session)],
+      components: buildFinalComponents(session),
+      files: [],
+    }).catch(() => null);
+  }, AI_FILE_AUTO_REMOVE_MS).unref?.();
+}
+
+/**
  * Handle component interactions for a response message/session.
  * @param {import('discord.js').Message} replyMsg
  * @param {import('discord.js').ChatInputCommandInteraction} interaction
@@ -5186,7 +5252,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
   async function runFollowUpTurn(status, validatedUsagePolicy) {
     session.busy = true;
     refreshSessionSystemPrompt(session);
-    await replyMsg.edit({ embeds: [buildProcessingEmbed(status)], components: [] }).catch(() => null);
+    await applyTurnToMessage(replyMsg, session);
     try {
       const result = await runAiTurn(interaction, replyMsg, session.messages, session.toolsUsed, {
         modelKey: session.modelKey,
@@ -5207,6 +5273,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
         rawContent: result.rawContent,
         thinkingText: result.thinkingText,
         promptText: result.promptText,
+        pendingFiles: result.pendingFiles ?? [],
         pageIndex: 0,
         viewMode: 'output',
       });
@@ -5228,10 +5295,6 @@ function attachReviewHandler(replyMsg, interaction, session) {
           toolsUsed: result.toolsUsed ?? session.toolsUsed,
         }).catch(() => null);
       }
-      await replyMsg.edit({
-        embeds: [getActiveEmbed(session)],
-        components: buildFinalComponents(session),
-      });
     } catch (err) {
       await replyMsg.edit({
         embeds: [buildErrorEmbed(err.message, err.status)],
@@ -5355,26 +5418,120 @@ function attachReviewHandler(replyMsg, interaction, session) {
       }).catch(() => null);
       return;
     }
-    if (i.customId === AI_DEEP_RESEARCH_SELECT_ID) {
-      if (!canUseDeepResearch(session.allowedUserId)) {
-        await i.reply({ content: 'Deep Research is not enabled for your account. Ask an administrator via /aimanage.', flags: MessageFlags.Ephemeral }).catch(() => null);
+    if (i.customId === AI_DEEP_THINK_BUTTON_ID || i.customId === AI_REGEN_BUTTON_ID) {
+      const isDeepThink = i.customId === AI_DEEP_THINK_BUTTON_ID;
+      if (isDeepThink && !canUseDeepResearch(session.allowedUserId)) {
+        await i.reply({ content: 'Deep Think is not enabled for your account. Ask an administrator via /aimanage.', flags: MessageFlags.Ephemeral }).catch(() => null);
         return;
       }
-      const enabled = i.values?.[0] === 'on';
-      session.deepResearch = enabled;
-      setUserAiSettings(session.allowedUserId, {
-        modelKey: session.modelKey,
-        personaKey: session.personaKey,
-        customInstructions: session.customInstructions,
-        showThinking: session.showThinking,
-        safetyEnabled: session.safetyEnabled,
-        deepResearch: Boolean(session.deepResearch),
-      });
-      await i.update({ embeds: [getActiveEmbed(session)], components: buildFinalComponents(session) }).catch(() => null);
-      await i.followUp({
-        content: `Deep Research is now **${enabled ? 'ON' : 'OFF'}**.`,
-        flags: MessageFlags.Ephemeral,
+      const lastUserMsg = [...(session.messages ?? [])].reverse().find((m) => m?.role === 'user')?.content;
+      const activeTurn = getActiveTurn(session);
+      const prompt = String(lastUserMsg ?? activeTurn?.promptText ?? '').trim();
+      if (!prompt) {
+        await i.reply({ content: 'No previous prompt found to re-run.', flags: MessageFlags.Ephemeral }).catch(() => null);
+        return;
+      }
+      const usagePolicy = await ensureUsageAllowed(i, i.member);
+      if (!usagePolicy) return;
+
+      session.busy = true;
+      await i.deferUpdate().catch(() => null);
+      refreshSessionSystemPrompt(session);
+
+      const label = isDeepThink ? 'Deep Think' : 'Regenerating';
+      await replyMsg.edit({
+        embeds: [buildProcessingEmbed(`${label}…`)],
+        components: [],
+        files: [],
       }).catch(() => null);
+
+      try {
+        let result;
+        if (isDeepThink) {
+          const dr = await runDeepResearch(interaction, replyMsg, prompt, {
+            modelKey: session.modelKey,
+            personaKey: session.personaKey,
+            customInstructions: session.customInstructions,
+            safetyEnabled: session.safetyEnabled,
+          });
+          const systemPrompt = buildSystemPrompt(session.safetyEnabled, session.toolAccessPromptSuffix ?? '', {
+            personaKey: session.personaKey,
+            customInstructions: session.customInstructions,
+            speaker: session.speakingUser,
+          });
+          const syntheticMessages = [
+            { role: 'system', content: systemPrompt + '\n\nThe following response was produced by a Deep Think synthesis pass. Return it verbatim as your final answer; do not modify the content.' },
+            { role: 'user', content: prompt },
+            { role: 'assistant', content: dr.finalText },
+            { role: 'user', content: 'Please output the above synthesized answer verbatim as your final response (no tools).' },
+          ];
+          result = await runAiTurn(interaction, replyMsg, syntheticMessages, session.toolsUsed, {
+            modelKey: session.modelKey,
+            personaKey: session.personaKey,
+            customInstructions: session.customInstructions,
+            showThinking: session.showThinking,
+            showPrompt: session.showPrompt,
+            safetyEnabled: session.safetyEnabled,
+            toolSchemas: [],
+            toolPermissions: session.toolPermissions,
+          });
+        } else {
+          // Fresh regen: run a tool-capable turn on a copy of the messages where the
+          // final assistant answer is trimmed — so the model answers the same prompt again.
+          const messagesForRegen = [...session.messages];
+          result = await runAiTurn(interaction, replyMsg, messagesForRegen, session.toolsUsed, {
+            modelKey: session.modelKey,
+            personaKey: session.personaKey,
+            customInstructions: session.customInstructions,
+            showThinking: session.showThinking,
+            showPrompt: session.showPrompt,
+            safetyEnabled: session.safetyEnabled,
+            toolSchemas: session.toolSchemas,
+            toolPermissions: session.toolPermissions,
+          });
+        }
+        session.turns.push({
+          outputEmbeds: result.outputEmbeds,
+          reviewEmbed: result.reviewEmbed,
+          linkButtons: result.linkButtons,
+          uiRows: result.uiRows,
+          uiState: result.uiState,
+          rawContent: result.rawContent,
+          thinkingText: result.thinkingText,
+          promptText: result.promptText,
+          pendingFiles: result.pendingFiles ?? [],
+          pageIndex: 0,
+          viewMode: 'output',
+        });
+        const usageAfterRegen = consumeUsageAndDecorateReview(result.reviewEmbed, usagePolicy, interaction.user.id);
+        sendUsageLowWarning(interaction, usageAfterRegen, usagePolicy);
+        session.turnIndex = session.turns.length - 1;
+        if (session.safetyEnabled !== false) {
+          sendAiInteractionLog(interaction, {
+            prompt,
+            response: result.rawContent,
+            thinkingText: result.thinkingText,
+            blocked: Boolean(result.blocked),
+            blockReason: result.blockReason ?? null,
+            safetyRating: result.safetyRating ?? null,
+            aiMessageId: replyMsg.id,
+            personaKey: session.personaKey,
+            safetyDetails: result.safetyDetails ?? null,
+            toolsUsed: result.toolsUsed ?? session.toolsUsed,
+            deepThink: isDeepThink,
+            showThinking: session.showThinking,
+            showPrompt: session.showPrompt,
+          }).catch(() => null);
+        }
+        await applyTurnToMessage(replyMsg, session);
+      } catch (err) {
+        await replyMsg.edit({
+          embeds: [buildErrorEmbed(err.message, err.status)],
+          components: buildErrorComponents(session),
+        }).catch(() => null);
+      } finally {
+        session.busy = false;
+      }
       return;
     }
     if (i.customId === AI_CUSTOM_INSTRUCTIONS_BUTTON_ID) {
@@ -5523,11 +5680,6 @@ function attachReviewHandler(replyMsg, interaction, session) {
       await modalSubmit.deferUpdate().catch(() => null);
       refreshSessionSystemPrompt(session);
       session.messages.push({ role: 'user', content: prompt });
-      // Preserve the loading message only when there is actual progress to show
-      if (typeof processMsgId !== "undefined") {
-        await replyMsg.edit({ embeds: [buildProcessingEmbed()], components: [] }).catch(() => null);
-      }
-
       try {
         const result = await runAiTurn(interaction, replyMsg, session.messages, session.toolsUsed, {
           modelKey: session.modelKey,
@@ -5548,6 +5700,7 @@ function attachReviewHandler(replyMsg, interaction, session) {
           rawContent: result.rawContent,
           thinkingText: result.thinkingText,
           promptText: result.promptText,
+          pendingFiles: result.pendingFiles ?? [],
           pageIndex: 0,
           viewMode: 'output',
         });
@@ -5567,12 +5720,11 @@ function attachReviewHandler(replyMsg, interaction, session) {
             personaKey: session.personaKey,
             safetyDetails: result.safetyDetails ?? null,
             toolsUsed: result.toolsUsed ?? session.toolsUsed,
+            showThinking: session.showThinking,
+            showPrompt: session.showPrompt,
           }).catch(() => null);
         }
-        await replyMsg.edit({
-          embeds: [getActiveEmbed(session)],
-          components: buildFinalComponents(session),
-        });
+        await applyTurnToMessage(replyMsg, session);
       } catch (err) {
         await replyMsg.edit({
           embeds: [buildErrorEmbed(err.message, err.status)],
@@ -5687,6 +5839,9 @@ async function sendAiInteractionLog(
     personaKey,
     safetyDetails,
     toolsUsed,
+    deepThink,
+    showThinking,
+    showPrompt,
   } = {},
 ) {
   const promptForFingerprint = truncate(String(prompt ?? ''), 4000);
@@ -5727,7 +5882,7 @@ async function sendAiInteractionLog(
   const promptSeverity = safetyDetails?.prompt?.severity ?? '';
   const responseSeverity = safetyDetails?.response?.severity ?? '';
   const hasMediumPlusSeverity = isMediumOrHigherSeverity(promptSeverity) || isMediumOrHigherSeverity(responseSeverity);
-  const isRed = blocked || hasMediumPlusSeverity;
+  const isRed = blocked || blockReason || hasMediumPlusSeverity;
   const color = isRed ? 0xed4245 : 0x57f287;
   const responseText = typeof response === 'string' ? response : '';
   let parsedTitle = null;
@@ -5764,6 +5919,14 @@ async function sendAiInteractionLog(
   const logSafetyRating = blocked || blockReason ? 'failed' : safetyRating;
   if (logSafetyRating) {
     embed.addFields({ name: 'Safety Rating', value: String(logSafetyRating).slice(0, 256), inline: true });
+  }
+
+  const flagParts = [];
+  if (deepThink) flagParts.push('🔬 Deep Think');
+  if (showThinking) flagParts.push('🧠 Show Thinking');
+  if (showPrompt) flagParts.push('📝 Show Prompt');
+  if (flagParts.length > 0) {
+    embed.addFields({ name: 'Flags', value: flagParts.join(' • '), inline: true });
   }
 
   if (blocked) {
@@ -5943,33 +6106,11 @@ module.exports = {
     const toolsUsed = [];
     let result;
     try {
-      if (userSettings.deepResearch && canUseDeepResearch(interaction.user.id)) {
-        const dr = await runDeepResearch(interaction, replyMsg, prompt, userSettings);
-        // Reconstruct a result object compatible with the downstream flow by doing a
-        // single tool-less runAiTurn that receives the synthesized answer as an
-        // assistant-seed, so existing embed/review/page plumbing just works.
-        const syntheticMessages = [
-          { role: 'system', content: buildSystemPrompt(userSettings.safetyEnabled, toolAccessPromptSuffix, {
-            personaKey: userSettings.personaKey,
-            customInstructions: userSettings.customInstructions,
-            speaker: speakingUser,
-          }) + '\n\nThe following response was produced by a Deep Research synthesis pass. Return it verbatim as your final answer; do not modify the content.' },
-          { role: 'user', content: prompt },
-          { role: 'assistant', content: dr.finalText },
-          { role: 'user', content: 'Please output the above synthesized answer verbatim as your final response (no tools).' },
-        ];
-        result = await runAiTurn(interaction, replyMsg, syntheticMessages, toolsUsed, {
-          ...userSettings,
-          toolSchemas: [],
-          toolPermissions,
-        });
-      } else {
-        result = await runAiTurn(interaction, replyMsg, messages, toolsUsed, {
-          ...userSettings,
-          toolSchemas,
-          toolPermissions,
-        });
-      }
+      result = await runAiTurn(interaction, replyMsg, messages, toolsUsed, {
+        ...userSettings,
+        toolSchemas,
+        toolPermissions,
+      });
     } catch (err) {
       return interaction.editReply({
         embeds: [buildErrorEmbed(err.message, err.status)],
@@ -5993,6 +6134,9 @@ module.exports = {
         personaKey: userSettings.personaKey,
         safetyDetails: result.safetyDetails ?? null,
         toolsUsed: result.toolsUsed ?? toolsUsed,
+        deepThink: Boolean(userSettings.deepResearch),
+        showThinking: Boolean(userSettings.showThinking),
+        showPrompt: false,
       }).catch(() => null);
     }
 
@@ -6020,6 +6164,7 @@ module.exports = {
         rawContent: result.rawContent,
         thinkingText: result.thinkingText,
         promptText: result.promptText,
+        pendingFiles: result.pendingFiles ?? [],
         pageIndex: 0,
         viewMode: 'output',
       }],
@@ -6027,16 +6172,16 @@ module.exports = {
       busy: false,
     };
 
-    const components = buildFinalComponents(session);
-    await interaction.editReply({
-      embeds: [getActiveEmbed(session)],
-      components,
-    });
-
     const finalMsg = await interaction.fetchReply().catch(() => null);
     if (finalMsg) {
       AI_SESSIONS.set(finalMsg.id, session);
+      await applyTurnToMessage(finalMsg, session);
       attachReviewHandler(finalMsg, interaction, session);
+    } else {
+      await interaction.editReply({
+        embeds: [getActiveEmbed(session)],
+        components: buildFinalComponents(session),
+      }).catch(() => null);
     }
     return null;
   },

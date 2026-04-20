@@ -3203,9 +3203,8 @@ function claimPendingMessage(guildId, userId, globalIndex) {
   const guildState = getGuildState(data, guildId);
   const user = getUserState(guildState, userId);
   // globalIndex is the reverse position in the inbox (0 = newest), so we reverse to match
-  const pending = [...(user.pendingMessages ?? [])].reverse();
-  if (globalIndex < 0 || globalIndex >= pending.length) return { ok: false, reason: 'Message not found.' };
-  const msg = pending[globalIndex];
+  const pending = user.pendingMessages ?? [];
+  const msg = pending.find((entry) => String(entry.id) === String(globalIndex));
   if (!msg) return { ok: false, reason: 'Message not found.' };
   if (msg.claimed) return { ok: false, reason: 'Already claimed.' };
   if (msg.type !== 'gift_box' && msg.type !== 'gift_cookies' && msg.type !== 'rank_reward') {
@@ -3275,13 +3274,7 @@ function deletePendingMessage(guildId, userId, globalIndex) {
   const guildState = getGuildState(data, guildId);
   const user = getUserState(guildState, userId);
   const pending = user.pendingMessages ?? [];
-  // globalIndex is reverse-indexed; reverse the array to translate to forward index
-  const reversedPending = [...pending].reverse();
-  if (globalIndex < 0 || globalIndex >= reversedPending.length) return false;
-  // Find forward index in original pending array
-  const msgId = reversedPending[globalIndex]?.id;
-  if (msgId == null) return false;
-  const idx = pending.findIndex((m) => m.id === msgId);
+  const idx = pending.findIndex((m) => String(m.id) === String(globalIndex));
   if (idx === -1) return false;
   pending.splice(idx, 1);
   writeState(data);
@@ -3394,12 +3387,12 @@ const TRASH_EMOJI_DATA = { id: '1495704354332606464', name: 'trash' };
 
 function buildOpenedMessageEmbed(guild, user, messageId) {
   const pending = user.pendingMessages ?? [];
-  const msg = pending.find((m) => m.id === messageId);
+  const msg = pending.find((m) => String(m.id) === String(messageId));
   if (!msg) {
     return new EmbedBuilder()
       .setColor(0xed4245)
       .setTitle('Message Not Found')
-      .setDescription('This message may have already been dismissed or claimed.')
+      .setDescription('This message may have already been dismissed or claimed. Try refreshing the inbox.')
       .setTimestamp();
   }
 
@@ -3493,7 +3486,7 @@ function buildOpenedMessageEmbed(guild, user, messageId) {
 
 function buildOpenedMessageComponents(user, messageId) {
   const pending = user.pendingMessages ?? [];
-  const msg = pending.find((m) => m.id === messageId);
+  const msg = pending.find((m) => String(m.id) === String(messageId));
   if (!msg) return [];
   const claimable = (msg.type === 'gift_box' || msg.type === 'gift_cookies' || msg.type === 'rank_reward') && !msg.claimed;
   const row = new ActionRowBuilder();
@@ -3550,7 +3543,7 @@ function buildMessagesComponents(user, page) {
       return {
         label,
         // globalIndex is unique per message across all pages — avoids Discord duplicate-value constraint
-        value: String(globalIndex),
+        value: String(msg.id),
         description,
         emoji: iconMap[msg.type] ?? '📬',
       };
@@ -3575,14 +3568,14 @@ function buildMessagesComponents(user, page) {
       if (isClaimable) {
         btns.push(
           new ButtonBuilder()
-            .setCustomId(`messages_claim:${safePage}:${globalIndex}`)
+            .setCustomId(`messages_claim:${safePage}:${msg.id}`)
             .setLabel(`Claim ${label}`)
             .setStyle(ButtonStyle.Success),
         );
       }
       btns.push(
         new ButtonBuilder()
-          .setCustomId(`messages_delete:${safePage}:${globalIndex}`)
+          .setCustomId(`messages_delete:${safePage}:${msg.id}`)
           .setLabel(isClaimable ? `Dismiss ${label}` : `Delete ${label}`)
           .setStyle(ButtonStyle.Danger),
       );
