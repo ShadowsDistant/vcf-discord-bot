@@ -3412,6 +3412,19 @@ function buildOpenedMessageEmbed(guild, user, messageId) {
   let body = '';
   let fromLine = '';
 
+  // Build a read-progress line for trackable non-reward message types
+  const isTrackable = (msg.type === 'broadcast' || msg.type === 'staff_message') && Number.isFinite(msg.broadcastTotal);
+  const seenByMe = Boolean(msg.seenAt);
+  const readByMe = claimed;
+  const statsLine = isTrackable
+    ? [
+        readByMe ? '✅ Read' : seenByMe ? '👁️ Seen' : '📬 Unopened',
+        `**Total sent:** ${msg.broadcastTotal} member(s)`,
+        msg.seenAt ? `**Seen:** <t:${Math.floor(msg.seenAt / 1000)}:R>` : null,
+        msg.claimedAt ? `**Read:** <t:${Math.floor(msg.claimedAt / 1000)}:R>` : null,
+      ].filter(Boolean).join('  •  ')
+    : null;
+
   if (msg.type === 'gift_box') {
     color = 0xf0b232; icon = '🎁'; category = 'Gift Box';
     const box = REWARD_BOX_MAP.get(msg.rewardBoxId);

@@ -2433,17 +2433,26 @@ module.exports = {
         }
         const audienceLabel = broadcastMessageCommand.AUDIENCE_OPTIONS.find((o) => o.value === audience)?.label ?? audience;
         const broadcastKind = audience === 'role:vai_access' ? 'dev' : 'standard';
+        let firstMsgId = null;
         for (const memberId of targetIds) {
-          economy.addPendingMessage(interaction.guild.id, memberId, {
+          const result = economy.addPendingMessage(interaction.guild.id, memberId, {
             type: 'broadcast',
             broadcastKind,
             from: `${interaction.user.tag}`,
             title,
             content: message,
+            broadcastTotal: targetIds.length,
+            broadcastSentAt: Date.now(),
           });
+          if (firstMsgId === null) firstMsgId = result.id;
         }
         return interaction.editReply({
-          embeds: [embeds.success(`Broadcast **"${title}"** delivered to **${targetIds.length}** member(s) (${audienceLabel}).`, interaction.guild)],
+          embeds: [embeds.success(
+            `Broadcast **"${title}"** delivered to **${targetIds.length}** member(s) (${audienceLabel}).\n\n` +
+            `Use **/messagestat ${firstMsgId}** to track delivery progress.`,
+            interaction.guild
+          )],
+          flags: MessageFlags.Ephemeral,
         });
       }
 
@@ -2476,17 +2485,25 @@ module.exports = {
           });
         }
         clearPendingStaffMessageSelection(interaction.guild.id, actorId);
+        let firstMsgId = null;
         for (const recipientId of recipients) {
-          economy.addPendingMessage(interaction.guild.id, recipientId, {
+          const result = economy.addPendingMessage(interaction.guild.id, recipientId, {
             type: 'staff_message',
             messageType: type,
             from: interaction.user.tag,
             content: message,
+            broadcastTotal: recipients.length,
+            broadcastSentAt: Date.now(),
           });
+          if (firstMsgId === null) firstMsgId = result.id;
         }
         const typeLabel = staffMessageCommand.MESSAGE_TYPES.find((t) => t.value === type)?.label ?? type;
         return interaction.reply({
-          embeds: [embeds.success(`Message delivered to **${recipients.length}** recipient(s) as **${typeLabel}**.`, interaction.guild)],
+          embeds: [embeds.success(
+            `Message delivered to **${recipients.length}** recipient(s) as **${typeLabel}**.\n\n` +
+            `Use **/messagestat ${firstMsgId}** to track delivery progress.`,
+            interaction.guild
+          )],
           flags: MessageFlags.Ephemeral,
         });
       }
