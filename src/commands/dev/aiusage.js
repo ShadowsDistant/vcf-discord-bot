@@ -76,13 +76,13 @@ function buildPanelEmbed(guild) {
     )
     .addFields(
       { name: '⏱️ Window Reset', value: `<t:${resetTs}:R>`, inline: true },
-      { name: '📊 Active Users', value: `\`${activeUsageCount}\``, inline: true },
+      { name: '📈 Active Users', value: `\`${activeUsageCount}\``, inline: true },
       { name: '\u200b', value: '\u200b', inline: true },
-      { name: '👤 User Overrides', value: `\`${userOverrideCount}\``, inline: true },
-      { name: '🎭 Role Overrides', value: `\`${roleOverrideCount}\``, inline: true },
+      { name: '- User Overrides', value: `\`${userOverrideCount}\``, inline: true },
+      { name: '- Role Overrides', value: `\`${roleOverrideCount}\``, inline: true },
       { name: '\u200b', value: '\u200b', inline: true },
-      { name: '🔓 Safety Toggle', value: `\`${safetyToggleCount}\` user(s)`, inline: true },
-      { name: '🔬 Deep Research', value: `\`${deepResearchCount}\` user(s)`, inline: true },
+      { name: '- Safety Toggle', value: `\`${safetyToggleCount}\` user(s)`, inline: true },
+      { name: '- Deep Research', value: `\`${deepResearchCount}\` user(s)`, inline: true },
       { name: '\u200b', value: '\u200b', inline: true },
     )
     .setTimestamp()
@@ -94,14 +94,14 @@ function buildPanelComponents(actorId) {
     new ActionRowBuilder().addComponents(
       new UserSelectMenuBuilder()
         .setCustomId(`aimanage_user_select:${actorId}`)
-        .setPlaceholder('👤 Select a user to manage…')
+        .setPlaceholder('- Select a user to manage…')
         .setMinValues(1)
         .setMaxValues(1),
     ),
     new ActionRowBuilder().addComponents(
       new RoleSelectMenuBuilder()
         .setCustomId(`aimanage_role_select:${actorId}`)
-        .setPlaceholder('🎭 Select a role to manage…')
+        .setPlaceholder('- Select a role to manage…')
         .setMinValues(1)
         .setMaxValues(1),
     ),
@@ -114,7 +114,7 @@ function buildPanelComponents(actorId) {
       new ButtonBuilder()
         .setCustomId(`aimanage_close:${actorId}`)
         .setLabel('Close')
-        .setEmoji('❌')
+        .setEmoji('✗')
         .setStyle(ButtonStyle.Danger),
     ),
   ];
@@ -204,7 +204,7 @@ function buildUserCardEmbed(guild, member, userId) {
 
   const embed = new EmbedBuilder()
     .setColor(embeds.PALETTE?.primary ?? 0x5865f2)
-    .setTitle('👤 AI Usage — User Management')
+    .setTitle('- AI Usage — User Management')
     .setDescription(
       member
         ? `${member} — \`${member.user?.tag ?? info.targetId}\`\n*ID: \`${info.targetId}\`*`
@@ -212,14 +212,14 @@ function buildUserCardEmbed(guild, member, userId) {
     )
     .addFields(
       { name: '📏 Effective Limit', value: limitDisplay, inline: true },
-      { name: '📊 Used', value: `\`${info.used}\``, inline: true },
+      { name: '📈 Used', value: `\`${info.used}\``, inline: true },
       { name: '🎟️ Remaining', value: remainingDisplay, inline: true },
       { name: '🗂️ Source', value: info.source, inline: false },
-      { name: '🔓 Safety Toggle', value: info.safetyAllowed ? '✅ Allowed' : '❌ Not allowed', inline: true },
-      { name: '🔬 Deep Research', value: info.deepResearchAllowed ? '✅ Allowed' : '❌ Not allowed', inline: true },
+      { name: '- Safety Toggle', value: info.safetyAllowed ? '✓ Allowed' : '✗ Not allowed', inline: true },
+      { name: '- Deep Research', value: info.deepResearchAllowed ? '✓ Allowed' : '✗ Not allowed', inline: true },
       { name: '⏱️ Window Reset', value: `<t:${resetTs}:R>`, inline: true },
       {
-        name: '🎭 Matched Role Overrides',
+        name: '- Matched Role Overrides',
         value: info.matchedRoleOverrides.length
           ? info.matchedRoleOverrides
             .map((r) => `• <@&${r.id}> → ${r.unlimited ? '♾️ Unlimited' : `\`${r.limit}\` / 6h`}`)
@@ -243,7 +243,7 @@ function buildUserCardComponents(actorId, targetId, info) {
   const clearBtn = new ButtonBuilder()
     .setCustomId(`aimanage_u_btn:${actorId}:${targetId}:clear`)
     .setLabel('Clear Limit')
-    .setEmoji('🗑️')
+    .setEmoji('-')
     .setStyle(ButtonStyle.Secondary)
     .setDisabled(!info.hasUserOverride);
 
@@ -251,12 +251,12 @@ function buildUserCardComponents(actorId, targetId, info) {
     ? new ButtonBuilder()
       .setCustomId(`aimanage_u_btn:${actorId}:${targetId}:safety_off`)
       .setLabel('Revoke Safety Toggle')
-      .setEmoji('🔒')
+      .setEmoji('-')
       .setStyle(ButtonStyle.Secondary)
     : new ButtonBuilder()
       .setCustomId(`aimanage_u_btn:${actorId}:${targetId}:safety_on`)
       .setLabel('Allow Safety Toggle')
-      .setEmoji('🔓')
+      .setEmoji('-')
       .setStyle(ButtonStyle.Success);
 
   const drBtn = info.deepResearchAllowed
@@ -268,7 +268,7 @@ function buildUserCardComponents(actorId, targetId, info) {
     : new ButtonBuilder()
       .setCustomId(`aimanage_u_btn:${actorId}:${targetId}:dr_on`)
       .setLabel('Allow Deep Research')
-      .setEmoji('🔬')
+      .setEmoji('-')
       .setStyle(ButtonStyle.Success);
 
   return [
@@ -282,7 +282,7 @@ function buildUserCardComponents(actorId, targetId, info) {
       new ButtonBuilder()
         .setCustomId(`aimanage_u_btn:${actorId}:${targetId}:grant`)
         .setLabel('Grant Credits')
-        .setEmoji('✨')
+        .setEmoji('-')
         .setStyle(ButtonStyle.Primary),
       new ButtonBuilder()
         .setCustomId(`aimanage_u_btn:${actorId}:${targetId}:reset_usage`)
@@ -341,12 +341,12 @@ function buildRoleCardEmbed(guild, role) {
 
   return new EmbedBuilder()
     .setColor(role.color || embeds.PALETTE?.primary || 0x5865f2)
-    .setTitle('🎭 AI Usage — Role Management')
+    .setTitle('- AI Usage — Role Management')
     .setDescription(`${role} — \`${role.id}\``)
     .addFields(
       { name: '📏 Override Limit', value: limitDisplay, inline: true },
-      { name: '👥 Members', value: `\`${memberCount}\``, inline: true },
-      { name: '📊 Active This Window', value: `\`${activeInRole}\``, inline: true },
+      { name: '- Members', value: `\`${memberCount}\``, inline: true },
+      { name: '📈 Active This Window', value: `\`${activeInRole}\``, inline: true },
       { name: '🎨 Role Color', value: role.hexColor ?? '#000000', inline: true },
       { name: '⏱️ Window Reset', value: `<t:${resetTs}:R>`, inline: true },
       { name: '\u200b', value: '\u200b', inline: true },
@@ -367,13 +367,13 @@ function buildRoleCardComponents(actorId, roleId, info) {
       new ButtonBuilder()
         .setCustomId(`aimanage_r_btn:${actorId}:${roleId}:clear`)
         .setLabel('Clear Limit')
-        .setEmoji('🗑️')
+        .setEmoji('-')
         .setStyle(ButtonStyle.Secondary)
         .setDisabled(!info.hasOverride),
       new ButtonBuilder()
         .setCustomId(`aimanage_r_btn:${actorId}:${roleId}:grant`)
         .setLabel('Grant Credits')
-        .setEmoji('✨')
+        .setEmoji('-')
         .setStyle(ButtonStyle.Primary),
     ),
     new ActionRowBuilder().addComponents(

@@ -111,7 +111,7 @@ function buildActionMenu() {
           label: 'Toggle System',
           value: 'toggle',
           description: 'Enable or disable all automod scanning.',
-          emoji: '⚙️',
+          emoji: '-',
         },
         {
           label: 'Set Category',
@@ -123,25 +123,25 @@ function buildActionMenu() {
           label: 'Set Punishment',
           value: 'punishment',
           description: 'Set punishment preset and timeout duration.',
-          emoji: '🛡️',
+          emoji: '-',
         },
         {
           label: 'Set Log Channel',
           value: 'logchannel',
           description: 'Set where automod actions are logged.',
-          emoji: '📝',
+          emoji: '-',
         },
         {
           label: 'Manage Exempt Role',
           value: 'exemptrole',
           description: 'Add or remove an exempt role.',
-          emoji: '👥',
+          emoji: '-',
         },
         {
           label: 'View Status',
           value: 'status',
           description: 'Show the full current automod configuration.',
-          emoji: '📊',
+          emoji: '📈',
         },
       ]),
   );

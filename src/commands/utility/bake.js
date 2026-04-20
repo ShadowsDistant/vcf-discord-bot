@@ -17,7 +17,7 @@ let lastCooldownPruneAt = 0;
 const COOKIE_LOG_CHANNEL_ID = '1492706903938043904';
 const SPECIAL_COOKIE_EVENT_DETAILS = {
   perfectcookie: {
-    title: '✨ Perfect Cookie Event',
+    title: '- Perfect Cookie Event',
     description: 'A mathematically flawless cookie has emerged.',
     color: 0xfee75c,
   },
@@ -184,7 +184,7 @@ function buildBakeOutcome(guild, userId) {
       new ButtonBuilder().setCustomId('bake_again').setLabel('Bake Again').setStyle(ButtonStyle.Primary).setEmoji(economy.getButtonEmoji(guild, ['cookie', 'plain_cookie', 'plain_cookies'])),
       new ButtonBuilder().setCustomId('bakery_nav:buildings').setLabel('Store').setStyle(ButtonStyle.Success).setEmoji(economy.getButtonEmoji(guild, ['Builder', 'building'], '🏪')),
       new ButtonBuilder().setCustomId('bakery_nav:inventory').setLabel('Inventory').setStyle(ButtonStyle.Secondary).setEmoji(economy.getButtonEmoji(guild, ['Cookie_dough', 'inventory'], '🎒')),
-      new ButtonBuilder().setCustomId('bakery_nav:stats').setLabel('Stats').setStyle(ButtonStyle.Secondary).setEmoji(economy.getButtonEmoji(guild, ['CookieProduction10', 'stats'], '📊')),
+      new ButtonBuilder().setCustomId('bakery_nav:stats').setLabel('Stats').setStyle(ButtonStyle.Secondary).setEmoji(economy.getButtonEmoji(guild, ['CookieProduction10', 'stats'], '📈')),
     ),
   ];
 

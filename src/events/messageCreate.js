@@ -123,11 +123,11 @@ async function handleCountingMessage(message) {
   const result = safeEvalMath(content);
 
   if (result === null) {
-    // Not a number/math expression — reset, react with ❌, and notify
+    // Not a number/math expression — reset, react with ✗, and notify
     db.resetCountingState(guildId);
-    await message.react('❌').catch(() => null);
+    await message.react('✗').catch(() => null);
     await message.channel.send(
-      `❌ ${message.author}, only numbers or math expressions are allowed. Expected **${expectedCount}**. Count reset to **0**. High score: **${prevHighScore}**.`,
+      `✗ ${message.author}, only numbers or math expressions are allowed. Expected **${expectedCount}**. Count reset to **0**. High score: **${prevHighScore}**.`,
     ).catch(() => null);
     return true;
   }
@@ -136,32 +136,32 @@ async function handleCountingMessage(message) {
   const rounded = Math.round(result * 1e9) / 1e9;
   if (!Number.isInteger(rounded)) {
     db.resetCountingState(guildId);
-    await message.react('❌').catch(() => null);
+    await message.react('✗').catch(() => null);
     await message.channel.send(
-      `❌ ${message.author}, counting must use whole numbers only. Expected **${expectedCount}**. Count reset to **0**. High score: **${prevHighScore}**.`,
+      `✗ ${message.author}, counting must use whole numbers only. Expected **${expectedCount}**. Count reset to **0**. High score: **${prevHighScore}**.`,
     ).catch(() => null);
     return true;
   }
 
   if (rounded <= 0) {
     db.resetCountingState(guildId);
-    await message.react('❌').catch(() => null);
+    await message.react('✗').catch(() => null);
     await message.channel.send(
-      `❌ ${message.author}, counting only allows positive integers. Expected **${expectedCount}**. Count reset to **0**. High score: **${prevHighScore}**.`,
+      `✗ ${message.author}, counting only allows positive integers. Expected **${expectedCount}**. Count reset to **0**. High score: **${prevHighScore}**.`,
     ).catch(() => null);
     return true;
   }
 
   if (rounded !== expectedCount) {
-    // Wrong number — reset the count and react with ❌
+    // Wrong number — reset the count and react with ✗
     const wasDouble = message.author.id === state.lastUserId;
     db.resetCountingState(guildId);
-    await message.react('❌').catch(() => null);
+    await message.react('✗').catch(() => null);
     const reason = wasDouble
       ? `${message.author} tried to count twice in a row!`
       : `${message.author} said **${rounded}** but the next number was **${expectedCount}**!`;
     await message.channel.send(
-      `❌ ${reason} Expected **${expectedCount}**. Count reset to **0**. High score: **${prevHighScore}**.`,
+      `✗ ${reason} Expected **${expectedCount}**. Count reset to **0**. High score: **${prevHighScore}**.`,
     ).catch(() => null);
     return true;
   }
@@ -169,22 +169,22 @@ async function handleCountingMessage(message) {
   // Prevent same user counting twice in a row
   if (message.author.id === state.lastUserId) {
     db.resetCountingState(guildId);
-    await message.react('❌').catch(() => null);
+    await message.react('✗').catch(() => null);
     await message.channel.send(
-      `❌ ${message.author}, you can't count twice in a row. Expected **${expectedCount}** from someone else. Count reset to **0**. High score: **${prevHighScore}**.`,
+      `✗ ${message.author}, you can't count twice in a row. Expected **${expectedCount}** from someone else. Count reset to **0**. High score: **${prevHighScore}**.`,
     ).catch(() => null);
     return true;
   }
 
   const newHighScore = Math.max(prevHighScore, expectedCount);
-  // Correct number — update state and react with ✅
+  // Correct number — update state and react with ✓
   db.setCountingState(guildId, {
     count: expectedCount,
     lastUserId: message.author.id,
     lastMessageId: message.id,
     highScore: newHighScore,
   });
-  await message.react('✅').catch(() => null);
+  await message.react('✓').catch(() => null);
 
   if (expectedCount > prevHighScore && expectedCount >= 25 && expectedCount % 25 === 0) {
     await message.channel.send(`🏆 New counting high score: **${expectedCount}**`).catch(() => null);

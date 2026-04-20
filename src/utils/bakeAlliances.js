@@ -65,7 +65,7 @@ const ALLIANCE_STORE_UPGRADES = [
     description: '+15% challenge reward cookies for all members.',
     cost: 10,
     emojiCandidates: ['gold_cookie', 'goldcookie', 'GoldCookie'],
-    fallbackEmoji: '✨',
+    fallbackEmoji: '-',
     effects: { rewardMultiplier: 0.15 },
   },
   {
@@ -92,7 +92,7 @@ const ALLIANCE_STORE_UPGRADES = [
     description: '-8% weekly challenge target for all members.',
     cost: 14,
     emojiCandidates: ['Builder', 'building'],
-    fallbackEmoji: '⚙️',
+    fallbackEmoji: '-',
     effects: { targetMultiplierReduction: 0.08 },
   },
   {
@@ -137,7 +137,7 @@ const ALLIANCE_STORE_UPGRADES = [
     description: '+8% CPS boost for all members while in an alliance.',
     cost: 30,
     emojiCandidates: ['CookieProduction10', 'Augmenter'],
-    fallbackEmoji: '⚡',
+    fallbackEmoji: '-',
     effects: { allianceCpsBoost: 0.08 },
   },
   {
@@ -146,7 +146,7 @@ const ALLIANCE_STORE_UPGRADES = [
     description: '-15% weekly challenge target. Toughened bakers need less motivation.',
     cost: 22,
     emojiCandidates: ['hammer_wrench', 'Builder'],
-    fallbackEmoji: '🔧',
+    fallbackEmoji: '-',
     effects: { targetMultiplierReduction: 0.15 },
   },
   {
@@ -164,7 +164,7 @@ const ALLIANCE_STORE_UPGRADES = [
     description: 'Reduce alliance ad cooldown from 24h to 16h.',
     cost: 9,
     emojiCandidates: ['International_exchange', 'marketplace', 'announce'],
-    fallbackEmoji: '📣',
+    fallbackEmoji: '-',
     effects: { adCooldownMs: ALLIANCE_AD_REDUCED_COOLDOWN_MS },
   },
 ];

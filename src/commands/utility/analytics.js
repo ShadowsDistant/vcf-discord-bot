@@ -137,21 +137,21 @@ module.exports = {
       const embed = new EmbedBuilder()
         .setColor(0x5865f2)
         .setAuthor({ name: `${interaction.guild.name} • User Analytics`, iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined })
-        .setTitle(`📊 ${targetUser.tag}`)
+        .setTitle(`📈 ${targetUser.tag}`)
         .setDescription([
           `${targetUser} — detailed activity for **${period}**.`,
           memberEntry ? `Joined server <t:${Math.floor(memberEntry.joinedTimestamp / 1000)}:R> • Account created <t:${Math.floor(targetUser.createdTimestamp / 1000)}:R>` : null,
         ].filter(Boolean).join('\n'))
         .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
         .addFields(
-          { name: '💬 Messaging', value: [
+          { name: '- Messaging', value: [
             `Total: **${userActivity.messages.toLocaleString()}**`,
             `Active days: **${userActivity.activeDays}/${Math.max(1, userActivity.dayKeys.length)}**`,
             `Peak hour: ${peakHour}`,
           ].join('\n'), inline: false },
           { name: '📡 Top Channels', value: topChannels.slice(0, 1024), inline: true },
-          { name: '⏰ Busiest Hours', value: busyHours.slice(0, 1024), inline: true },
-          { name: '🍪 Bakery', value: [
+          { name: '- Busiest Hours', value: busyHours.slice(0, 1024), inline: true },
+          { name: '- Bakery', value: [
             `Cookies: **${economy.toCookieNumber(u.cookies)}**`,
             `CPS: **${economy.toCookieNumber(cps)}/s**`,
             `Rank: **${rank?.name ?? 'Unknown'}**`,
@@ -220,7 +220,7 @@ module.exports = {
     const embed = new EmbedBuilder()
       .setColor(0x5865f2)
       .setAuthor({ name: `${interaction.guild.name} • Analytics`, iconURL: interaction.guild.iconURL({ dynamic: true }) ?? undefined })
-      .setTitle(`📊 Server Analytics — ${period}`)
+      .setTitle(`📈 Server Analytics — ${period}`)
       .setThumbnail(interaction.guild.iconURL({ dynamic: true }) ?? null)
       .setDescription([
         data.dayKeys.length
@@ -234,26 +234,26 @@ module.exports = {
           : null,
       ].filter(Boolean).join('\n'))
       .addFields(
-        { name: '👥 Member Flow', value: [
+        { name: '- Member Flow', value: [
           `Joins: **${data.joins.toLocaleString()}**`,
           `Leaves: **${data.leaves.toLocaleString()}**`,
           `Net: **${netGrowth >= 0 ? '+' : ''}${netGrowth.toLocaleString()}**`,
           `J/L ratio: **${joinToLeaveRatio}**`,
         ].join('\n'), inline: true },
-        { name: '💬 Messages', value: [
+        { name: '- Messages', value: [
           `Total: **${data.messages.toLocaleString()}**`,
           `Avg/day: **${Math.round(data.avgDailyMessages).toLocaleString()}**`,
           `Avg/active day: **${Math.round(data.avgMessagesPerActiveDay).toLocaleString()}**`,
           `Active days: **${data.activeDays}/${Math.max(1, data.dayKeys.length)}**`,
         ].join('\n'), inline: true },
-        { name: '🛡️ Moderation', value: [
+        { name: '- Moderation', value: [
           `Warns: **${modActions.warn.toLocaleString()}**`,
           `Kicks: **${modActions.kick.toLocaleString()}**`,
           `Bans: **${modActions.ban.toLocaleString()}**`,
           `Top action: ${topAction}`,
           `Rate: **${modRatePerThousand.toFixed(2)}** / 1k msgs`,
         ].join('\n'), inline: true },
-        { name: '⏰ Peak Activity', value: [
+        { name: '- Peak Activity', value: [
           `Peak hour: ${peakHour}`,
           `Time-of-day share: ${heatmap}`,
         ].join('\n'), inline: false },

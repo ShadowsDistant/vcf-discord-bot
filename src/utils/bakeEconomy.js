@@ -408,7 +408,7 @@ const RANKS = [
   {
     id: 'crumb_commander',
     name: 'Crumb Commander',
-    fallbackEmoji: '🏅',
+    fallbackEmoji: '-',
     emojiAliases: ['crumb_commander', 'rank_crumb_commander', 'cc_rank_crumb_commander', 'CookieProduction16'],
     requirements: { totalBakes: 1500, achievements: 10, totalBuildings: 30 },
     rewards: { cookies: 250000, clickFrenzyCharges: 3 },
@@ -1222,7 +1222,7 @@ function getRankEmoji(rankOrId, guild) {
   const rank = typeof rankOrId === 'string'
     ? RANKS.find((entry) => entry.id === rankOrId)
     : rankOrId;
-  if (!rank) return '🏅';
+  if (!rank) return '-';
   const custom = getCustomGuildEmoji(guild, [rank.id, rank.name, ...(rank.emojiAliases ?? [])]);
   return custom ?? rank.fallbackEmoji;
 }
@@ -1231,8 +1231,8 @@ function getRewardBoxEmoji(rewardBoxOrId, guild) {
   const rewardBox = typeof rewardBoxOrId === 'string'
     ? REWARD_BOX_MAP.get(rewardBoxOrId)
     : rewardBoxOrId;
-  if (!rewardBox) return '🎁';
-  return getCustomGuildEmoji(guild, [rewardBox.id, rewardBox.name, ...(rewardBox.emojiAliases ?? [])]) ?? '🎁';
+  if (!rewardBox) return '-';
+  return getCustomGuildEmoji(guild, [rewardBox.id, rewardBox.name, ...(rewardBox.emojiAliases ?? [])]) ?? '-';
 }
 
 function getButtonEmoji(guild, candidates = [], fallback = DEFAULT_COOKIE_EMOJI_STRING) {
@@ -1814,7 +1814,7 @@ function buildCpsBreakdownEmbed(guild, user) {
         return `• ${source}: +${toCookieNumber(b.cpsBonus)} CPS (expires <t:${Math.floor(b.expiresAt / 1000)}:R>)`;
       })
       .join('\n');
-    embed.addFields({ name: '⚡ Active Boosts', value: boostList.slice(0, 512) });
+    embed.addFields({ name: '- Active Boosts', value: boostList.slice(0, 512) });
   }
   const activeMultiplierLines = [];
   if (frenzy) {
@@ -1836,7 +1836,7 @@ function buildCpsBreakdownEmbed(guild, user) {
     activeMultiplierLines.push(`• VCF profile boost (identity guild/tag): +${(vcfTagBoost * 100).toFixed(0)}%`);
   }
   if (activeMultiplierLines.length) {
-    embed.addFields({ name: '🧠 Active Multipliers & Sources', value: activeMultiplierLines.join('\n').slice(0, 1024), inline: false });
+    embed.addFields({ name: '- Active Multipliers & Sources', value: activeMultiplierLines.join('\n').slice(0, 1024), inline: false });
   }
   const bonusSourceLines = [];
   if (consumedBonus > 0) bonusSourceLines.push(`Flat boosts: +${toCookieNumber(consumedBonus)} CPS`);
@@ -1873,8 +1873,8 @@ function buildCpsBreakdownEmbed(guild, user) {
   if (bonusSourceLines.length) {
     embed.addFields({ name: '🔎 Bonus Sources', value: bonusSourceLines.join('\n').slice(0, 1024), inline: false });
   }
-  embed.addFields({ name: '✅ Final Total (All Boosters)', value: `${toCookieNumber(totalCps)} CPS`, inline: false });
-  embed.addFields({ name: '📊 Formula', value: `(Buildings + Boosts) × Global Multiplier × (1 + Kitten%) × Frenzy × (1 + Alliance% + Booster% + VCF%)`, inline: false });
+  embed.addFields({ name: '✓ Final Total (All Boosters)', value: `${toCookieNumber(totalCps)} CPS`, inline: false });
+  embed.addFields({ name: '📈 Formula', value: `(Buildings + Boosts) × Global Multiplier × (1 + Kitten%) × Frenzy × (1 + Alliance% + Booster% + VCF%)`, inline: false });
 
   embed.setTimestamp();
   if (guild) {
@@ -1890,7 +1890,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
   const discovered = user.uniqueItemsDiscovered.length;
   const titlePrefix = `${user.bakeryEmoji ?? DEFAULT_COOKIE_EMOJI_STRING} ${user.bakeryName ?? 'Unnamed Bakery'}`;
   const cookieEmoji = getCookieFallbackEmoji(guild);
-  const cpsEmoji = getCustomGuildEmoji(guild, ['CookieProduction10', 'CookieProduction5']) ?? '⚙️';
+  const cpsEmoji = getCustomGuildEmoji(guild, ['CookieProduction10', 'CookieProduction5']) ?? '-';
   const collectionEmoji = getCustomGuildEmoji(guild, ['Polymath', 'Cookie_Clicker']) ?? '📚';
   const buildingEmoji = getCustomGuildEmoji(guild, ['hammer_wrench', 'Builder', 'Factory_new']) ?? '🏗️';
   const achievementEmoji = getCustomGuildEmoji(guild, ['trophy', 'Cookie_Clicker', 'Builder']) ?? '🏆';
@@ -1987,7 +1987,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
       embed.setDescription('Inventory currently empty. Keep baking, crumb warrior.');
       const pendingGifts = (user.pendingMessages ?? []).filter((m) => !m.claimed && (m.type === 'gift_box' || m.type === 'gift_cookies' || m.type === 'rank_reward'));
       if (pendingGifts.length > 0) {
-        embed.addFields({ name: '📬 Pending Gifts', value: `You have **${pendingGifts.length}** unclaimed gift(s)! Use \`/messages\` to claim them.` });
+        embed.addFields({ name: '- Pending Gifts', value: `You have **${pendingGifts.length}** unclaimed gift(s)! Use \`/messages\` to claim them.` });
       }
     } else {
       const page = Math.max(0, Math.min(options.page ?? 0, Math.floor((entries.length - 1) / 8)));
@@ -2001,7 +2001,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
         .join('\n');
       const extraGiftCount = Math.max(0, rewardGiftEntries.length - MAX_DISPLAYED_GIFT_BOXES);
       const giftOverflow = extraGiftCount > 0 ? `\n...and **${extraGiftCount}** more gift box type(s).` : '';
-      embed.setDescription([itemLines || 'No regular inventory items.', giftLines ? `\n🎁 **Reward Gifts**\n${giftLines}${giftOverflow}` : ''].join('\n').trim());
+      embed.setDescription([itemLines || 'No regular inventory items.', giftLines ? `\n- **Reward Gifts**\n${giftLines}${giftOverflow}` : ''].join('\n').trim());
       embed.addFields({
         name: 'Collection',
         value: `Discovered: **${user.uniqueItemsDiscovered.length}/${ITEMS.length}**`,
@@ -2010,7 +2010,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
 
       const pendingGifts = (user.pendingMessages ?? []).filter((m) => !m.claimed && (m.type === 'gift_box' || m.type === 'gift_cookies' || m.type === 'rank_reward'));
       if (pendingGifts.length > 0) {
-        embed.addFields({ name: '📬 Pending Gifts', value: `You have **${pendingGifts.length}** unclaimed gift(s)! Use \`/messages\` to claim them.` });
+        embed.addFields({ name: '- Pending Gifts', value: `You have **${pendingGifts.length}** unclaimed gift(s)! Use \`/messages\` to claim them.` });
       }
     }
   }
@@ -2043,7 +2043,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     const page = Math.max(0, Math.min(Number.isFinite(options.page) ? options.page : 0, pageCount - 1));
     const pageEntries = ACHIEVEMENTS.slice(page * pageSize, page * pageSize + pageSize);
     embed.setDescription('Milestones that feed your glorious milk pipeline.');
-    const lines = pageEntries.map((a) => `${earned.has(a.id) ? '🔓' : '🔒'} ${getAchievementEmoji(a, guild)} **${a.name}** — ${a.desc}`);
+    const lines = pageEntries.map((a) => `${earned.has(a.id) ? '-' : '-'} ${getAchievementEmoji(a, guild)} **${a.name}** — ${a.desc}`);
     embed.addFields({ name: 'Achievement board', value: lines.join('\n').slice(0, 1024) });
     const progressPercent = Math.round((earned.size / Math.max(1, ACHIEVEMENTS.length)) * 100);
     embed.addFields(
@@ -2180,7 +2180,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
     } else if (section === 'achievements') {
       const pageEntries = ACHIEVEMENTS.slice(page * pageSize, page * pageSize + pageSize);
       embed.setDescription(pageEntries
-        .map((achievement) => `${(user.milestones ?? []).includes(achievement.id) ? '🔓' : '🔒'} ${getAchievementEmoji(achievement, guild)} **${achievement.name}**\n${achievement.desc}`)
+        .map((achievement) => `${(user.milestones ?? []).includes(achievement.id) ? '-' : '-'} ${getAchievementEmoji(achievement, guild)} **${achievement.name}**\n${achievement.desc}`)
         .join('\n\n')
         .slice(0, 4096));
       embed.addFields(
@@ -2312,7 +2312,7 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
           { label: 'Inventory', value: 'inventory', description: 'Manage cookie items and reward gifts.', default: view === 'inventory', emoji: getButtonEmoji(options.guild, ['Cookie_dough', 'cookie_dough', 'inventory'], '🎒') },
           { label: 'Buildings', value: 'buildings', description: 'Buy and sell production buildings.', default: view === 'buildings', emoji: getButtonEmoji(options.guild, ['hammer_wrench', 'Builder', 'Factory_new', 'building'], '🏗️') },
           { label: 'Upgrades', value: 'upgrades', description: 'Purchase permanent production boosts.', default: view === 'upgrades', emoji: getButtonEmoji(options.guild, ['Augmenter', 'Enhancer', 'upgrade'], '🧩') },
-          { label: 'Stats', value: 'stats', description: 'Track progress and lifetime totals.', default: view === 'stats', emoji: getButtonEmoji(options.guild, ['CookieProduction10', 'stats'], '📊') },
+          { label: 'Stats', value: 'stats', description: 'Track progress and lifetime totals.', default: view === 'stats', emoji: getButtonEmoji(options.guild, ['CookieProduction10', 'stats'], '📈') },
           { label: 'Leaderboards', value: 'leaderboard', description: 'Compare your bakery against server bakers.', default: view === 'leaderboard', emoji: getButtonEmoji(options.guild, ['trophy', 'leaderboard'], '🏆') },
           { label: 'Milk', value: 'milk', description: 'View milk type progression bonuses.', default: view === 'milk', emoji: getButtonEmoji(options.guild, ['Plain_milk', 'milk'], '🥛') },
           { label: 'Achievements', value: 'achievements', description: 'See unlocked and pending achievements.', default: view === 'achievements', emoji: getButtonEmoji(options.guild, ['Cookie_Clicker', 'achievement'], '🏆') },
@@ -2484,7 +2484,7 @@ function buildDashboardComponents(user, view = 'home', options = {}) {
           .setCustomId('bakery_cps_breakdown')
           .setLabel('CPS Breakdown')
           .setStyle(ButtonStyle.Secondary)
-          .setEmoji(getButtonEmoji(options.guild, ['CookieProduction10', 'stats'], '📊')),
+          .setEmoji(getButtonEmoji(options.guild, ['CookieProduction10', 'stats'], '📈')),
       ),
     );
   }
@@ -2589,7 +2589,7 @@ function claimGoldenCookie(guildId, userId, token) {
 
   if (reward === 'frenzy') {
     user.activeBuffs.push({ type: 'frenzy', multiplier: 7, expiresAt: now + 30000 });
-    description = '⚡ **Frenzy!** Your CPS is x7 for 30 seconds.';
+    description = '- **Frenzy!** Your CPS is x7 for 30 seconds.';
   } else if (reward === 'lucky') {
     const payout = Math.max(1000, Math.floor(user.cookies * 0.1));
     user.cookies += payout;
@@ -3309,22 +3309,22 @@ function buildMessagesEmbed(guild, user, page) {
   const fields = pageMsgs.map((msg, idx) => {
     const globalIndex = pending.length - (safePage * MESSAGES_PER_PAGE + idx);
     const ts = msg.createdAt ? `<t:${Math.floor(new Date(msg.createdAt).getTime() / 1000)}:R>` : '';
-    const unreadPrefix = msg.claimed ? '✅' : '🆕';
+    const unreadPrefix = msg.claimed ? '✓' : '-';
     let icon; let category; let summary;
     if (msg.type === 'gift_box') {
       const box = REWARD_BOX_MAP.get(msg.rewardBoxId);
-      icon = msg.claimed ? '✅' : '🎁';
+      icon = msg.claimed ? '✓' : '-';
       category = 'Gift Box';
       const msgText = msg.message ? `: *${msg.message.slice(0, 60)}${msg.message.length > 60 ? '…' : ''}*` : '';
       summary = `×${msg.quantity} **${box?.name ?? msg.rewardBoxId}** from **${msg.from}**${msgText}${msg.claimed ? ' *(claimed)*' : ''}`;
     } else if (msg.type === 'gift_cookies') {
-      icon = msg.claimed ? '✅' : '🍪';
+      icon = msg.claimed ? '✓' : '-';
       category = 'Cookie Gift';
       const msgText = msg.message ? `: *${msg.message.slice(0, 60)}${msg.message.length > 60 ? '…' : ''}*` : '';
       summary = `**${toCookieNumber(msg.cookieAmount)}** cookies from **${msg.from}**${msgText}${msg.claimed ? ' *(claimed)*' : ''}`;
     } else if (msg.type === 'rank_reward') {
       const rank = RANKS.find((entry) => entry.id === msg.rankId) ?? null;
-      icon = msg.claimed ? '✅' : '🏅';
+      icon = msg.claimed ? '✓' : '-';
       category = 'Rank Reward';
       const rewardText = formatRankReward({ rewards: msg.rewards ?? rank?.rewards ?? {} });
       summary = `**${rank?.name ?? msg.rankId ?? 'Unknown rank'}**\n${rewardText}${msg.claimed ? '\n*(claimed)*' : '\n*Claim with this inbox button.*'}`;
@@ -3341,9 +3341,9 @@ function buildMessagesEmbed(guild, user, page) {
       summary = `${titlePart}${msg.content ?? '(alliance notification)'}${fromPart}`;
     } else if (msg.type === 'boost_notification') {
       const boostIcon = msg.boostKind === 'server_booster'
-        ? '🚀'
+        ? '-'
         : msg.boostKind === 'vcf_profile'
-          ? '🏷️'
+          ? '-'
           : '📈';
       icon = boostIcon;
       category = 'Boost';
@@ -3351,7 +3351,7 @@ function buildMessagesEmbed(guild, user, page) {
       const fromPart = msg.from ? `\n*From ${msg.from}*` : '';
       summary = `${titlePart}${msg.content ?? '(boost update)'}${fromPart}`;
     } else if (msg.type === 'staff_message') {
-      const typeIcon = msg.messageType === 'moderation' ? '⚠️' : msg.messageType === 'bakery' ? '🍪' : '🔔';
+      const typeIcon = msg.messageType === 'moderation' ? '-' : msg.messageType === 'bakery' ? '-' : '-';
       icon = typeIcon;
       category = msg.messageType === 'moderation'
         ? 'Staff • Moderation'
@@ -3362,13 +3362,13 @@ function buildMessagesEmbed(guild, user, page) {
       summary = `${titlePart}${(msg.content ?? '').slice(0, 80)}${(msg.content ?? '').length > 80 ? '…' : ''}\n*From ${msg.from ?? 'Staff'}*`;
     } else if (msg.type === 'broadcast') {
       const isDev = msg.broadcastKind === 'dev';
-      icon = isDev ? '🛠️' : '📣';
+      icon = isDev ? '-' : '-';
       category = isDev ? 'Dev Broadcast' : 'Broadcast';
       const titlePart = msg.title ? `**${msg.title}**\n` : '';
       const raw = String(msg.content ?? '');
       summary = `${titlePart}${raw.slice(0, 80)}${raw.length > 80 ? '…' : ''}`;
     } else {
-      icon = '📢';
+      icon = '-';
       category = 'Notification';
       summary = msg.content ?? msg.message ?? '(notification)';
     }
@@ -3400,14 +3400,14 @@ function buildOpenedMessageEmbed(guild, user, messageId) {
   const claimed = Boolean(msg.claimed);
   const claimable = (msg.type === 'gift_box' || msg.type === 'gift_cookies' || msg.type === 'rank_reward');
   const statusChip = claimed
-    ? '`✅ Claimed`'
+    ? '`✓ Claimed`'
     : claimable
-      ? '`🆕 Unclaimed — pending action`'
-      : '`📬 Unread`';
+      ? '`- Unclaimed — pending action`'
+      : '`- Unread`';
 
   let color = 0x5865f2;
   let category = 'Notification';
-  let icon = '📢';
+  let icon = '-';
   let headline = '';
   let body = '';
   let fromLine = '';
@@ -3418,7 +3418,7 @@ function buildOpenedMessageEmbed(guild, user, messageId) {
   const readByMe = claimed;
   const statsLine = isTrackable
     ? [
-        readByMe ? '✅ Read' : seenByMe ? '👁️ Seen' : '📬 Unopened',
+        readByMe ? '✓ Read' : seenByMe ? '- Seen' : '- Unopened',
         `**Total sent:** ${msg.broadcastTotal} member(s)`,
         msg.seenAt ? `**Seen:** <t:${Math.floor(msg.seenAt / 1000)}:R>` : null,
         msg.claimedAt ? `**Read:** <t:${Math.floor(msg.claimedAt / 1000)}:R>` : null,
@@ -3426,18 +3426,18 @@ function buildOpenedMessageEmbed(guild, user, messageId) {
     : null;
 
   if (msg.type === 'gift_box') {
-    color = 0xf0b232; icon = '🎁'; category = 'Gift Box';
+    color = 0xf0b232; icon = '-'; category = 'Gift Box';
     const box = REWARD_BOX_MAP.get(msg.rewardBoxId);
     headline = `×${msg.quantity ?? 1} ${box?.name ?? msg.rewardBoxId}`;
     fromLine = msg.from ? `**From:** ${msg.from}` : '';
     body = msg.message ? `*"${msg.message}"*` : 'A gift box has arrived in your inbox.';
   } else if (msg.type === 'gift_cookies') {
-    color = 0x8b5a2b; icon = '🍪'; category = 'Cookie Gift';
+    color = 0x8b5a2b; icon = '-'; category = 'Cookie Gift';
     headline = `${toCookieNumber(msg.cookieAmount ?? 0)} cookies`;
     fromLine = msg.from ? `**From:** ${msg.from}` : '';
     body = msg.message ? `*"${msg.message}"*` : 'Cookies have been sent your way.';
   } else if (msg.type === 'rank_reward') {
-    color = 0x9b59b6; icon = '🏅'; category = 'Rank Reward';
+    color = 0x9b59b6; icon = '-'; category = 'Rank Reward';
     const rank = RANKS.find((entry) => entry.id === msg.rankId) ?? null;
     headline = rank?.name ?? msg.rankId ?? 'Rank Reward';
     body = formatRankReward({ rewards: msg.rewards ?? rank?.rewards ?? {} });
@@ -3449,14 +3449,14 @@ function buildOpenedMessageEmbed(guild, user, messageId) {
     fromLine = msg.from ? `**From:** ${msg.from}` : '';
   } else if (msg.type === 'boost_notification') {
     color = 0xeb459e;
-    icon = msg.boostKind === 'server_booster' ? '🚀' : msg.boostKind === 'vcf_profile' ? '🏷️' : '📈';
+    icon = msg.boostKind === 'server_booster' ? '-' : msg.boostKind === 'vcf_profile' ? '-' : '📈';
     category = 'Boost';
     headline = msg.title ?? 'Boost update';
     body = msg.content ?? '(boost update)';
     fromLine = msg.from ? `**From:** ${msg.from}` : '';
   } else if (msg.type === 'staff_message') {
     color = msg.messageType === 'moderation' ? 0xed4245 : msg.messageType === 'bakery' ? 0xf0b232 : 0x5865f2;
-    icon = msg.messageType === 'moderation' ? '⚠️' : msg.messageType === 'bakery' ? '🍪' : '🔔';
+    icon = msg.messageType === 'moderation' ? '-' : msg.messageType === 'bakery' ? '-' : '-';
     category = msg.messageType === 'moderation'
       ? 'Staff • Moderation'
       : msg.messageType === 'bakery'
@@ -3468,7 +3468,7 @@ function buildOpenedMessageEmbed(guild, user, messageId) {
   } else if (msg.type === 'broadcast') {
     const isDev = msg.broadcastKind === 'dev';
     color = isDev ? 0x9b59b6 : 0x5865f2;
-    icon = isDev ? '🛠️' : '📣';
+    icon = isDev ? '-' : '-';
     category = isDev ? 'Dev Broadcast' : 'Broadcast';
     headline = msg.title ?? 'Broadcast';
     body = msg.content ?? '(no content)';
@@ -3508,7 +3508,7 @@ function buildOpenedMessageComponents(user, messageId) {
       new ButtonBuilder()
         .setCustomId(`messages_open_claim:${msg.id}`)
         .setLabel('Claim')
-        .setEmoji('🎁')
+        .setEmoji('-')
         .setStyle(ButtonStyle.Success),
     );
   }
@@ -3541,8 +3541,8 @@ function buildMessagesComponents(user, page) {
     const options = pageMsgs.map((msg, j) => {
       const globalIndex = pending.length - (safePage * MESSAGES_PER_PAGE + j);
       const iconMap = {
-        gift_box: '🎁', gift_cookies: '🍪', rank_reward: '🏅',
-        alliance_notification: '🤝', boost_notification: '🚀', staff_message: '🔔',
+        gift_box: '-', gift_cookies: '-', rank_reward: '-',
+        alliance_notification: '🤝', boost_notification: '-', staff_message: '-',
       };
       const categoryMap = {
         gift_box: 'Gift Box', gift_cookies: 'Cookie Gift', rank_reward: 'Rank Reward',
@@ -3558,7 +3558,7 @@ function buildMessagesComponents(user, page) {
         // globalIndex is unique per message across all pages — avoids Discord duplicate-value constraint
         value: String(msg.id),
         description,
-        emoji: iconMap[msg.type] ?? '📬',
+        emoji: iconMap[msg.type] ?? '-',
       };
     });
     rows.push(new ActionRowBuilder().addComponents(
@@ -3613,7 +3613,7 @@ function buildMessagesComponents(user, page) {
       .setDisabled(safePage >= totalPages - 1),
     new ButtonBuilder()
       .setCustomId('messages_claim_all')
-      .setLabel('🎁 Claim All')
+      .setLabel('- Claim All')
       .setStyle(ButtonStyle.Primary)
       .setDisabled(!hasUnclaimed),
   );
@@ -3670,7 +3670,7 @@ function buildBakeAdminDashboardEmbed(guild, actorId) {
 
   const embed = new EmbedBuilder()
     .setColor(0xed4245)
-    .setTitle('🛠️ Bake Admin Dashboard')
+    .setTitle('- Bake Admin Dashboard')
     .setDescription(`Global bakery economy overview for this server.\nModerator: <@${actorId}>`)
     .addFields(
       {
@@ -3765,7 +3765,7 @@ function buildBakeAdminEmbed(guild, actorId, targetId) {
     : 'None';
   const embed = new EmbedBuilder()
     .setColor(0xed4245)
-    .setTitle('🛠️ Bake Admin Dashboard')
+    .setTitle('- Bake Admin Dashboard')
     .setDescription(`Detailed baking profile for <@${targetId}> (\`${targetId}\`).`)
     .addFields(
       {

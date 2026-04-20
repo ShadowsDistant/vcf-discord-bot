@@ -170,14 +170,14 @@ const UPDATE_LOGS = [
 ];
 
 const CATEGORY_ORDER = [
-  { key: 'ai', label: '🧠 AI', emoji: '🧠', match: /\b(ai|llm|nvidia|assistant|persona|safety model|jailbreak|embed schema|tool call)s?\b/i },
-  { key: 'moderation', label: '🛡️ Moderation', emoji: '🛡️', match: /\b(moder|warn|kick|ban|timeout|automod|infraction|mod[- ]?log|purge|lock(?:down)?)\b/i },
-  { key: 'economy', label: '🍪 Economy & Bakery', emoji: '🍪', match: /\b(bake|bakery|cookie|rank|reward|gift|inventory|challenge|economy|leaderboard)\b/i },
+  { key: 'ai', label: '- AI', emoji: '-', match: /\b(ai|llm|nvidia|assistant|persona|safety model|jailbreak|embed schema|tool call)s?\b/i },
+  { key: 'moderation', label: '- Moderation', emoji: '-', match: /\b(moder|warn|kick|ban|timeout|automod|infraction|mod[- ]?log|purge|lock(?:down)?)\b/i },
+  { key: 'economy', label: '- Economy & Bakery', emoji: '-', match: /\b(bake|bakery|cookie|rank|reward|gift|inventory|challenge|economy|leaderboard)\b/i },
   { key: 'alliance', label: '🤝 Alliance', emoji: '🤝', match: /\b(alliance|alliances)\b/i },
   { key: 'shift', label: '⏱️ Shifts', emoji: '⏱️', match: /\b(shift|shifts|wave|scheduling)\b/i },
   { key: 'ui', label: '🎨 UI & Embeds', emoji: '🎨', match: /\b(embed|emoji|ui|button|select menu|layout|format|style|theme|palette|icon)s?\b/i },
-  { key: 'infra', label: '🛠️ Infrastructure', emoji: '🛠️', match: /\b(refactor|deploy|intents?|startup|shutdown|atomic|persistence|storage|crash|exception|stability|error handling|dependenc|version|node\.js)\b/i },
-  { key: 'other', label: '✨ Other', emoji: '✨', match: /./ },
+  { key: 'infra', label: '- Infrastructure', emoji: '-', match: /\b(refactor|deploy|intents?|startup|shutdown|atomic|persistence|storage|crash|exception|stability|error handling|dependenc|version|node\.js)\b/i },
+  { key: 'other', label: '- Other', emoji: '-', match: /./ },
 ];
 
 function categorizeChange(line) {
@@ -191,7 +191,7 @@ function categorizeChange(line) {
 
 function createUpdateEmbed(guild, currentBotVersion, entry, index = 0) {
   const isLatest = index === 0;
-  const titlePrefix = isLatest ? '📢 Latest Public Update' : '📜 Historical Update Log';
+  const titlePrefix = isLatest ? '- Latest Public Update' : '📜 Historical Update Log';
   const changes = Array.isArray(entry?.changes) ? entry.changes : [];
   const byCategory = new Map(CATEGORY_ORDER.map((c) => [c.key, []]));
   for (const change of changes) {
@@ -204,7 +204,7 @@ function createUpdateEmbed(guild, currentBotVersion, entry, index = 0) {
     if (Number.isFinite(parsed)) releaseTs = Math.floor(parsed / 1000);
   }
 
-  const versionBadge = isLatest ? '🆕' : '📦';
+  const versionBadge = isLatest ? '-' : '📦';
   const embed = new EmbedBuilder()
     .setColor(isLatest ? 0x57f287 : PALETTE.primary)
     .setAuthor({ name: `VCF Bot • Update Log`, iconURL: guild.iconURL({ dynamic: true }) ?? undefined })

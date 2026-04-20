@@ -81,7 +81,7 @@ module.exports = {
       return interaction.reply({
         embeds: [
           embeds
-            .dev(`🔁 Reloaded /${reloaded.data.name}`, `Source reloaded from \`${path.relative(path.join(__dirname, '..', '..', '..'), filePath)}\`.`, interaction.guild ?? null)
+            .dev(`- Reloaded /${reloaded.data.name}`, `Source reloaded from \`${path.relative(path.join(__dirname, '..', '..', '..'), filePath)}\`.`, interaction.guild ?? null)
             .addFields({
               name: 'Note',
               value: 'Handler logic is live immediately. Slash-command metadata changes still require `/refresh` (Discord side).',

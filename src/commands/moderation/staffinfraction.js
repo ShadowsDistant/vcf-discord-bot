@@ -84,7 +84,7 @@ function buildPanel() {
           label: 'Issue Warning',
           value: 'warn',
           description: 'Issue a formal written warning to a staff member.',
-          emoji: '⚠️',
+          emoji: '-',
         },
         {
           label: 'Issue Suspension',
@@ -114,7 +114,7 @@ function buildPanel() {
           label: 'List All Infractions',
           value: 'list',
           description: 'List all staff with active infractions.',
-          emoji: '📋',
+          emoji: '📄',
         },
       ]),
   );
@@ -466,12 +466,12 @@ module.exports = {
           .setTitle('Staff Infractions Panel')
           .setDescription(
             'Select an action below to manage staff infractions.\n\n'
-            + '⚠️ **Warn** — Issue a written warning\n'
+            + '- **Warn** — Issue a written warning\n'
             + '🔴 **Suspended** — Issue a suspension\n'
             + '🔨 **Terminate** — Issue a termination\n'
             + '📄 **View** — View a member\'s record\n'
             + '🧹 **Remove** — Remove an infraction by ID\n'
-            + '📋 **List** — List all staff with infractions',
+            + '📄 **List** — List all staff with infractions',
           ),
       ],
       components: [buildPanel()],

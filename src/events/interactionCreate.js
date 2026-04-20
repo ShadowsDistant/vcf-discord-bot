@@ -300,9 +300,9 @@ async function sendBakeEventStartLog(interaction, eventDef, durationMinutes, sta
   const startedAtTs = Math.floor((Number.isFinite(startsAt) ? startsAt : Date.now()) / 1000);
   const endsAtTs = Math.floor(endsAt / 1000);
   const eventEmojis = {
-    special_cookie_hunt: '🍪',
-    golden_fever: '✨',
-    sugar_rush: '⚡',
+    special_cookie_hunt: '-',
+    golden_fever: '-',
+    sugar_rush: '-',
     steady_heat: '🔥',
   };
   const eventColors = {
@@ -322,7 +322,7 @@ async function sendBakeEventStartLog(interaction, eventDef, durationMinutes, sta
       `Run your bake commands here: <#${BAKE_COMMANDS_CHANNEL_ID}>`,
     ].join('\n'))
     .addFields(
-      { name: '⏰ Starts', value: `<t:${startedAtTs}:F> (<t:${startedAtTs}:R>)`, inline: true },
+      { name: '- Starts', value: `<t:${startedAtTs}:F> (<t:${startedAtTs}:R>)`, inline: true },
       { name: '🏁 Ends', value: `<t:${endsAtTs}:F> (<t:${endsAtTs}:R>)`, inline: true },
       { name: '⏱️ Duration', value: `**${durationMinutes} minute${durationMinutes === 1 ? '' : 's'}**`, inline: true },
     )
@@ -334,7 +334,7 @@ async function sendBakeEventStartLog(interaction, eventDef, durationMinutes, sta
   const actions = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setStyle(ButtonStyle.Link)
-      .setLabel('🍪 Open Bake Commands')
+      .setLabel('- Open Bake Commands')
       .setURL(BAKE_COMMANDS_CHANNEL_URL),
   );
   await channel.send({ embeds: [embed], components: [actions] }).catch(() => null);
@@ -1048,15 +1048,15 @@ module.exports = {
             flags: MessageFlags.Ephemeral,
           });
         }
-        let replyText = '✅ Reward claimed!';
+        let replyText = '✓ Reward claimed!';
         if (result.type === 'gift_box') {
           const box = economy.REWARD_BOXES.find((b) => b.id === result.reward.rewardBoxId);
-          replyText = `✅ Claimed **${result.reward.quantity}x ${box?.name ?? result.reward.rewardBoxId}** — open it from your bakery inventory!`;
+          replyText = `✓ Claimed **${result.reward.quantity}x ${box?.name ?? result.reward.rewardBoxId}** — open it from your bakery inventory!`;
         } else if (result.type === 'gift_cookies') {
-          replyText = `✅ Claimed **${economy.toCookieNumber(result.reward.cookieAmount)}** cookies!`;
+          replyText = `✓ Claimed **${economy.toCookieNumber(result.reward.cookieAmount)}** cookies!`;
         } else if (result.type === 'rank_reward') {
           const rewardSummary = economy.formatRankReward({ rewards: result.reward.rewards ?? {} });
-          replyText = `✅ Claimed rank reward for **${result.reward.rankName ?? 'Unknown rank'}**!\n${rewardSummary}`;
+          replyText = `✓ Claimed rank reward for **${result.reward.rankName ?? 'Unknown rank'}**!\n${rewardSummary}`;
         }
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildMessagesEmbed(interaction.guild, snapshot.user, currentPage);
@@ -1413,9 +1413,9 @@ module.exports = {
                   .setPlaceholder('Select event type')
                   .addOptions(economy.COOKIE_EVENT_DEFINITIONS.map((eventDef) => {
                     const eventEmojis = {
-                      special_cookie_hunt: '🍪',
-                      golden_fever: '✨',
-                      sugar_rush: '⚡',
+                      special_cookie_hunt: '-',
+                      golden_fever: '-',
+                      sugar_rush: '-',
                       steady_heat: '🔥',
                     };
                     return {
@@ -2023,7 +2023,7 @@ module.exports = {
         const broadcastKind = audience === 'role:vai_access' ? 'dev' : 'standard';
         const modal = new ModalBuilder()
           .setCustomId(`broadcastmsg_compose:${actorId}:${audience}`)
-          .setTitle('📢 Compose Broadcast')
+          .setTitle('- Compose Broadcast')
           .addComponents(
             new ActionRowBuilder().addComponents(
               new TextInputBuilder()

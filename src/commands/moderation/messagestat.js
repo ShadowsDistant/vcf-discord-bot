@@ -145,14 +145,14 @@ module.exports = {
     if (msg.title) fields.push({ name: 'Title', value: msg.title, inline: false });
     if (msg.content) fields.push({ name: 'Content', value: msg.content.slice(0, 500), inline: false });
     fields.push({
-      name: '📊 Read Progress',
+      name: '📈 Read Progress',
       value: buildProgressBar(1, 16), // We don't know exact read count here; shown from the opener's perspective
       inline: false,
     });
 
     const embed = new EmbedBuilder()
       .setColor(0x5865f2)
-      .setTitle(`${msg.type === 'broadcast' ? '📢' : '📨'} ${audienceLabel} — Delivery Report`)
+      .setTitle(`${msg.type === 'broadcast' ? '-' : '📨'} ${audienceLabel} — Delivery Report`)
       .setDescription(`**Message ID:** \`${messageIdStr}\`  •  Tracked from: <@${userId}>'s inbox`)
       .addFields(fields)
       .setTimestamp();
