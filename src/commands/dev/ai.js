@@ -2262,7 +2262,7 @@ async function searchGuildMembers(guild, query, limit = 10) {
  */
 function pickBestMemberMatch(matches, query) {
   if (!Array.isArray(matches) || matches.length === 0) return null;
-  if (matches.length === 1) return { selectedId: matches[0].id, autoSelected: false };
+  if (matches.length === 1) return { selectedId: matches[0].id, autoSelected: true };
   const [top, second] = matches;
   const needle = String(query ?? '').trim().toLowerCase();
   const topNames = [
@@ -2379,6 +2379,12 @@ function assertRoleManagementAllowed(interaction, roleId) {
   if (targetRole.position >= highest) throw new Error('You can only manage roles lower than your highest role.');
 }
 
+/**
+ * Build a standard audit-log reason that always includes the requesting user.
+ * @param {import('discord.js').ChatInputCommandInteraction} interaction
+ * @param {string} [detail]
+ * @returns {string}
+ */
 function buildAuditLogReason(interaction, detail) {
   const by = `Requested by ${interaction.user.tag} (${interaction.user.id})`;
   const extra = String(detail ?? '').trim();
