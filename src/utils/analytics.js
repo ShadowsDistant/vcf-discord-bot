@@ -124,6 +124,8 @@ function getAnalytics(guildId, periodDays = 7) {
       topAction: null,
       topDays: [],
       busyHours: [],
+      hourTotals: {},
+      dayMessageTotals: {},
     };
   }
 
@@ -196,6 +198,8 @@ function getAnalytics(guildId, periodDays = 7) {
     topAction: topActionEntry ? { action: topActionEntry[0], count: topActionEntry[1] } : null,
     topDays,
     busyHours,
+    hourTotals: summary.hourTotals,
+    dayMessageTotals: summary.dayMessageTotals,
   };
 }
 

@@ -169,27 +169,70 @@ const UPDATE_LOGS = [
   },
 ];
 
+const CATEGORY_ORDER = [
+  { key: 'ai', label: '🧠 AI', emoji: '🧠', match: /\b(ai|llm|nvidia|assistant|persona|safety model|jailbreak|embed schema|tool call)s?\b/i },
+  { key: 'moderation', label: '🛡️ Moderation', emoji: '🛡️', match: /\b(moder|warn|kick|ban|timeout|automod|infraction|mod[- ]?log|purge|lock(?:down)?)\b/i },
+  { key: 'economy', label: '🍪 Economy & Bakery', emoji: '🍪', match: /\b(bake|bakery|cookie|rank|reward|gift|inventory|challenge|economy|leaderboard)\b/i },
+  { key: 'alliance', label: '🤝 Alliance', emoji: '🤝', match: /\b(alliance|alliances)\b/i },
+  { key: 'shift', label: '⏱️ Shifts', emoji: '⏱️', match: /\b(shift|shifts|wave|scheduling)\b/i },
+  { key: 'ui', label: '🎨 UI & Embeds', emoji: '🎨', match: /\b(embed|emoji|ui|button|select menu|layout|format|style|theme|palette|icon)s?\b/i },
+  { key: 'infra', label: '🛠️ Infrastructure', emoji: '🛠️', match: /\b(refactor|deploy|intents?|startup|shutdown|atomic|persistence|storage|crash|exception|stability|error handling|dependenc|version|node\.js)\b/i },
+  { key: 'other', label: '✨ Other', emoji: '✨', match: /./ },
+];
+
+function categorizeChange(line) {
+  const text = String(line ?? '');
+  for (const category of CATEGORY_ORDER) {
+    if (category.key === 'other') continue;
+    if (category.match.test(text)) return category.key;
+  }
+  return 'other';
+}
+
 function createUpdateEmbed(guild, currentBotVersion, entry, index = 0) {
   const isLatest = index === 0;
-  const titlePrefix = isLatest ? '📢 Latest Public Update' : '📜 Public Update Log';
-  const changeLines = (entry?.changes ?? []).map((change, idx) => `${idx + 1}. ${change}`);
-  const sectionTitle = isLatest ? '### Highlights' : '### Changes';
-  return new EmbedBuilder()
-    .setColor(PALETTE.primary)
+  const titlePrefix = isLatest ? '📢 Latest Public Update' : '📜 Historical Update Log';
+  const changes = Array.isArray(entry?.changes) ? entry.changes : [];
+  const byCategory = new Map(CATEGORY_ORDER.map((c) => [c.key, []]));
+  for (const change of changes) {
+    byCategory.get(categorizeChange(change)).push(change);
+  }
+
+  let releaseTs = null;
+  if (entry?.date) {
+    const parsed = new Date(`${entry.date}T00:00:00Z`).getTime();
+    if (Number.isFinite(parsed)) releaseTs = Math.floor(parsed / 1000);
+  }
+
+  const versionBadge = isLatest ? '🆕' : '📦';
+  const embed = new EmbedBuilder()
+    .setColor(isLatest ? 0x57f287 : PALETTE.primary)
+    .setAuthor({ name: `VCF Bot • Update Log`, iconURL: guild.iconURL({ dynamic: true }) ?? undefined })
     .setTitle(`${titlePrefix} — ${entry.version}`)
-    .setDescription([sectionTitle, ...changeLines].join('\n'))
-    .addFields(
-      { name: 'Bot Version', value: `\`${currentBotVersion}\``, inline: true },
-      { name: 'Log Version', value: `\`${entry.version}\``, inline: true },
-      { name: 'Release Date', value: entry.date, inline: true },
-      { name: 'Entry', value: `#${index + 1} of ${UPDATE_LOGS.length}`, inline: true },
-      { name: 'Changes', value: `${changeLines.length}`, inline: true },
-    )
+    .setDescription([
+      `${versionBadge} **${entry.version}** released${releaseTs ? ` on <t:${releaseTs}:D> (<t:${releaseTs}:R>)` : entry.date ? ` on ${entry.date}` : ''}.`,
+      `This release contains **${changes.length}** change${changes.length === 1 ? '' : 's'} across ${[...byCategory.values()].filter((arr) => arr.length).length} categor${[...byCategory.values()].filter((arr) => arr.length).length === 1 ? 'y' : 'ies'}.`,
+    ].join('\n'));
+
+  for (const category of CATEGORY_ORDER) {
+    const items = byCategory.get(category.key);
+    if (!items || items.length === 0) continue;
+    const bullets = items.map((line) => `• ${line}`).join('\n');
+    embed.addFields({ name: `${category.label} — ${items.length}`, value: bullets.slice(0, 1024), inline: false });
+  }
+
+  embed.addFields(
+    { name: 'Running', value: `\`v${currentBotVersion}\``, inline: true },
+    { name: 'This Log', value: `\`${entry.version}\``, inline: true },
+    { name: 'Position', value: `\`#${index + 1} / ${UPDATE_LOGS.length}\``, inline: true },
+  );
+
+  return embed
     .setTimestamp()
     .setFooter({
-      text: guild.name,
+      text: `${guild.name} • ${isLatest ? 'Newest release' : `${index} release${index === 1 ? '' : 's'} behind latest`}`,
       iconURL: guild.iconURL({ dynamic: true }) ?? undefined,
     });
 }
 
-module.exports = { UPDATE_LOGS, createUpdateEmbed };
+module.exports = { UPDATE_LOGS, createUpdateEmbed, CATEGORY_ORDER, categorizeChange };

@@ -3384,6 +3384,129 @@ function buildMessagesEmbed(guild, user, page) {
   return embed;
 }
 
+const TRASH_EMOJI = '<:trash:1495704354332606464>';
+
+function buildOpenedMessageEmbed(guild, user, messageId) {
+  const pending = user.pendingMessages ?? [];
+  const msg = pending.find((m) => m.id === messageId);
+  if (!msg) {
+    return new EmbedBuilder()
+      .setColor(0xed4245)
+      .setTitle('Message Not Found')
+      .setDescription('This message may have already been dismissed or claimed.')
+      .setTimestamp();
+  }
+
+  const tsSec = msg.createdAt ? Math.floor(new Date(msg.createdAt).getTime() / 1000) : Math.floor(Date.now() / 1000);
+  const claimed = Boolean(msg.claimed);
+  const claimable = (msg.type === 'gift_box' || msg.type === 'gift_cookies' || msg.type === 'rank_reward');
+  const statusChip = claimed
+    ? '`✅ Claimed`'
+    : claimable
+      ? '`🆕 Unclaimed — pending action`'
+      : '`📬 Unread`';
+
+  let color = 0x5865f2;
+  let category = 'Notification';
+  let icon = '📢';
+  let headline = '';
+  let body = '';
+  let fromLine = '';
+
+  if (msg.type === 'gift_box') {
+    color = 0xf0b232; icon = '🎁'; category = 'Gift Box';
+    const box = REWARD_BOX_MAP.get(msg.rewardBoxId);
+    headline = `×${msg.quantity ?? 1} ${box?.name ?? msg.rewardBoxId}`;
+    fromLine = msg.from ? `**From:** ${msg.from}` : '';
+    body = msg.message ? `*"${msg.message}"*` : 'A gift box has arrived in your inbox.';
+  } else if (msg.type === 'gift_cookies') {
+    color = 0x8b5a2b; icon = '🍪'; category = 'Cookie Gift';
+    headline = `${toCookieNumber(msg.cookieAmount ?? 0)} cookies`;
+    fromLine = msg.from ? `**From:** ${msg.from}` : '';
+    body = msg.message ? `*"${msg.message}"*` : 'Cookies have been sent your way.';
+  } else if (msg.type === 'rank_reward') {
+    color = 0x9b59b6; icon = '🏅'; category = 'Rank Reward';
+    const rank = RANKS.find((entry) => entry.id === msg.rankId) ?? null;
+    headline = rank?.name ?? msg.rankId ?? 'Rank Reward';
+    body = formatRankReward({ rewards: msg.rewards ?? rank?.rewards ?? {} });
+  } else if (msg.type === 'alliance_notification') {
+    color = 0x3498db; icon = msg.notificationType === 'alliance_leaderboard_change' ? '🏆' : '🤝';
+    category = msg.notificationType === 'alliance_leaderboard_change' ? 'Alliance • Leaderboard' : 'Alliance';
+    headline = msg.title ?? 'Alliance update';
+    body = msg.content ?? '(alliance notification)';
+    fromLine = msg.from ? `**From:** ${msg.from}` : '';
+  } else if (msg.type === 'boost_notification') {
+    color = 0xeb459e;
+    icon = msg.boostKind === 'server_booster' ? '🚀' : msg.boostKind === 'vcf_profile' ? '🏷️' : '📈';
+    category = 'Boost';
+    headline = msg.title ?? 'Boost update';
+    body = msg.content ?? '(boost update)';
+    fromLine = msg.from ? `**From:** ${msg.from}` : '';
+  } else if (msg.type === 'staff_message') {
+    color = msg.messageType === 'moderation' ? 0xed4245 : msg.messageType === 'bakery' ? 0xf0b232 : 0x5865f2;
+    icon = msg.messageType === 'moderation' ? '⚠️' : msg.messageType === 'bakery' ? '🍪' : '🔔';
+    category = msg.messageType === 'moderation'
+      ? 'Staff • Moderation'
+      : msg.messageType === 'bakery'
+        ? 'Staff • Bakery'
+        : 'Staff • Notification';
+    headline = msg.title ?? 'Staff message';
+    body = msg.content ?? '(no content)';
+    fromLine = `**From:** ${msg.from ?? 'Staff'}`;
+  } else {
+    headline = msg.title ?? 'Notification';
+    body = msg.content ?? msg.message ?? '(notification)';
+  }
+
+  const descriptionLines = [
+    `${icon} **${headline}**`,
+    '',
+    body.slice(0, 3500),
+  ];
+  if (fromLine) descriptionLines.push('', fromLine);
+  descriptionLines.push('', `**Status:** ${statusChip}`, `**Received:** <t:${tsSec}:F> (<t:${tsSec}:R>)`);
+
+  const embed = new EmbedBuilder()
+    .setColor(color)
+    .setAuthor({ name: `${category} • Inbox`, iconURL: guild?.iconURL?.({ dynamic: true }) ?? undefined })
+    .setTitle(`Message #${msg.id ? String(msg.id).slice(0, 10) : ''}`.trim())
+    .setDescription(descriptionLines.join('\n').slice(0, 4096))
+    .setTimestamp(new Date(msg.createdAt ?? Date.now()))
+    .setFooter({ text: guild?.name ?? 'Inbox', iconURL: guild?.iconURL?.({ dynamic: true }) ?? undefined });
+
+  return embed;
+}
+
+function buildOpenedMessageComponents(user, messageId) {
+  const pending = user.pendingMessages ?? [];
+  const msg = pending.find((m) => m.id === messageId);
+  if (!msg) return [];
+  const claimable = (msg.type === 'gift_box' || msg.type === 'gift_cookies' || msg.type === 'rank_reward') && !msg.claimed;
+  const row = new ActionRowBuilder();
+  if (claimable) {
+    row.addComponents(
+      new ButtonBuilder()
+        .setCustomId(`messages_open_claim:${msg.id}`)
+        .setLabel('Claim')
+        .setEmoji('🎁')
+        .setStyle(ButtonStyle.Success),
+    );
+  }
+  row.addComponents(
+    new ButtonBuilder()
+      .setCustomId(`messages_open_delete:${msg.id}`)
+      .setLabel(claimable ? 'Dismiss' : 'Delete')
+      .setEmoji({ id: '1495704354332606464', name: 'trash' })
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId('messages_open_back')
+      .setLabel('Back to Inbox')
+      .setEmoji('📬')
+      .setStyle(ButtonStyle.Secondary),
+  );
+  return [row];
+}
+
 function buildMessagesComponents(user, page) {
   const pending = user.pendingMessages ?? [];
   const totalPages = Math.max(1, Math.ceil(pending.length / MESSAGES_PER_PAGE));
@@ -3392,6 +3515,38 @@ function buildMessagesComponents(user, page) {
   const pageMsgs = newestFirst.slice(safePage * MESSAGES_PER_PAGE, safePage * MESSAGES_PER_PAGE + MESSAGES_PER_PAGE);
 
   const rows = [];
+
+  if (pageMsgs.length > 0) {
+    const options = pageMsgs.map((msg, j) => {
+      const globalIndex = pending.length - (safePage * MESSAGES_PER_PAGE + j);
+      const iconMap = {
+        gift_box: '🎁', gift_cookies: '🍪', rank_reward: '🏅',
+        alliance_notification: '🤝', boost_notification: '🚀', staff_message: '🔔',
+      };
+      const categoryMap = {
+        gift_box: 'Gift Box', gift_cookies: 'Cookie Gift', rank_reward: 'Rank Reward',
+        alliance_notification: 'Alliance', boost_notification: 'Boost', staff_message: 'Staff',
+      };
+      const label = `#${globalIndex} • ${categoryMap[msg.type] ?? 'Notification'}`.slice(0, 100);
+      const descBits = [];
+      if (msg.from) descBits.push(`From ${msg.from}`);
+      if (!msg.claimed && (msg.type === 'gift_box' || msg.type === 'gift_cookies' || msg.type === 'rank_reward')) descBits.push('Unclaimed');
+      const description = (descBits.join(' • ') || 'Open to view details').slice(0, 100);
+      return {
+        label,
+        value: String(msg.id ?? `${safePage}_${j}`),
+        description,
+        emoji: iconMap[msg.type] ?? '📬',
+      };
+    });
+    rows.push(new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId('messages_open_select')
+        .setPlaceholder('Open a message to view full details…')
+        .addOptions(options),
+    ));
+  }
+
   // Pair messages 2 per action row: [Claim N] [Dismiss N] [Claim N+1] [Dismiss N+1]
   for (let i = 0; i < pageMsgs.length && rows.length < 4; i += 2) {
     const btns = [];
@@ -3957,4 +4112,6 @@ module.exports = {
   deletePendingMessage,
   buildMessagesEmbed,
   buildMessagesComponents,
+  buildOpenedMessageEmbed,
+  buildOpenedMessageComponents,
 };
