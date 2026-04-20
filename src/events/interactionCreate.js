@@ -982,19 +982,41 @@ module.exports = {
         return allianceCommand.handleAllianceButton(interaction);
       }
 
-      if (interaction.customId === 'messages_open_select') {
-        const messageId = String(interaction.values?.[0] ?? '');
+      // Convert globalIndex to actual message ID for inbox lookups
+        function resolveGlobalIndex(pending, globalIndex) {
+          if (pending.length === 0) return null;
+          const idx = pending.length - 1 - parseInt(globalIndex, 10);
+          if (idx < 0 || idx >= pending.length) return null;
+          return pending[idx]?.id ?? null;
+        }
+
+        if (interaction.customId === 'messages_open_select') {
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
-        const embed = economy.buildOpenedMessageEmbed(interaction.guild, snapshot.user, messageId);
-        const components = economy.buildOpenedMessageComponents(snapshot.user, messageId);
+        const pending = snapshot.user.pendingMessages ?? [];
+        const resolvedId = resolveGlobalIndex(pending, interaction.values?.[0]);
+        if (!resolvedId) {
+          return interaction.update({
+            embeds: [embeds.warning('Message not found — it may have been dismissed.', interaction.guild)],
+            components: [],
+          });
+        }
+        const embed = economy.buildOpenedMessageEmbed(interaction.guild, snapshot.user, resolvedId);
+        const components = economy.buildOpenedMessageComponents(snapshot.user, resolvedId);
         return interaction.update({ embeds: [embed], components });
       }
 
       if (interaction.customId.startsWith('messages_open:')) {
-        const messageId = String(interaction.customId.split(':')[1] ?? '');
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
-        const embed = economy.buildOpenedMessageEmbed(interaction.guild, snapshot.user, messageId);
-        const components = economy.buildOpenedMessageComponents(snapshot.user, messageId);
+        const pending = snapshot.user.pendingMessages ?? [];
+        const resolvedId = resolveGlobalIndex(pending, interaction.customId.split(':')[1]);
+        if (!resolvedId) {
+          return interaction.update({
+            embeds: [embeds.warning('Message not found — it may have been dismissed.', interaction.guild)],
+            components: [],
+          });
+        }
+        const embed = economy.buildOpenedMessageEmbed(interaction.guild, snapshot.user, resolvedId);
+        const components = economy.buildOpenedMessageComponents(snapshot.user, resolvedId);
         return interaction.update({ embeds: [embed], components });
       }
 

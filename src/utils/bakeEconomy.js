@@ -3202,9 +3202,10 @@ function claimPendingMessage(guildId, userId, globalIndex) {
   const data = readState();
   const guildState = getGuildState(data, guildId);
   const user = getUserState(guildState, userId);
-  // globalIndex is the reverse position in the inbox (0 = newest), so we reverse to match
   const pending = user.pendingMessages ?? [];
-  const msg = pending.find((entry) => String(entry.id) === String(globalIndex));
+  // globalIndex is the position from the *newest* end in the full inbox (0 = newest)
+  const msgIdx = pending.length - 1 - globalIndex;
+  const msg = pending[msgIdx];
   if (!msg) return { ok: false, reason: 'Message not found.' };
   if (msg.claimed) return { ok: false, reason: 'Already claimed.' };
   if (msg.type !== 'gift_box' && msg.type !== 'gift_cookies' && msg.type !== 'rank_reward') {
@@ -3274,9 +3275,9 @@ function deletePendingMessage(guildId, userId, globalIndex) {
   const guildState = getGuildState(data, guildId);
   const user = getUserState(guildState, userId);
   const pending = user.pendingMessages ?? [];
-  const idx = pending.findIndex((m) => String(m.id) === String(globalIndex));
-  if (idx === -1) return false;
-  pending.splice(idx, 1);
+  const msgIdx = pending.length - 1 - globalIndex;
+  if (msgIdx < 0 || msgIdx >= pending.length) return false;
+  pending.splice(msgIdx, 1);
   writeState(data);
   return true;
 }
@@ -3556,7 +3557,7 @@ function buildMessagesComponents(user, page) {
       const description = (descBits.join(' • ') || 'Open to view details').slice(0, 100);
       const option = {
         label,
-        value: String(msg.id),
+        value: String(globalIndex),
         description,
       };
       const emoji = iconMap[msg.type] ?? null;
@@ -3583,14 +3584,14 @@ function buildMessagesComponents(user, page) {
       if (isClaimable) {
         btns.push(
           new ButtonBuilder()
-            .setCustomId(`messages_claim:${safePage}:${msg.id}`)
+            .setCustomId(`messages_claim:${safePage}:${globalIndex}`)
             .setLabel(`Claim ${label}`)
             .setStyle(ButtonStyle.Success),
         );
       }
       btns.push(
         new ButtonBuilder()
-          .setCustomId(`messages_delete:${safePage}:${msg.id}`)
+          .setCustomId(`messages_delete:${safePage}:${globalIndex}`)
           .setLabel(isClaimable ? `Dismiss ${label}` : `Delete ${label}`)
           .setStyle(ButtonStyle.Danger),
       );

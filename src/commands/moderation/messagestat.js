@@ -14,8 +14,8 @@ const {
 } = require('../../utils/roles');
 
 const STATS_ROLE_IDS = new Set([
-  ...Object.values(MANAGEMENT_ROLE_IDS ?? {}),
-  LEAD_OVERSEER_ROLE_ID,
+  '1379199481886802061',
+  '1470915962860736553',
 ]);
 
 function canViewStats(member) {
@@ -78,7 +78,7 @@ module.exports = {
   async execute(interaction) {
     if (!canViewStats(interaction.member)) {
       return interaction.reply({
-        embeds: [embeds.error('Only Management and Lead Overseer can use this command.', interaction.guild)],
+        embeds: [embeds.error('Only staff with access can use this command.', interaction.guild)],
         flags: MessageFlags.Ephemeral,
       });
     }
