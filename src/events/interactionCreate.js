@@ -1,6 +1,17 @@
 'use strict';
 
 const { randomUUID } = require('node:crypto');
+
+/** Reusable action-select row reused across aimanage views. */
+function buildAimanageActionRow(actorId) {
+  const aiManageCommand = require('../commands/dev/aiusage');
+  return new ActionRowBuilder().addComponents(
+    new StringSelectMenuBuilder()
+      .setCustomId(`aimanage_action_select:${actorId}`)
+      .setPlaceholder('Select an action…')
+      .addOptions(aiManageCommand.ACTION_OPTIONS),
+  );
+}
 const {
   ActionRowBuilder,
   ButtonBuilder,
@@ -872,9 +883,8 @@ module.exports = {
       if (interaction.customId.startsWith('messages_claim:')) {
         const parts = interaction.customId.split(':');
         const currentPage = Number.parseInt(parts[1], 10) || 0;
-        const messageId = Number.parseInt(parts[2], 10);
-        const messageCreatedAtMs = Number.parseInt(parts[3], 10);
-        const result = economy.claimPendingMessage(interaction.guild.id, interaction.user.id, messageId, messageCreatedAtMs);
+        const globalIndex = Number.parseInt(parts[2], 10);
+        const result = economy.claimPendingMessage(interaction.guild.id, interaction.user.id, globalIndex);
         if (!result.ok) {
           return interaction.reply({
             embeds: [embeds.warning(result.reason, interaction.guild)],
@@ -901,9 +911,8 @@ module.exports = {
       if (interaction.customId.startsWith('messages_delete:')) {
         const parts = interaction.customId.split(':');
         const currentPage = Number.parseInt(parts[1], 10) || 0;
-        const messageId = Number.parseInt(parts[2], 10);
-        const messageCreatedAtMs = Number.parseInt(parts[3], 10);
-        economy.deletePendingMessage(interaction.guild.id, interaction.user.id, messageId, messageCreatedAtMs);
+        const globalIndex = Number.parseInt(parts[2], 10);
+        economy.deletePendingMessage(interaction.guild.id, interaction.user.id, globalIndex);
         const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
         const embed = economy.buildMessagesEmbed(interaction.guild, snapshot.user, currentPage);
         const components = economy.buildMessagesComponents(snapshot.user, currentPage);
@@ -2054,8 +2063,24 @@ module.exports = {
         const targetId = interaction.values[0];
         if (action === 'view-user') {
           const member = await interaction.guild.members.fetch(targetId).catch(() => null);
-          return interaction.reply({
+          return interaction.update({
             embeds: [aiManageCommand.buildUserInfoEmbed(interaction.guild, member, targetId)],
+            components: buildAimanageActionRow(interaction.user.id),
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'view-role') {
+          const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
+          if (!role) {
+            return interaction.update({
+              embeds: [embeds.error('Role not found.', interaction.guild)],
+              components: buildAimanageActionRow(interaction.user.id),
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          return interaction.update({
+            embeds: [aiManageCommand.buildRoleInfoEmbed(interaction.guild, role)],
+            components: buildAimanageActionRow(interaction.user.id),
             flags: MessageFlags.Ephemeral,
           });
         }
@@ -2150,6 +2175,21 @@ module.exports = {
           }
           return interaction.reply({
             embeds: [aiManageCommand.buildRoleInfoEmbed(interaction.guild, role)],
+            flags: MessageFlags.Ephemeral,
+          });
+        }
+        if (action === 'view-role') {
+          const role = await interaction.guild.roles.fetch(roleId).catch(() => null);
+          if (!role) {
+            return interaction.update({
+              embeds: [embeds.error('Role not found.', interaction.guild)],
+              components: buildAimanageActionRow(interaction.user.id),
+              flags: MessageFlags.Ephemeral,
+            });
+          }
+          return interaction.update({
+            embeds: [aiManageCommand.buildRoleInfoEmbed(interaction.guild, role)],
+            components: buildAimanageActionRow(interaction.user.id),
             flags: MessageFlags.Ephemeral,
           });
         }

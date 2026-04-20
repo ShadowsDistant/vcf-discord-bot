@@ -3198,18 +3198,14 @@ function getAllTrackedUserIds(guildId) {
   return Object.keys(guildState.users);
 }
 
-function claimPendingMessage(guildId, userId, messageId, createdAtMs = null) {
+function claimPendingMessage(guildId, userId, globalIndex) {
   const data = readState();
   const guildState = getGuildState(data, guildId);
   const user = getUserState(guildState, userId);
-  const parsedCreatedAtMs = Number.parseInt(createdAtMs, 10);
-  const hasCreatedAtConstraint = Number.isFinite(parsedCreatedAtMs) && parsedCreatedAtMs > 0;
-  const msg = user.pendingMessages.find((m) => {
-    if (m.id !== messageId) return false;
-    if (!hasCreatedAtConstraint) return true;
-    const msgCreatedAtMs = new Date(m.createdAt ?? 0).getTime();
-    return Number.isFinite(msgCreatedAtMs) && msgCreatedAtMs === parsedCreatedAtMs;
-  });
+  // globalIndex is the reverse position in the inbox (0 = newest), so we reverse to match
+  const pending = [...(user.pendingMessages ?? [])].reverse();
+  if (globalIndex < 0 || globalIndex >= pending.length) return { ok: false, reason: 'Message not found.' };
+  const msg = pending[globalIndex];
   if (!msg) return { ok: false, reason: 'Message not found.' };
   if (msg.claimed) return { ok: false, reason: 'Already claimed.' };
   if (msg.type !== 'gift_box' && msg.type !== 'gift_cookies' && msg.type !== 'rank_reward') {
@@ -3274,20 +3270,20 @@ function claimAllPendingMessages(guildId, userId) {
   return claimed;
 }
 
-function deletePendingMessage(guildId, userId, messageId, createdAtMs = null) {
+function deletePendingMessage(guildId, userId, globalIndex) {
   const data = readState();
   const guildState = getGuildState(data, guildId);
   const user = getUserState(guildState, userId);
-  const parsedCreatedAtMs = Number.parseInt(createdAtMs, 10);
-  const hasCreatedAtConstraint = Number.isFinite(parsedCreatedAtMs) && parsedCreatedAtMs > 0;
-  const idx = user.pendingMessages.findIndex((m) => {
-    if (m.id !== messageId) return false;
-    if (!hasCreatedAtConstraint) return true;
-    const msgCreatedAtMs = new Date(m.createdAt ?? 0).getTime();
-    return Number.isFinite(msgCreatedAtMs) && msgCreatedAtMs === parsedCreatedAtMs;
-  });
+  const pending = user.pendingMessages ?? [];
+  // globalIndex is reverse-indexed; reverse the array to translate to forward index
+  const reversedPending = [...pending].reverse();
+  if (globalIndex < 0 || globalIndex >= reversedPending.length) return false;
+  // Find forward index in original pending array
+  const msgId = reversedPending[globalIndex]?.id;
+  if (msgId == null) return false;
+  const idx = pending.findIndex((m) => m.id === msgId);
   if (idx === -1) return false;
-  user.pendingMessages.splice(idx, 1);
+  pending.splice(idx, 1);
   writeState(data);
   return true;
 }
@@ -3535,6 +3531,7 @@ function buildMessagesComponents(user, page) {
   const rows = [];
 
   if (pageMsgs.length > 0) {
+    // Use globalIndex (guaranteed unique within the inbox) as option value so Discord never sees duplicate values
     const options = pageMsgs.map((msg, j) => {
       const globalIndex = pending.length - (safePage * MESSAGES_PER_PAGE + j);
       const iconMap = {
@@ -3552,7 +3549,8 @@ function buildMessagesComponents(user, page) {
       const description = (descBits.join(' • ') || 'Open to view details').slice(0, 100);
       return {
         label,
-        value: String(msg.id ?? `${safePage}_${j}`),
+        // globalIndex is unique per message across all pages — avoids Discord duplicate-value constraint
+        value: String(globalIndex),
         description,
         emoji: iconMap[msg.type] ?? '📬',
       };
@@ -3572,20 +3570,19 @@ function buildMessagesComponents(user, page) {
       const msg = pageMsgs[j];
       const label = `#${pending.length - (safePage * MESSAGES_PER_PAGE + j)}`;
       const isClaimable = (msg.type === 'gift_box' || msg.type === 'gift_cookies' || msg.type === 'rank_reward') && !msg.claimed;
-      const msgCreatedAtMs = new Date(msg.createdAt ?? 0).getTime();
-      const msgUniqueSuffix = Number.isFinite(msgCreatedAtMs) && msgCreatedAtMs > 0 ? msgCreatedAtMs : `${msg.id}_${safePage}_${j}`;
-      const msgButtonIndex = `${safePage}_${j}`;
+      const globalIndex = pending.length - (safePage * MESSAGES_PER_PAGE + j);
+      // Use globalIndex for button customIds so interactions map correctly to the selected message
       if (isClaimable) {
         btns.push(
           new ButtonBuilder()
-            .setCustomId(`messages_claim:${safePage}:${msg.id}:${msgUniqueSuffix}:${msgButtonIndex}`)
+            .setCustomId(`messages_claim:${safePage}:${globalIndex}`)
             .setLabel(`Claim ${label}`)
             .setStyle(ButtonStyle.Success),
         );
       }
       btns.push(
         new ButtonBuilder()
-          .setCustomId(`messages_delete:${safePage}:${msg.id}:${msgUniqueSuffix}:${msgButtonIndex}`)
+          .setCustomId(`messages_delete:${safePage}:${globalIndex}`)
           .setLabel(isClaimable ? `Dismiss ${label}` : `Delete ${label}`)
           .setStyle(ButtonStyle.Danger),
       );

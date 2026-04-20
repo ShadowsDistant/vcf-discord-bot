@@ -387,6 +387,8 @@ Attribution (required when the AI posts into a channel on the user's behalf):
 - Never omit or rephrase the send_message attribution line.
 
 Interactive Components:
+Tools:
+- send_file: reserved exclusively for responses exceeding 4000 characters that cannot be shortened. Always attempt to compress, summarize, or split the response before resorting to this.
 - Only add components when they provide clear interaction value (not decoration).
 - Prefer select_menus for choosing from 3+ defined options.
 - Whenever you ask the user to choose from defined actions/options, you MUST provide a select_menus entry for that choice and use it to collect the response.
@@ -1490,7 +1492,7 @@ const TOOL_SCHEMAS = [
     type: 'function',
     function: {
       name: 'send_file',
-      description: 'Send a text/markdown file attachment (up to ~1MB) to a channel, with an optional embed summary alongside. Use for responses too long to fit in an embed.',
+      description: '[LAST RESORT] Send a text/markdown file attachment (up to ~1MB) to a channel. Only use this when the response exceeds 4000 characters AND no other tool can send the data. Prefer shorter summaries over full file dumps.',
       parameters: {
         type: 'object',
         properties: {
@@ -5517,7 +5519,10 @@ function attachReviewHandler(replyMsg, interaction, session) {
       await modalSubmit.deferUpdate().catch(() => null);
       refreshSessionSystemPrompt(session);
       session.messages.push({ role: 'user', content: prompt });
-      await replyMsg.edit({ embeds: [buildProcessingEmbed()], components: [] }).catch(() => null);
+      // Preserve the loading message only when there is actual progress to show
+      if (processMsgId !== undefined) {
+        await replyMsg.edit({ embeds: [buildProcessingEmbed()], components: [] }).catch(() => null);
+      }
 
       try {
         const result = await runAiTurn(interaction, replyMsg, session.messages, session.toolsUsed, {
@@ -5897,7 +5902,12 @@ module.exports = {
     if (!usagePolicy) return null;
 
     // ── Defer reply immediately ───────────────────────────────────────────────
-    await interaction.deferReply();
+    try {
+      await interaction.deferReply();
+    } catch (e) {
+      console.error('AI deferReply failed:', e.message);
+      return null;
+    }
     const replyMsg = await interaction.fetchReply();
 
     await interaction.editReply({
