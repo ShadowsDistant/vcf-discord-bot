@@ -1,7 +1,7 @@
 'use strict';
 
 const os = require('node:os');
-const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, version: djsVersion } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, version: djsVersion } = require('discord.js');
 const { PALETTE } = require('../../utils/embeds');
 const { formatDuration } = require('../../utils/helpers');
 const { version: botVersion } = require('../../../package.json');
@@ -93,11 +93,6 @@ module.exports = {
         iconURL: interaction.user.displayAvatarURL({ dynamic: true }),
       });
 
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Source').setURL(REPO_URL),
-      new ButtonBuilder().setStyle(ButtonStyle.Link).setLabel('Latest Updates').setURL(`${REPO_URL}/releases`),
-    );
-
-    return interaction.reply({ embeds: [embed], components: [row] });
+    return interaction.reply({ embeds: [embed] });
   },
 };
