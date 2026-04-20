@@ -272,7 +272,7 @@ function buildInventoryItemSelectOptions(user, guild) {
       label: `${economy.ITEM_MAP.get(itemId)?.name ?? itemId}`.slice(0, 100),
       description: `Owned: ${qty}`.slice(0, 100),
       value: itemId,
-      emoji: economy.getItemEmoji(itemId, guild),
+      emoji: economy.toSelectEmoji(economy.getItemEmoji(itemId, guild)),
     }));
 }
 
@@ -1476,7 +1476,7 @@ module.exports = {
                   .addOptions(economy.REWARD_BOXES.slice(0, 25).map((rewardBox) => ({
                     label: rewardBox.name.slice(0, 100),
                     value: rewardBox.id,
-                    emoji: economy.getRewardBoxEmoji(rewardBox, interaction.guild),
+                    emoji: economy.toSelectEmoji(economy.getRewardBoxEmoji(rewardBox, interaction.guild)),
                   }))),
               ),
             ],

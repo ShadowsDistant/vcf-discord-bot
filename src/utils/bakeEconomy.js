@@ -3527,6 +3527,17 @@ function buildOpenedMessageComponents(user, messageId) {
   return [row];
 }
 
+/** Convert a Discord emoji string (<:name:id> or unicode) to a valid select-menu emoji value. */
+function toSelectEmoji(emojiStr) {
+  if (!emojiStr) return null;
+  if (emojiStr.startsWith('<')) {
+    const m = emojiStr.match(/^<a?:(.+?):(\d+)>$/);
+    if (m) return { name: m[1], id: m[2] };
+    return null;
+  }
+  return emojiStr;
+}
+
 function buildMessagesComponents(user, page) {
   const pending = user.pendingMessages ?? [];
   const totalPages = Math.max(1, Math.ceil(pending.length / MESSAGES_PER_PAGE));
@@ -3558,7 +3569,7 @@ function buildMessagesComponents(user, page) {
         // globalIndex is unique per message across all pages — avoids Discord duplicate-value constraint
         value: String(msg.id),
         description,
-        emoji: iconMap[msg.type] ?? '-',
+        emoji: toSelectEmoji(iconMap[msg.type] ?? null),
       };
     });
     rows.push(new ActionRowBuilder().addComponents(
@@ -4133,6 +4144,7 @@ module.exports = {
   deletePendingMessage,
   buildMessagesEmbed,
   buildMessagesComponents,
+  toSelectEmoji,
   buildOpenedMessageEmbed,
   buildOpenedMessageComponents,
 };
