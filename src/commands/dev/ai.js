@@ -1840,14 +1840,15 @@ function getUserAiSettings(userId) {
   ensureUserAiSettingsLoaded();
   const id = String(userId);
   const current = AI_USER_SETTINGS.get(id);
-  if (current) return normalizeAiSettings(current);
-  return normalizeAiSettings({
+  const settings = current ? normalizeAiSettings(current) : normalizeAiSettings({
     modelKey: DEFAULT_MODEL_KEY,
     personaKey: DEFAULT_PERSONA_KEY,
     customInstructions: '',
     showThinking: false,
     safetyEnabled: true,
   });
+  if (!canToggleAiSafety(id)) settings.safetyEnabled = true;
+  return settings;
 }
 
 /**
@@ -1912,7 +1913,11 @@ function buildSystemPrompt(safetyEnabled, toolAccessPromptSuffix = '', runtimeCo
  * @returns {boolean}
  */
 function canToggleAiSafety(userId) {
-  return String(userId) === AI_SAFETY_TOGGLE_USER_ID;
+  const id = String(userId);
+  if (id === AI_SAFETY_TOGGLE_USER_ID) return true;
+  const usageStore = db.read(AI_USAGE_FILE, { usage: {}, userOverrides: {}, roleOverrides: {}, safetyToggleUsers: {} });
+  const safetyToggleUsers = usageStore?.safetyToggleUsers;
+  return Boolean(safetyToggleUsers && typeof safetyToggleUsers === 'object' && safetyToggleUsers[id] === true);
 }
 
 /**

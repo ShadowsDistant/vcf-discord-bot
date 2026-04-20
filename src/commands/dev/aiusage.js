@@ -1,19 +1,11 @@
 'use strict';
 
-const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const embeds = require('../../utils/embeds');
-const { MANAGEMENT_ROLE_IDS, ROLE_IDS } = require('../../utils/roles');
 const db = require('../../utils/database');
 
 const AI_USAGE_FILE = 'ai_usage_limits.json';
 const AI_USAGE_WINDOW_MS = 6 * 60 * 60 * 1000;
-
-function hasAnyRole(member, roleIds) {
-  const cache = member?.roles?.cache;
-  if (cache?.size) return [...roleIds].some((id) => cache.has(id));
-  if (Array.isArray(member?.roles)) return member.roles.some((id) => roleIds.has(String(id)));
-  return false;
-}
 
 function canManageAiUsage(member) {
   return member?.id === '757698506411475005';
@@ -24,10 +16,11 @@ function readUsage() {
 }
 
 function writeUsage(mutator) {
-  db.update(AI_USAGE_FILE, { usage: {}, userOverrides: {}, roleOverrides: {} }, (data) => {
+  db.update(AI_USAGE_FILE, { usage: {}, userOverrides: {}, roleOverrides: {}, safetyToggleUsers: {} }, (data) => {
     if (!data.usage || typeof data.usage !== 'object') data.usage = {};
     if (!data.userOverrides || typeof data.userOverrides !== 'object') data.userOverrides = {};
     if (!data.roleOverrides || typeof data.roleOverrides !== 'object') data.roleOverrides = {};
+    if (!data.safetyToggleUsers || typeof data.safetyToggleUsers !== 'object') data.safetyToggleUsers = {};
     mutator(data);
   });
 }
@@ -38,8 +31,8 @@ function getBucketStart(now = Date.now()) {
 
 module.exports = {
   data: new SlashCommandBuilder()
-    .setName('aiusage')
-    .setDescription('Manage AI usage allowances and overrides.')
+    .setName('aimanage')
+    .setDescription('Manage AI usage allowances and safety toggle access.')
     .addSubcommand((sub) => sub
       .setName('set-user')
       .setDescription('Set permanent AI usage limit override for a user.')
@@ -67,7 +60,15 @@ module.exports = {
       .setName('grant-role')
       .setDescription('One-time usage adjustment this 6h window for all users with a role (best effort).')
       .addRoleOption((opt) => opt.setName('role').setDescription('Target role').setRequired(true))
-      .addIntegerOption((opt) => opt.setName('amount').setDescription('Positive or negative change').setRequired(true))),
+      .addIntegerOption((opt) => opt.setName('amount').setDescription('Positive or negative change').setRequired(true)))
+    .addSubcommand((sub) => sub
+      .setName('allow-safety-user')
+      .setDescription('Allow a user to disable AI safety in /ai.')
+      .addUserOption((opt) => opt.setName('user').setDescription('Target user').setRequired(true)))
+    .addSubcommand((sub) => sub
+      .setName('disallow-safety-user')
+      .setDescription('Remove a user permission to disable AI safety in /ai.')
+      .addUserOption((opt) => opt.setName('user').setDescription('Target user').setRequired(true))),
 
   async execute(interaction) {
     if (!canManageAiUsage(interaction.member)) {
@@ -146,6 +147,22 @@ module.exports = {
       });
       const direction = amount >= 0 ? `+${amount}` : String(amount);
       return interaction.reply({ embeds: [embeds.success(`Applied one-time adjustment ${direction} for **${targets.length}** member(s) in ${role}.`, interaction.guild)], flags: MessageFlags.Ephemeral });
+    }
+
+    if (sub === 'allow-safety-user') {
+      const user = interaction.options.getUser('user', true);
+      writeUsage((data) => {
+        data.safetyToggleUsers[user.id] = true;
+      });
+      return interaction.reply({ embeds: [embeds.success(`Allowed ${user} to disable AI safety in /ai.`, interaction.guild)], flags: MessageFlags.Ephemeral });
+    }
+
+    if (sub === 'disallow-safety-user') {
+      const user = interaction.options.getUser('user', true);
+      writeUsage((data) => {
+        delete data.safetyToggleUsers[user.id];
+      });
+      return interaction.reply({ embeds: [embeds.success(`Removed ${user} permission to disable AI safety in /ai.`, interaction.guild)], flags: MessageFlags.Ephemeral });
     }
 
     return interaction.reply({ embeds: [embeds.error('Unsupported subcommand.', interaction.guild)], flags: MessageFlags.Ephemeral });
