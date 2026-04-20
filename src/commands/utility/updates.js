@@ -44,7 +44,7 @@ function buildSelectRow(currentIndex) {
     description: (entry.changes[0] ?? 'Public update log').slice(0, 100),
     value: String(idx),
     default: idx === currentIndex,
-    emoji: idx === 0 ? '🆕' : '📦',
+    emoji: idx === 0 ? '-' : '📦',
   }));
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()

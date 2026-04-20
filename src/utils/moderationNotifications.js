@@ -71,7 +71,7 @@ async function sendModLog({ guild, target, moderator, action, reason, extra } = 
   if (!channel) return;
 
   const colorByAction = { Warn: 0xfee75c, Kick: 0xff6b35, Ban: 0xed4245, Timeout: 0x5865f2, Mute: 0xf57c00, Deafen: 0x9b59b6, Unmute: 0x57f287, Undeafen: 0x57f287 };
-  const emojiByAction = { Warn: '⚠️', Kick: '👟', Ban: '🔨', Timeout: '⏳', Mute: '🔇', Deafen: '🔕', Unmute: '🔊', Undeafen: '🔔' };
+  const emojiByAction = { Warn: '-', Kick: '👟', Ban: '🔨', Timeout: '-', Mute: '🔇', Deafen: '🔕', Unmute: '🔊', Undeafen: '-' };
   const titleByAction = {
     Warn: 'Member Warned',
     Kick: 'Member Kicked',
@@ -85,7 +85,7 @@ async function sendModLog({ guild, target, moderator, action, reason, extra } = 
 
   const embed = new EmbedBuilder()
     .setColor(colorByAction[action] ?? 0xed4245)
-    .setTitle(`${emojiByAction[action] ?? '🛡️'} ${titleByAction[action] ?? `Member ${action}`}`)
+    .setTitle(`${emojiByAction[action] ?? '-'} ${titleByAction[action] ?? `Member ${action}`}`)
     .setThumbnail(target?.displayAvatarURL({ dynamic: true }) ?? null)
     .addFields(
       { name: 'Member', value: `${target} (\`${target?.tag}\`)`, inline: true },
@@ -121,7 +121,7 @@ async function sendCommandLog({ guild, moderator, action, target, details } = {}
 
   const embed = new EmbedBuilder()
     .setColor(0x5865f2)
-    .setTitle(`🔧 ${action}`)
+    .setTitle(`- ${action}`)
     .addFields(
       { name: 'Moderator', value: `${moderator} (\`${moderator?.tag}\`)`, inline: true },
     )

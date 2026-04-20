@@ -163,13 +163,13 @@ function buildPanelMenu() {
           label: 'Shift Roles',
           value: 'roles',
           description: 'View roles allowed to use shift commands.',
-          emoji: '👥',
+          emoji: '-',
         },
         {
           label: 'Manage: List Records',
           value: 'manage_list',
           description: 'Management: list recent shift record IDs.',
-          emoji: '🛠️',
+          emoji: '-',
         },
         {
           label: 'Manage: Edit Record',
@@ -181,7 +181,7 @@ function buildPanelMenu() {
           label: 'Manage: Delete Record',
           value: 'manage_delete',
           description: 'Management: delete a shift record.',
-          emoji: '🗑️',
+          emoji: '-',
         },
       ]),
   );
@@ -285,8 +285,8 @@ async function runStart(interaction) {
     )
     .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
     .addFields(
-      { name: '👤 Staff Member', value: `${interaction.user}`, inline: true },
-      { name: '🕐 Started At', value: `<t:${startedTs}:T> (<t:${startedTs}:R>)`, inline: true },
+      { name: '- Staff Member', value: `${interaction.user}`, inline: true },
+      { name: '- Started At', value: `<t:${startedTs}:T> (<t:${startedTs}:R>)`, inline: true },
     );
 
   await interaction.reply({ embeds: [shiftEmbed], flags: MessageFlags.Ephemeral });
@@ -303,7 +303,7 @@ async function runStart(interaction) {
       .setThumbnail(interaction.guild.iconURL({ dynamic: true }) ?? null)
       .addFields(
         { name: '🏛️ Server', value: interaction.guild.name, inline: true },
-        { name: '🕐 Started At', value: `<t:${startedTs}:T>`, inline: true },
+        { name: '- Started At', value: `<t:${startedTs}:T>`, inline: true },
       );
 
     await interaction.user.send({ embeds: [dmEmbed] }).catch(() => null);
@@ -330,12 +330,12 @@ async function runEnd(interaction) {
     .shift('🔴 Shift Ended', `Thanks for your work, ${interaction.user}! Great job today.`, interaction.guild)
     .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
     .addFields(
-      { name: '👤 Staff Member', value: `${interaction.user}`, inline: true },
+      { name: '- Staff Member', value: `${interaction.user}`, inline: true },
       { name: '⏱️ Duration', value: formatDuration(record.durationMs), inline: true },
-      { name: '🕐 Started', value: `<t:${startedTs}:T>`, inline: true },
-      { name: '🕐 Ended', value: `<t:${endedTs}:T>`, inline: true },
-      { name: '📊 Total Time', value: formatDuration(totalMs), inline: true },
-      { name: '📋 Total Shifts', value: `${history.length}`, inline: true },
+      { name: '- Started', value: `<t:${startedTs}:T>`, inline: true },
+      { name: '- Ended', value: `<t:${endedTs}:T>`, inline: true },
+      { name: '📈 Total Time', value: formatDuration(totalMs), inline: true },
+      { name: '📄 Total Shifts', value: `${history.length}`, inline: true },
     );
 
   if (wave) {
@@ -373,7 +373,7 @@ async function runStatus(interaction, target) {
         .shift('📍 Shift Status', `${target} is currently **🟢 on shift**.`, interaction.guild)
         .setThumbnail(target.displayAvatarURL({ dynamic: true }))
         .addFields(
-          { name: '🕐 Started', value: `<t:${startedTs}:F>`, inline: true },
+          { name: '- Started', value: `<t:${startedTs}:F>`, inline: true },
           { name: '⏱️ Elapsed', value: formatDuration(elapsedMs), inline: true },
         ),
     ],
@@ -437,7 +437,7 @@ async function runLogUser(interaction, target) {
     .setTitle(`📒 Shift Log — ${target.tag}`)
     .setThumbnail(target.displayAvatarURL({ dynamic: true }))
     .addFields({
-      name: '📊 Statistics',
+      name: '📈 Statistics',
       value: [
         `Completed Shifts: **${history.length}**`,
         `Total Time: **${formatDuration(totalMs)}**`,
@@ -457,7 +457,7 @@ async function runLogUser(interaction, target) {
 
   if (isModerationMember) {
     embed.addFields({
-      name: '📋 Monthly Quota Progress',
+      name: '📄 Monthly Quota Progress',
       value: [
         `Completed: **${formatDuration(monthTimeMs)}** / Required: **${formatDuration(monthlyQuotaMs)}**`,
         makeProgressBar(progressPct, 12),
@@ -490,7 +490,7 @@ async function runHistory(interaction, target) {
     .shift(`📚 Shift History — ${target.tag}`, 'Shift history overview.', interaction.guild)
     .setThumbnail(target.displayAvatarURL({ dynamic: true }))
     .addFields(
-      { name: '📋 Completed Shifts', value: `${history.length}`, inline: true },
+      { name: '📄 Completed Shifts', value: `${history.length}`, inline: true },
       { name: '⏱️ Total Time', value: formatDuration(totalMs), inline: true },
     );
 
@@ -566,7 +566,7 @@ async function runRoles(interaction) {
   return interaction.reply({
     embeds: [
       embeds
-        .shift('👥 Shift Roles', 'These roles are currently allowed to use shift commands:', interaction.guild)
+        .shift('- Shift Roles', 'These roles are currently allowed to use shift commands:', interaction.guild)
         .addFields({
           name: 'Shift Access',
           value: accessRoleLines.join('\n'),
@@ -588,7 +588,7 @@ async function runManageList(interaction, targetUser) {
 
   if (!rows.length) {
     return interaction.reply({
-      embeds: [embeds.info('🛠️ Shift Records', 'No completed shift records found.', interaction.guild)],
+      embeds: [embeds.info('- Shift Records', 'No completed shift records found.', interaction.guild)],
       flags: MessageFlags.Ephemeral,
     });
   }
@@ -596,9 +596,9 @@ async function runManageList(interaction, targetUser) {
   return interaction.reply({
     embeds: [
       embeds
-        .shift('🛠️ Shift Records', 'Recent shift records. Use IDs with manage edit/delete actions.', interaction.guild)
+        .shift('- Shift Records', 'Recent shift records. Use IDs with manage edit/delete actions.', interaction.guild)
         .addFields({
-          name: '📋 Records',
+          name: '📄 Records',
           value: rows
             .map((s) => `\`${s.id}\` · <@${s.userId}> · ${formatDuration(s.durationMs)} · <t:${Math.floor(new Date(s.startedAt).getTime() / 1000)}:D>`)
             .join('\n'),
@@ -670,7 +670,7 @@ async function runManageDelete(interaction) {
     embeds: [embeds.success(`Shift record \`${id}\` has been deleted.`, interaction.guild)],
     flags: MessageFlags.Ephemeral,
   });
-  await sendShiftActionLog(interaction, '🗑️ Shift Record Deleted', [
+  await sendShiftActionLog(interaction, '- Shift Record Deleted', [
     { name: 'Record ID', value: `\`${id}\``, inline: true },
     { name: 'Target', value: `<@${removed.userId}>`, inline: true },
     { name: 'Duration', value: formatDuration(removed.durationMs), inline: true },
@@ -783,7 +783,7 @@ module.exports = {
     return interaction.reply({
       embeds: [
         embeds
-          .shift('🕐 Shift Control Panel', 'Select an action below to manage shifts.', interaction.guild),
+          .shift('- Shift Control Panel', 'Select an action below to manage shifts.', interaction.guild),
       ],
       components: [buildPanelMenu()],
       flags: MessageFlags.Ephemeral,

@@ -52,7 +52,7 @@ module.exports = {
       .setDescription([
         'Select the reason for this report.',
         '',
-        '⚠️ False reports may result in punishment.',
+        '- False reports may result in punishment.',
         '⏱️ You can submit one report every 15 minutes.',
       ].join('\n'));
 

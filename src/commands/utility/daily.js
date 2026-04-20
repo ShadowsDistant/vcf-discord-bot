@@ -50,7 +50,7 @@ module.exports = {
           value: [
             formatProgress(status.daily.progress, status.daily.target),
             `Reward: **${economy.toCookieNumber(status.daily.rewardCookies)}** cookies`,
-            `Status: ${status.daily.claimed ? '✅ Claimed' : (status.daily.complete ? '🎉 Complete — claim ready!' : '⏳ In progress')}`,
+            `Status: ${status.daily.claimed ? '✓ Claimed' : (status.daily.complete ? '🎉 Complete — claim ready!' : '- In progress')}`,
           ].join('\n'),
         },
         {
@@ -58,7 +58,7 @@ module.exports = {
           value: [
             formatProgress(status.weekly.progress, status.weekly.target),
             `Reward: **${economy.toCookieNumber(status.weekly.rewardCookies)}** cookies`,
-            `Status: ${status.weekly.claimed ? '✅ Claimed' : (status.weekly.complete ? '🎉 Complete — claim ready!' : '⏳ In progress')}`,
+            `Status: ${status.weekly.claimed ? '✓ Claimed' : (status.weekly.complete ? '🎉 Complete — claim ready!' : '- In progress')}`,
           ].join('\n'),
         },
       )
@@ -71,11 +71,11 @@ module.exports = {
     if (shouldClaim) {
       if (rewards.length > 0) {
         embed.addFields({
-          name: '🎁 Claimed Rewards',
+          name: '- Claimed Rewards',
           value: rewards.map((reward) => `• ${reward.type.toUpperCase()}: **${economy.toCookieNumber(reward.cookies)}** cookies (${reward.challenge})`).join('\n').slice(0, 1024),
         });
       } else {
-        embed.addFields({ name: '🎁 Claimed Rewards', value: 'No completed unclaimed rewards were available.' });
+        embed.addFields({ name: '- Claimed Rewards', value: 'No completed unclaimed rewards were available.' });
       }
     }
 

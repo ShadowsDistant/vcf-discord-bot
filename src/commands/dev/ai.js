@@ -282,7 +282,7 @@ const AI_PERSONAS = Object.freeze([
   {
     key: 'analytical',
     label: 'Analytical',
-    emoji: '📊',
+    emoji: '📈',
     description: 'Data-driven, compares trade-offs, shows reasoning.',
     prompt: [
       'Adopt a rigorous analyst voice. Frame every response around the question, the relevant data, the conclusion, and what would change the conclusion.',
@@ -2022,7 +2022,7 @@ function sendUsageLowWarning(interaction, usageAfter, usagePolicy) {
   const resetTs = Math.floor((usageAfter.bucketStart + AI_USAGE_WINDOW_MS) / 1000);
   const embed = new EmbedBuilder()
     .setColor(0xff8800)
-    .setTitle('⚠️ AI Usage Running Low')
+    .setTitle('- AI Usage Running Low')
     .setDescription(`You have **${remaining}** request${remaining === 1 ? '' : 's'} remaining this 6-hour window.\nResets <t:${resetTs}:R>.`);
   interaction.followUp({ embeds: [embed], flags: MessageFlags.Ephemeral }).catch(() => null);
 }
@@ -3873,18 +3873,18 @@ function buildDangerousActionUI(toolName, args) {
 
   const embed = new EmbedBuilder()
     .setColor(0xfee75c)
-    .setTitle('⚠️ Dangerous Action — Confirm?')
+    .setTitle('- Dangerous Action — Confirm?')
     .setDescription(`The AI wants to perform the following action:\n\n${description}\n\nRespond within 30 seconds.`)
     .setTimestamp();
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('ai_dangerous_confirm')
-      .setLabel('✅ Confirm')
+      .setLabel('✓ Confirm')
       .setStyle(ButtonStyle.Danger),
     new ButtonBuilder()
       .setCustomId('ai_dangerous_cancel')
-      .setLabel('❌ Cancel')
+      .setLabel('✗ Cancel')
       .setStyle(ButtonStyle.Secondary),
   );
 
@@ -4266,8 +4266,8 @@ function formatToolsUsedLines(toolsUsed) {
       const argStr = formatToolArgs(t.args);
       const label = argStr ? `${t.name}(${argStr})` : t.name;
       if (t.denied) return `🚫 ${label} — denied`;
-      if (t.error) return `❌ ${label} — ${truncate(t.error, 80)}`;
-      return `✅ ${label}`;
+      if (t.error) return `✗ ${label} — ${truncate(t.error, 80)}`;
+      return `✓ ${label}`;
     }).join('\n')
     : 'None';
 }
@@ -4310,7 +4310,7 @@ function buildReviewEmbed(stats, toolsUsed, settings, usageInfo = null) {
   const personaConfig = getPersonaConfig(settings?.personaKey);
   const toolLines = formatToolsUsedLines(toolsUsed);
   const tp = settings?.toolPermissions ?? {};
-  const safetyLabel = settings?.safetyEnabled === false ? 'Off 🔓' : 'On 🔒';
+  const safetyLabel = settings?.safetyEnabled === false ? 'Off -' : 'On -';
   const personaEmoji = personaConfig.emoji ?? '🤖';
 
   const runtimeValue = [
@@ -4340,33 +4340,33 @@ function buildReviewEmbed(stats, toolsUsed, settings, usageInfo = null) {
   ].join('\n');
 
   const accessValue = [
-    `Moderation: ${tp.canUseModerationTools ? '✅' : '❌'}`,
-    `Management: ${tp.canUseManagementTools ? '✅' : '❌'}`,
-    `Dev: ${tp.canUseDevTools ? '✅' : '❌'}`,
+    `Moderation: ${tp.canUseModerationTools ? '✓' : '✗'}`,
+    `Management: ${tp.canUseManagementTools ? '✓' : '✗'}`,
+    `Dev: ${tp.canUseDevTools ? '✓' : '✗'}`,
   ].join(' • ');
 
   const fields = [
-    { name: '⚙️ Model / Runtime', value: runtimeValue, inline: false },
-    { name: '🧠 Persona', value: personaValue, inline: false },
-    { name: '⚡ Performance', value: perfValue, inline: true },
+    { name: '- Model / Runtime', value: runtimeValue, inline: false },
+    { name: '- Persona', value: personaValue, inline: false },
+    { name: '- Performance', value: perfValue, inline: true },
     { name: '🎯 Tokens', value: tokensValue, inline: true },
-    { name: '🔒 Safety', value: safetyLabel, inline: true },
-    { name: '🔧 Tool Access', value: accessValue, inline: false },
+    { name: '- Safety', value: safetyLabel, inline: true },
+    { name: '- Tool Access', value: accessValue, inline: false },
   ];
 
   if (settings?.deepResearch) {
     fields.push({
-      name: '🔬 Deep Think',
+      name: '- Deep Think',
       value: 'Last response used Deep Think — 5 variants synthesized into one answer.',
       inline: false,
     });
   }
 
-  fields.push({ name: '🛠️ Tools Used', value: truncate(toolLines, FIELD_VALUE_MAX), inline: false });
+  fields.push({ name: '- Tools Used', value: truncate(toolLines, FIELD_VALUE_MAX), inline: false });
 
   if (usageInfo?.usageSnapshot && usageInfo?.usagePolicy) {
     fields.push({
-      name: '📊 Usage',
+      name: '📈 Usage',
       value: renderUsageBar(usageInfo.usageSnapshot.used, usageInfo.usagePolicy.limit),
       inline: false,
     });
@@ -4539,7 +4539,7 @@ function buildFinalComponents(session) {
         .setCustomId(AI_REGEN_BUTTON_ID)
         .setStyle(ButtonStyle.Secondary)
         .setLabel('Regen')
-        .setEmoji('🔁'),
+        .setEmoji('-'),
     );
     if (canUseDeepResearch(session.allowedUserId)) {
       actionRow.addComponents(
@@ -4547,7 +4547,7 @@ function buildFinalComponents(session) {
           .setCustomId(AI_DEEP_THINK_BUTTON_ID)
           .setStyle(ButtonStyle.Secondary)
           .setLabel('Deep Think')
-          .setEmoji('🧠'),
+          .setEmoji('-'),
       );
     }
     actionRow.addComponents(
@@ -4694,11 +4694,11 @@ async function runDeepResearch(interaction, replyMsg, prompt, settings) {
 
   function renderDeepResearchEmbed() {
     const rows = statuses.map((s, i) => {
-      const icon = s === 'done' ? '✅' : s === 'running' ? LOADING_EMOJI : '⏳';
+      const icon = s === 'done' ? '✓' : s === 'running' ? LOADING_EMOJI : '-';
       const label = s === 'done' ? 'Complete' : s === 'running' ? 'Thinking…' : 'Queued';
       return `${icon}  Draft ${i + 1}/5 — ${label}`;
     }).join('\n');
-    const synthIcon = synthStatus === 'done' ? '✅' : synthStatus === 'running' ? LOADING_EMOJI : '⏳';
+    const synthIcon = synthStatus === 'done' ? '✓' : synthStatus === 'running' ? LOADING_EMOJI : '-';
     const synthLabel = synthStatus === 'done' ? 'Complete' : synthStatus === 'running' ? 'Synthesizing…' : 'Waiting';
     return new EmbedBuilder()
       .setColor(0x5865f2)
@@ -5908,7 +5908,7 @@ async function sendAiInteractionLog(
 
   const embed = new EmbedBuilder()
     .setColor(color)
-    .setTitle(blocked ? '🛡️ AI Interaction — Blocked' : hasMediumPlusSeverity ? 'AI Interaction — Elevated Severity' : 'AI Interaction')
+    .setTitle(blocked ? '- AI Interaction — Blocked' : hasMediumPlusSeverity ? 'AI Interaction — Elevated Severity' : 'AI Interaction')
     .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
     .addFields(baseFields)
     .setTimestamp();
@@ -5922,9 +5922,9 @@ async function sendAiInteractionLog(
   }
 
   const flagParts = [];
-  if (deepThink) flagParts.push('🔬 Deep Think');
-  if (showThinking) flagParts.push('🧠 Show Thinking');
-  if (showPrompt) flagParts.push('📝 Show Prompt');
+  if (deepThink) flagParts.push('- Deep Think');
+  if (showThinking) flagParts.push('- Show Thinking');
+  if (showPrompt) flagParts.push('- Show Prompt');
   if (flagParts.length > 0) {
     embed.addFields({ name: 'Flags', value: flagParts.join(' • '), inline: true });
   }
@@ -6020,7 +6020,7 @@ function buildErrorComponents(session) {
 function buildErrorEmbed(message, statusCode) {
   const embed = new EmbedBuilder()
     .setColor(0xed4245)
-    .setTitle('❌ Error')
+    .setTitle('✗ Error')
     .setDescription(message)
     .setTimestamp();
   if (statusCode) {

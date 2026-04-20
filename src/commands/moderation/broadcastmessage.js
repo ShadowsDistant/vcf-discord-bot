@@ -36,12 +36,12 @@ function hasLeadManagement(member) {
 
 const AUDIENCE_OPTIONS = [
   {
-    label: '🌐 Everyone',
+    label: '- Everyone',
     value: 'everyone',
     description: 'All non-bot members in this guild.',
   },
   {
-    label: '🛡️ Moderation Team',
+    label: '- Moderation Team',
     value: 'role:moderation',
     description: 'Users with Moderator, Senior Moderator, or Junior Moderator.',
   },
@@ -61,7 +61,7 @@ const AUDIENCE_OPTIONS = [
     description: 'Users with any Facility Management role.',
   },
   {
-    label: '👥 All Staff',
+    label: '- All Staff',
     value: 'role:all_staff',
     description: 'All staff members across all departments.',
   },
@@ -90,7 +90,7 @@ module.exports = {
       embeds: [
         {
           color: 0x5865f2,
-          title: '📢 Broadcast Message — Select Audience',
+          title: '- Broadcast Message — Select Audience',
           description: 'Choose who will receive this message. It will appear in their `/messages` inbox.',
           timestamp: new Date().toISOString(),
           footer: { text: interaction.guild.name, icon_url: interaction.guild.iconURL() ?? undefined },

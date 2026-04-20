@@ -52,12 +52,12 @@ function buildNavigationSelect(currentView) {
   return new ActionRowBuilder().addComponents(
     new StringSelectMenuBuilder()
       .setCustomId('alliance_nav_select')
-      .setPlaceholder('📋 Navigate alliance panel...')
+      .setPlaceholder('📄 Navigate alliance panel...')
       .addOptions(
         { label: '🏠 Overview', value: 'overview', description: 'Alliance info, members, and current summary.', default: currentView === 'overview' },
         { label: '🎯 Challenge', value: 'challenge', description: 'Weekly challenge progress and contributors.', default: currentView === 'challenge' },
         { label: '🛍️ Store', value: 'store', description: 'Alliance-wide upgrades and available credits.', default: currentView === 'store' },
-        { label: '🛠️ Manage', value: 'manage', description: 'Owner actions like rename, transfer, and member removal.', default: currentView === 'manage' },
+        { label: '- Manage', value: 'manage', description: 'Owner actions like rename, transfer, and member removal.', default: currentView === 'manage' },
         { label: '🏆 Leaderboard', value: 'leaderboard', description: 'Top alliances by total CPS.', default: currentView === 'leaderboard' },
       ),
   );
@@ -79,7 +79,7 @@ function buildAllianceActionButtons(guild, view, data, userId) {
         .setCustomId(`alliance_btn:create:${view}`)
         .setLabel('Create Alliance')
         .setStyle(ButtonStyle.Success)
-        .setEmoji(economy.getButtonEmoji(guild, ['cookie', 'plain_cookie'], '🛠️')),
+        .setEmoji(economy.getButtonEmoji(guild, ['cookie', 'plain_cookie'], '-')),
       new ButtonBuilder()
         .setCustomId(`alliance_btn:join:${view}`)
         .setLabel('Join by ID/Name')
@@ -108,7 +108,7 @@ function buildAllianceActionButtons(guild, view, data, userId) {
         .setCustomId(`alliance_btn:edit_description:${view}`)
         .setLabel('Edit Description')
         .setStyle(ButtonStyle.Secondary)
-        .setEmoji(economy.getButtonEmoji(guild, ['Polymath', 'guide'], '📝')),
+        .setEmoji(economy.getButtonEmoji(guild, ['Polymath', 'guide'], '-')),
       new ButtonBuilder()
         .setCustomId(`alliance_btn:toggle_approval:${view}`)
         .setLabel(data.alliance.joinApprovalEnabled ? 'Approval: ON' : 'Approval: OFF')
@@ -232,12 +232,12 @@ function buildManageSelects(guild, data, userId) {
       .slice(0, 12)
       .flatMap((memberId) => ([
         {
-          label: `✅ Approve: ${memberDisplayName(guild, memberId)}`.slice(0, 100),
+          label: `✓ Approve: ${memberDisplayName(guild, memberId)}`.slice(0, 100),
           value: `approve:${memberId}`,
           description: 'Approve and add this user to the alliance.',
         },
         {
-          label: `❌ Deny: ${memberDisplayName(guild, memberId)}`.slice(0, 100),
+          label: `✗ Deny: ${memberDisplayName(guild, memberId)}`.slice(0, 100),
           value: `deny:${memberId}`,
           description: 'Deny this join request.',
         },
@@ -246,7 +246,7 @@ function buildManageSelects(guild, data, userId) {
       new ActionRowBuilder().addComponents(
         new StringSelectMenuBuilder()
           .setCustomId('alliance_request_action_select')
-          .setPlaceholder('📋 Review pending join requests...')
+          .setPlaceholder('📄 Review pending join requests...')
           .addOptions(requestActionOptions),
       ),
     );
@@ -361,8 +361,8 @@ function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = 
   const challengeProgressText = `**${economy.toCookieNumber(challenge.progress)} / ${economy.toCookieNumber(challenge.target)}**`;
   const challengeBar = toProgressBar(challenge.progress, challenge.target);
   const challengeStatus = challenge.completed
-    ? (challenge.rewarded ? '✅ Completed and rewarded' : '✅ Completed (reward pending)')
-    : '⏳ In progress';
+    ? (challenge.rewarded ? '✓ Completed and rewarded' : '✓ Completed (reward pending)')
+    : '- In progress';
   const allianceDescription = String(data.alliance.description ?? '').trim() || '_No description set._';
   const boosterStats = data.allianceBoosterBoost ?? {
     boosterCount: 0,
@@ -437,14 +437,14 @@ function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = 
             .setCustomId('alliance_btn:post_ad:store')
             .setLabel('Post Alliance Ad')
             .setStyle(ButtonStyle.Primary)
-            .setEmoji(economy.getButtonEmoji(guild, ['announce', 'International_exchange', 'marketplace'], '📣')),
+            .setEmoji(economy.getButtonEmoji(guild, ['announce', 'International_exchange', 'marketplace'], '-')),
         ),
       );
     }
   } else if (view === 'manage') {
     baseEmbed
       .setColor(0xed4245)
-      .setTitle(`🛠️ Alliance Management — ${data.alliance.name}`)
+      .setTitle(`- Alliance Management — ${data.alliance.name}`)
       .setDescription(data.alliance.ownerId === userId
         ? 'Owner controls are available below.'
         : 'Only the alliance owner can manage alliance settings.')

@@ -46,10 +46,10 @@ const MODERATION_RANK_BY_COMMAND = {
 const EMBED_FIELD_VALUE_LIMIT = 1024;
 
 const CATEGORY_META = {
-  moderation: { label: 'Moderation', emoji: '🛡️', color: 0xed4245 },
+  moderation: { label: 'Moderation', emoji: '-', color: 0xed4245 },
   utility: { label: 'Utility', emoji: '🧰', color: 0x5865f2 },
   shifts: { label: 'Shifts', emoji: '⏱️', color: 0x00b8d9 },
-  setup: { label: 'Management', emoji: '⚙️', color: 0xf39c12 },
+  setup: { label: 'Management', emoji: '-', color: 0xf39c12 },
   dev: { label: 'Developer', emoji: '🧪', color: 0x9b59b6 },
   context: { label: 'Context Menus', emoji: '🖱️', color: 0x57f287 },
 };

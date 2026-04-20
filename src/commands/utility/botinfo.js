@@ -54,13 +54,13 @@ module.exports = {
           `**ID:** \`${client.user.id}\``,
           `**Created:** <t:${createdTs}:D> (<t:${createdTs}:R>)`,
         ].join('\n'), inline: false },
-        { name: '🌐 Reach', value: [
+        { name: '- Reach', value: [
           `Servers: **${client.guilds.cache.size.toLocaleString()}**`,
           `Members: **${totalMembers.toLocaleString()}**`,
-          `Channels: **${totalChannels}** (💬 ${textChannels} / 🔊 ${voiceChannels})`,
+          `Channels: **${totalChannels}** (- ${textChannels} / 🔊 ${voiceChannels})`,
           `Roles: **${totalRoles.toLocaleString()}** • Emojis: **${totalEmojis}**`,
         ].join('\n'), inline: true },
-        { name: '🛠️ Runtime', value: [
+        { name: '- Runtime', value: [
           `Node.js: **${process.version}**`,
           `discord.js: **v${djsVersion}**`,
           `Commands: **${client.commands.size}**`,

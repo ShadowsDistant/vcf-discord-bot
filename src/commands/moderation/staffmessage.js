@@ -29,9 +29,9 @@ function hasSeniorModPlus(member) {
 }
 
 const MESSAGE_TYPES = [
-  { label: '🍪 Bakery', value: 'bakery', description: 'A bakery-related notice or reward info.' },
-  { label: '⚠️ Moderation', value: 'moderation', description: 'A moderation notice from staff.' },
-  { label: '🔔 Notification', value: 'notification', description: 'A general staff notification.' },
+  { label: '- Bakery', value: 'bakery', description: 'A bakery-related notice or reward info.' },
+  { label: '- Moderation', value: 'moderation', description: 'A moderation notice from staff.' },
+  { label: '- Notification', value: 'notification', description: 'A general staff notification.' },
 ];
 
 module.exports = {

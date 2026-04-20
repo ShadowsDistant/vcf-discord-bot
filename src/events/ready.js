@@ -43,7 +43,7 @@ async function sendInboxDeliveryDm(client, payload) {
   if (!guild || !user || user.bot) return;
   const dmEmbed = {
     color: 0x5865f2,
-    title: '📬 You have a new inbox message',
+    title: '- You have a new inbox message',
     description: [
       `Server: **${guild.name}**`,
       `Type: **${getInboxMessageTitle(messageData)}**`,
@@ -74,9 +74,9 @@ function scheduleCookieEventLoop(guild, client) {
     const channel = await fetchLogChannel(guild, 'cookieEvents');
     if (channel) {
       const eventEmojis = {
-        special_cookie_hunt: '🍪',
-        golden_fever: '✨',
-        sugar_rush: '⚡',
+        special_cookie_hunt: '-',
+        golden_fever: '-',
+        sugar_rush: '-',
         steady_heat: '🔥',
       };
       const emoji = eventEmojis[eventDef.id] ?? '🎉';
@@ -94,7 +94,7 @@ function scheduleCookieEventLoop(guild, client) {
             title: `${emoji} Cookie Event — ${eventDef.name}`,
             description: `**${eventDef.description}**\n\nA new limited-time event has just started! Head to <#${BAKE_COMMANDS_CHANNEL_ID}> and start baking to take advantage of the boost.`,
             fields: [
-              { name: '⏰ Started', value: `<t:${Math.floor(nowTs / 1000)}:F>`, inline: true },
+              { name: '- Started', value: `<t:${Math.floor(nowTs / 1000)}:F>`, inline: true },
               { name: '🏁 Ends', value: `<t:${Math.floor(endsAtTs / 1000)}:R>`, inline: true },
               { name: '⏱️ Duration', value: `**${COOKIE_EVENT_DURATION_MINUTES} minute${COOKIE_EVENT_DURATION_MINUTES === 1 ? '' : 's'}**`, inline: true },
             ],
@@ -108,7 +108,7 @@ function scheduleCookieEventLoop(guild, client) {
         components: [
           new ActionRowBuilder().addComponents(
             new ButtonBuilder()
-              .setLabel('🍪 Go Bake Now')
+              .setLabel('- Go Bake Now')
               .setStyle(ButtonStyle.Link)
               .setURL(`https://discord.com/channels/${guild.id}/${BAKE_COMMANDS_CHANNEL_ID}`),
           ),
