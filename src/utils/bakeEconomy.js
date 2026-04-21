@@ -2570,6 +2570,24 @@ function pickGoldenReward(user) {
   return rewards[Math.floor(Math.random() * rewards.length)];
 }
 
+function giveCookies(guildId, userId, amount) {
+  const data = readState();
+  const guildState = getGuildState(data, guildId);
+  const user = getUserState(guildState, userId);
+  user.cookies = Math.max(0, (user.cookies ?? 0) + amount);
+  writeState(data);
+  return { ok: true, cookies: user.cookies };
+}
+
+function removeCookies(guildId, userId, amount) {
+  const data = readState();
+  const guildState = getGuildState(data, guildId);
+  const user = getUserState(guildState, userId);
+  user.cookies = Math.max(0, (user.cookies ?? 0) - amount);
+  writeState(data);
+  return { ok: true, cookies: user.cookies };
+}
+
 function claimGoldenCookie(guildId, userId, token) {
   return db.update(ECONOMY_FILE, {}, (data) => {
     const guildState = getGuildState(data, guildId);
@@ -4138,4 +4156,6 @@ module.exports = {
   buildMessagesComponents,
   buildOpenedMessageEmbed,
   buildOpenedMessageComponents,
+  giveCookies,
+  removeCookies,
 };
