@@ -112,7 +112,7 @@ module.exports = {
       components.push(new ActionRowBuilder().addComponents(resourceButtons.slice(0, 5)));
     }
 
-    if (interaction.member.roles.cache.has(NEW_HANDOFF_ROLE_ID)) {
+    if (member.roles.cache.has(NEW_HANDOFF_ROLE_ID)) {
       components.push(
         new ActionRowBuilder().addComponents(
           new ButtonBuilder()
