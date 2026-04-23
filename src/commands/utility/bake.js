@@ -181,7 +181,7 @@ function buildBakeOutcome(guild, userId) {
 
   const components = [
       new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('bake_again').setLabel('Bake Again').setStyle(ButtonStyle.Primary).setEmoji(economy.getButtonEmoji(guild, ['cookie', 'plain_cookie', 'plain_cookies'])),
+      new ButtonBuilder().setCustomId('bake_again').setLabel('Bake Again').setStyle(ButtonStyle.Primary).setEmoji(economy.getButtonEmoji(guild, ['cookie', 'plain_cookie', 'plain_cookies'], '🍪')),
       new ButtonBuilder().setCustomId('bakery_nav:buildings').setLabel('Store').setStyle(ButtonStyle.Success).setEmoji(economy.getButtonEmoji(guild, ['Builder', 'building'], '🏪')),
       new ButtonBuilder().setCustomId('bakery_nav:inventory').setLabel('Inventory').setStyle(ButtonStyle.Secondary).setEmoji(economy.getButtonEmoji(guild, ['Cookie_dough', 'inventory'], '🎒')),
       new ButtonBuilder().setCustomId('bakery_nav:stats').setLabel('Stats').setStyle(ButtonStyle.Secondary).setEmoji(economy.getButtonEmoji(guild, ['CookieProduction10', 'stats'], '📈')),

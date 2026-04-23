@@ -1236,24 +1236,32 @@ function getRewardBoxEmoji(rewardBoxOrId, guild) {
   const rewardBox = typeof rewardBoxOrId === 'string'
     ? REWARD_BOX_MAP.get(rewardBoxOrId)
     : rewardBoxOrId;
-  if (!rewardBox) return '-';
-  return getCustomGuildEmoji(guild, [rewardBox.id, rewardBox.name, ...(rewardBox.emojiAliases ?? [])]) ?? '-';
+  if (!rewardBox) return getCookieFallbackEmoji(guild);
+  return getCustomGuildEmoji(guild, [rewardBox.id, rewardBox.name, ...(rewardBox.emojiAliases ?? [])]) ?? getCookieFallbackEmoji(guild);
 }
 
 function getButtonEmoji(guild, candidates = [], fallback = DEFAULT_COOKIE_EMOJI_STRING) {
-  const resolved = getCustomGuildEmoji(guild, candidates);
   const toButtonEmoji = (value) => {
     if (!value) return null;
     const match = /^<(a?):([^:>]+):(\d+)>$/.exec(value);
     if (match) return { animated: Boolean(match[1]), name: match[2], id: match[3] };
-    // Only pass through valid unicode emoji (multi-char or in emoji ranges); reject single ASCII chars like '-'
     if (typeof value === 'string' && value.length === 1 && value.charCodeAt(0) < 0x80) return null;
     return value;
   };
-  if (resolved) return toButtonEmoji(resolved);
-  const cookieFallback = getCookieFallbackEmoji(guild);
-  if (fallback === DEFAULT_COOKIE_EMOJI_STRING) return toButtonEmoji(cookieFallback);
-  return toButtonEmoji(fallback);
+  const resolved = getCustomGuildEmoji(guild, candidates);
+  if (resolved) { const btn = toButtonEmoji(resolved); if (btn) return btn; }
+  const fb = toButtonEmoji(fallback);
+  if (fb) return fb;
+  const cookieFallback = toButtonEmoji(getCookieFallbackEmoji(guild));
+  if (cookieFallback) return cookieFallback;
+  // Absolute last resort - the cookie emoji string constant
+  return DEFAULT_COOKIE_EMOJI_STRING;
+}
+
+
+function safeSetEmoji(button, emoji) {
+  if (emoji) button.setEmoji(emoji);
+  return button;
 }
 
 function getBuildingEmoji(buildingOrId, guild) {
@@ -1898,7 +1906,7 @@ function buildDashboardEmbed(guild, user, view = 'home', options = {}) {
   const discovered = user.uniqueItemsDiscovered.length;
   const titlePrefix = `${user.bakeryEmoji ?? DEFAULT_COOKIE_EMOJI_STRING} ${user.bakeryName ?? 'Unnamed Bakery'}`;
   const cookieEmoji = getCookieFallbackEmoji(guild);
-  const cpsEmoji = getCustomGuildEmoji(guild, ['CookieProduction10', 'CookieProduction5']) ?? '-';
+  const cpsEmoji = getCustomGuildEmoji(guild, ['CookieProduction10', 'CookieProduction5']) ?? getCookieFallbackEmoji(guild);
   const collectionEmoji = getCustomGuildEmoji(guild, ['Polymath', 'Cookie_Clicker']) ?? '📚';
   const buildingEmoji = getCustomGuildEmoji(guild, ['hammer_wrench', 'Builder', 'Factory_new']) ?? '🏗️';
   const achievementEmoji = getCustomGuildEmoji(guild, ['trophy', 'Cookie_Clicker', 'Builder']) ?? '🏆';

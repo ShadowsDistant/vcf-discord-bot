@@ -79,7 +79,7 @@ function buildAllianceActionButtons(guild, view, data, userId) {
         .setCustomId(`alliance_btn:create:${view}`)
         .setLabel('Create Alliance')
         .setStyle(ButtonStyle.Success)
-        .setEmoji(economy.getButtonEmoji(guild, ['cookie', 'plain_cookie'], '-')),
+        .setEmoji(economy.getButtonEmoji(guild, ['cookie', 'plain_cookie'], '🍪')),
       new ButtonBuilder()
         .setCustomId(`alliance_btn:join:${view}`)
         .setLabel('Join by ID/Name')
@@ -108,7 +108,7 @@ function buildAllianceActionButtons(guild, view, data, userId) {
         .setCustomId(`alliance_btn:edit_description:${view}`)
         .setLabel('Edit Description')
         .setStyle(ButtonStyle.Secondary)
-        .setEmoji(economy.getButtonEmoji(guild, ['Polymath', 'guide'], '-')),
+        .setEmoji(economy.getButtonEmoji(guild, ['Polymath', 'guide'], '📖')),
       new ButtonBuilder()
         .setCustomId(`alliance_btn:toggle_approval:${view}`)
         .setLabel(data.alliance.joinApprovalEnabled ? 'Approval: ON' : 'Approval: OFF')
@@ -437,7 +437,7 @@ function buildAlliancePanel(guild, userId, requestedView = 'overview', notice = 
             .setCustomId('alliance_btn:post_ad:store')
             .setLabel('Post Alliance Ad')
             .setStyle(ButtonStyle.Primary)
-            .setEmoji(economy.getButtonEmoji(guild, ['announce', 'International_exchange', 'marketplace'], '-')),
+            .setEmoji(economy.getButtonEmoji(guild, ['announce', 'International_exchange', 'marketplace'], '📣')),
         ),
       );
     }
