@@ -1037,6 +1037,11 @@ function getCustomGuildEmoji(guild, candidates = []) {
     const matched = normalizedCandidates.map((name) => normalizedByName.get(name)).find(Boolean);
     if (matched) return `<${matched.animated ? 'a' : ''}:${matched.name}:${matched.id}>`;
   }
+  // Fallback: try raw emoji.name matching (handles names with underscores/spaces)
+  const rawMatch = cache.find((emoji) => {
+    return normalizedCandidates.some((name) => normalizeEmojiName(emoji.name) === name);
+  });
+  if (rawMatch) return `<${rawMatch.animated ? 'a' : ''}:${rawMatch.name}:${rawMatch.id}>`;
   const staticMatch = getStaticCustomEmoji(normalizedCandidates);
   if (!staticMatch) return null;
   return `<:${staticMatch.name}:${staticMatch.id}>`;
