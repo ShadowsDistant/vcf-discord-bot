@@ -1238,14 +1238,16 @@ function getRewardBoxEmoji(rewardBoxOrId, guild) {
 function getButtonEmoji(guild, candidates = [], fallback = DEFAULT_COOKIE_EMOJI_STRING) {
   const resolved = getCustomGuildEmoji(guild, candidates);
   const toButtonEmoji = (value) => {
+    if (!value) return null;
     const match = /^<(a?):([^:>]+):(\d+)>$/.exec(value);
     if (match) return { animated: Boolean(match[1]), name: match[2], id: match[3] };
-    return { name: value };
+    // Unicode emoji — return as plain string, not an object
+    return value;
   };
   if (resolved) return toButtonEmoji(resolved);
   const cookieFallback = getCookieFallbackEmoji(guild);
   if (fallback === DEFAULT_COOKIE_EMOJI_STRING) return toButtonEmoji(cookieFallback);
-  return { name: fallback };
+  return toButtonEmoji(fallback);
 }
 
 function getBuildingEmoji(buildingOrId, guild) {
