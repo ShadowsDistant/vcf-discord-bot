@@ -1246,7 +1246,8 @@ function getButtonEmoji(guild, candidates = [], fallback = DEFAULT_COOKIE_EMOJI_
     if (!value) return null;
     const match = /^<(a?):([^:>]+):(\d+)>$/.exec(value);
     if (match) return { animated: Boolean(match[1]), name: match[2], id: match[3] };
-    // Unicode emoji — return as plain string, not an object
+    // Only pass through valid unicode emoji (multi-char or in emoji ranges); reject single ASCII chars like '-'
+    if (typeof value === 'string' && value.length === 1 && value.charCodeAt(0) < 0x80) return null;
     return value;
   };
   if (resolved) return toButtonEmoji(resolved);
