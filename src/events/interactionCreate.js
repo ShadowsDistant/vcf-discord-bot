@@ -1335,7 +1335,101 @@ module.exports = {
         return interaction.update({ embeds: [dashboard], components });
       }
 
-      if (interaction.customId.startsWith('market_prev:') || interaction.customId.startsWith('market_next:')) {
+     
+ /* ── Bakery select menu handlers ─────────────────────────────────── */
+
+ if (interaction.customId === 'bakery_nav_select') {
+ const view = interaction.values?.[0] ?? 'home';
+ const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+ const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, view === 'codex' ? 'guide' : view, view === 'codex' ? getGuideState(interaction.guild.id, interaction.user.id) : view === 'leaderboard' ? { metric: 'cookies' } : {});
+ const components = economy.buildDashboardComponents(snapshot.user, view === 'codex' ? 'guide' : view, { guild: interaction.guild, ...(view === 'codex' ? getGuideState(interaction.guild.id, interaction.user.id) : view === 'leaderboard' ? { metric: 'cookies' } : {}) });
+ return interaction.update({ embeds: [embed], components });
+ }
+
+ if (interaction.customId.startsWith('bakery_inventory_filter:')) {
+ const currentPage = Number.parseInt(interaction.customId.split(':')[1], 10) || 0;
+ const rarityFilter = interaction.values?.[0] ?? 'all';
+ const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+ const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'inventory', { page: 0, rarityFilter });
+ const components = economy.buildDashboardComponents(snapshot.user, 'inventory', { page: 0, rarityFilter, guild: interaction.guild });
+ return interaction.update({ embeds: [embed], components });
+ }
+
+ if (interaction.customId === 'bakery_inventory_item') {
+ const itemId = interaction.values?.[0];
+ if (!itemId) return interaction.reply({ embeds: [embeds.warning('No item selected.', interaction.guild)], flags: MessageFlags.Ephemeral });
+ const details = economy.inspectItem(interaction.guild.id, interaction.user.id, itemId);
+ if (!details) return interaction.reply({ embeds: [embeds.error('Could not inspect that item.', interaction.guild)], flags: MessageFlags.Ephemeral });
+ return interaction.reply({ embeds: [economy.buildItemInspectEmbed(interaction.guild, details)], flags: MessageFlags.Ephemeral });
+ }
+
+ if (interaction.customId.startsWith('bakery_inventory_page:')) {
+ const currentPage = Number.parseInt(interaction.customId.split(':')[1], 10) || 0;
+ const targetPage = Number.parseInt(interaction.values?.[0] ?? '0', 10) || 0;
+ const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+ const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'inventory', { page: targetPage });
+ const components = economy.buildDashboardComponents(snapshot.user, 'inventory', { page: targetPage, guild: interaction.guild });
+ return interaction.update({ embeds: [embed], components });
+ }
+
+ if (interaction.customId === 'bakery_building_select') {
+ const buildingId = interaction.values?.[0];
+ if (!buildingId) return interaction.reply({ embeds: [embeds.warning('No building selected.', interaction.guild)], flags: MessageFlags.Ephemeral });
+ const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+ const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'buildings', { buildingId });
+ const components = economy.buildDashboardComponents(snapshot.user, 'buildings', { buildingId, guild: interaction.guild });
+ return interaction.update({ embeds: [embed], components });
+ }
+
+ if (interaction.customId === 'bakery_upgrade_select') {
+ const upgradeId = interaction.values?.[0];
+ if (!upgradeId) return interaction.reply({ embeds: [embeds.warning('No upgrade selected.', interaction.guild)], flags: MessageFlags.Ephemeral });
+ const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+ const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'upgrades', { upgradeId });
+ const components = economy.buildDashboardComponents(snapshot.user, 'upgrades', { upgradeId, guild: interaction.guild });
+ return interaction.update({ embeds: [embed], components });
+ }
+
+ if (interaction.customId === 'bakery_leaderboard_metric') {
+ const metric = interaction.values?.[0] ?? 'cookies';
+ const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+ const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'leaderboard', { metric });
+ const components = economy.buildDashboardComponents(snapshot.user, 'leaderboard', { metric, guild: interaction.guild });
+ return interaction.update({ embeds: [embed], components });
+ }
+
+ if (interaction.customId.startsWith('bakery_guide_section:')) {
+ const page = Number.parseInt(interaction.customId.split(':')[1], 10) || 0;
+ const section = interaction.values?.[0] ?? DEFAULT_GUIDE_SECTION;
+ setGuideState(interaction.guild.id, interaction.user.id, section, 0);
+ const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+ const embed = economy.buildDashboardEmbed(interaction.guild, snapshot.user, 'guide', { section, page: 0 });
+ const components = economy.buildDashboardComponents(snapshot.user, 'guide', { section, page: 0, guild: interaction.guild });
+ return interaction.update({ embeds: [embed], components });
+ }
+
+ if (interaction.customId.startsWith('market_filter:')) {
+ const currentPage = Number.parseInt(interaction.customId.split(':')[1], 10) || 0;
+ const rarityFilter = interaction.values?.[0] ?? 'all';
+ const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+ const market = economy.getMarketplaceEmbed(interaction.guild, snapshot.guildState, snapshot.user, 0, rarityFilter);
+ const components = economy.getMarketplaceComponents(snapshot.guildState, 0, rarityFilter);
+ return interaction.update({ embeds: [market.embed], components });
+ }
+
+ if (interaction.customId === 'market_select_listing') {
+ const listingId = Number.parseInt(interaction.values?.[0], 10);
+ if (!Number.isFinite(listingId)) return interaction.reply({ embeds: [embeds.warning('Invalid listing.', interaction.guild)], flags: MessageFlags.Ephemeral });
+ const snapshot = economy.getUserSnapshot(interaction.guild.id, interaction.user.id);
+ const listing = (snapshot.guildState.marketplace.listings ?? []).find((l) => l.id === listingId);
+ if (!listing) return interaction.reply({ embeds: [embeds.error('Listing not found.', interaction.guild)], flags: MessageFlags.Ephemeral });
+ const item = economy.ITEM_MAP.get(listing.itemId);
+ const result = economy.buyListing(interaction.guild.id, interaction.user.id, listingId);
+ if (!result.ok) return interaction.reply({ embeds: [embeds.warning(result.reason, interaction.guild)], flags: MessageFlags.Ephemeral });
+ return interaction.reply({ embeds: [embeds.success(`Purchased **${item?.name ?? listing.itemId}** x${listing.quantity} for **${economy.toCookieNumber(listing.pricePerUnit * listing.quantity)}** cookies.`, interaction.guild)], flags: MessageFlags.Ephemeral });
+ }
+
+ if (interaction.customId.startsWith('market_prev:') || interaction.customId.startsWith('market_next:')) {
         const [, pageRaw, rarityFilter] = interaction.customId.split(':');
         const currentPage = Number.parseInt(pageRaw, 10) || 0;
         const targetPage = interaction.customId.startsWith('market_prev:') ? currentPage - 1 : currentPage + 1;
