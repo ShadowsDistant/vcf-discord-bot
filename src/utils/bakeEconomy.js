@@ -2570,6 +2570,24 @@ function pickGoldenReward(user) {
   return rewards[Math.floor(Math.random() * rewards.length)];
 }
 
+function giveCookies(guildId, userId, amount) {
+  const data = readState();
+  const guildState = getGuildState(data, guildId);
+  const user = getUserState(guildState, userId);
+  user.cookies = Math.max(0, (user.cookies ?? 0) + amount);
+  writeState(data);
+  return { ok: true, cookies: user.cookies };
+}
+
+function removeCookies(guildId, userId, amount) {
+  const data = readState();
+  const guildState = getGuildState(data, guildId);
+  const user = getUserState(guildState, userId);
+  user.cookies = Math.max(0, (user.cookies ?? 0) - amount);
+  writeState(data);
+  return { ok: true, cookies: user.cookies };
+}
+
 function claimGoldenCookie(guildId, userId, token) {
   return db.update(ECONOMY_FILE, {}, (data) => {
     const guildState = getGuildState(data, guildId);
@@ -3202,9 +3220,10 @@ function claimPendingMessage(guildId, userId, globalIndex) {
   const data = readState();
   const guildState = getGuildState(data, guildId);
   const user = getUserState(guildState, userId);
-  // globalIndex is the reverse position in the inbox (0 = newest), so we reverse to match
   const pending = user.pendingMessages ?? [];
-  const msg = pending.find((entry) => String(entry.id) === String(globalIndex));
+  // globalIndex is the position from the *newest* end in the full inbox (0 = newest)
+  const msgIdx = pending.length - 1 - globalIndex;
+  const msg = pending[msgIdx];
   if (!msg) return { ok: false, reason: 'Message not found.' };
   if (msg.claimed) return { ok: false, reason: 'Already claimed.' };
   if (msg.type !== 'gift_box' && msg.type !== 'gift_cookies' && msg.type !== 'rank_reward') {
@@ -3274,9 +3293,9 @@ function deletePendingMessage(guildId, userId, globalIndex) {
   const guildState = getGuildState(data, guildId);
   const user = getUserState(guildState, userId);
   const pending = user.pendingMessages ?? [];
-  const idx = pending.findIndex((m) => String(m.id) === String(globalIndex));
-  if (idx === -1) return false;
-  pending.splice(idx, 1);
+  const msgIdx = pending.length - 1 - globalIndex;
+  if (msgIdx < 0 || msgIdx >= pending.length) return false;
+  pending.splice(msgIdx, 1);
   writeState(data);
   return true;
 }
@@ -3508,8 +3527,7 @@ function buildOpenedMessageComponents(user, messageId) {
       new ButtonBuilder()
         .setCustomId(`messages_open_claim:${msg.id}`)
         .setLabel('Claim')
-        .setEmoji('-')
-        .setStyle(ButtonStyle.Success),
+                .setStyle(ButtonStyle.Success),
     );
   }
   row.addComponents(
@@ -3541,25 +3559,28 @@ function buildMessagesComponents(user, page) {
     const options = pageMsgs.map((msg, j) => {
       const globalIndex = pending.length - (safePage * MESSAGES_PER_PAGE + j);
       const iconMap = {
-        gift_box: '-', gift_cookies: '-', rank_reward: '-',
-        alliance_notification: '🤝', boost_notification: '-', staff_message: '-',
+        gift_box: null, gift_cookies: null, rank_reward: null,
+        alliance_notification: '🤝', boost_notification: null, staff_message: null,
+        broadcast: '📣',
       };
       const categoryMap = {
         gift_box: 'Gift Box', gift_cookies: 'Cookie Gift', rank_reward: 'Rank Reward',
         alliance_notification: 'Alliance', boost_notification: 'Boost', staff_message: 'Staff',
+        broadcast: 'Broadcast',
       };
       const label = `#${globalIndex} • ${categoryMap[msg.type] ?? 'Notification'}`.slice(0, 100);
       const descBits = [];
       if (msg.from) descBits.push(`From ${msg.from}`);
       if (!msg.claimed && (msg.type === 'gift_box' || msg.type === 'gift_cookies' || msg.type === 'rank_reward')) descBits.push('Unclaimed');
       const description = (descBits.join(' • ') || 'Open to view details').slice(0, 100);
-      return {
+      const option = {
         label,
-        // globalIndex is unique per message across all pages — avoids Discord duplicate-value constraint
-        value: String(msg.id),
+        value: String(globalIndex),
         description,
-        emoji: iconMap[msg.type] ?? '-',
       };
+      const emoji = iconMap[msg.type] ?? null;
+      if (emoji) option.emoji = emoji;
+      return option;
     });
     rows.push(new ActionRowBuilder().addComponents(
       new StringSelectMenuBuilder()
@@ -3581,14 +3602,14 @@ function buildMessagesComponents(user, page) {
       if (isClaimable) {
         btns.push(
           new ButtonBuilder()
-            .setCustomId(`messages_claim:${safePage}:${msg.id}`)
+            .setCustomId(`messages_claim:${safePage}:${globalIndex}`)
             .setLabel(`Claim ${label}`)
             .setStyle(ButtonStyle.Success),
         );
       }
       btns.push(
         new ButtonBuilder()
-          .setCustomId(`messages_delete:${safePage}:${msg.id}`)
+          .setCustomId(`messages_delete:${safePage}:${globalIndex}`)
           .setLabel(isClaimable ? `Dismiss ${label}` : `Delete ${label}`)
           .setStyle(ButtonStyle.Danger),
       );
@@ -4135,4 +4156,6 @@ module.exports = {
   buildMessagesComponents,
   buildOpenedMessageEmbed,
   buildOpenedMessageComponents,
+  giveCookies,
+  removeCookies,
 };
