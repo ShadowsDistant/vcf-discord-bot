@@ -7,6 +7,7 @@ const {
   hasShiftAccessRole,
   memberHasAnyRole,
   ALL_STAFF_ROLE_IDS,
+  NEW_HANDOFF_ROLE_ID,
 } = require('../../utils/roles');
 const db = require('../../utils/database');
 const { formatDuration } = require('../../utils/helpers');
@@ -109,6 +110,17 @@ module.exports = {
 
     if (resourceButtons.length) {
       components.push(new ActionRowBuilder().addComponents(resourceButtons.slice(0, 5)));
+    }
+
+    if (member.roles.cache.has(NEW_HANDOFF_ROLE_ID)) {
+      components.push(
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setLabel('General Staff Handbook')
+            .setStyle(ButtonStyle.Link)
+            .setURL('https://docs.valleycorrectional.xyz/internal-documents/general-staff-handbook'),
+        ),
+      );
     }
 
     if (hasShiftAccessRole(interaction.member)) {

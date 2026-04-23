@@ -33,6 +33,7 @@ const ROLE_IDS = {
 const DEV_TEAM_ROLE_ID = process.env.DEV_TEAM_ROLE_ID ?? '1380606884385521714';
 const DEV_ELEVATED_ROLE_ID = String(process.env.DEV_ELEVATED_ROLE_ID ?? '').trim();
 const DEV_USER_IDS = new Set(['757698506411475005']);
+const NEW_HANDOFF_ROLE_ID = '1428427384495018115';
 
 const MODERATION_ROLE_IDS = new Set(Object.values(ROLE_IDS.moderation));
 const SID_ROLE_IDS = new Set(Object.values(ROLE_IDS.sid));
@@ -211,6 +212,7 @@ module.exports = {
   DEVELOPMENT_ROLE_IDS,
   ALL_STAFF_ROLE_IDS,
   MANAGEMENT_ROLE_IDS,
+  NEW_HANDOFF_ROLE_ID,
   MODERATION_RANK_LABELS,
   DEPARTMENTS,
   memberHasAnyRole,
